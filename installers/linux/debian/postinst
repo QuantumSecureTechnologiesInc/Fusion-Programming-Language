@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+# Add Fusion to PATH
+echo '/opt/fusion/bin' > /etc/profile.d/fusion.sh
+chmod +x /etc/profile.d/fusion.sh

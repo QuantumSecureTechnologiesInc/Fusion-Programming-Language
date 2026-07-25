@@ -1,0 +1,24 @@
+PackageIdentifier: QuantumSecureTechnologiesInc.Fusion
+PackageVersion: 2.0.0
+PackageLocale: en-US
+Publisher: QuantumSecure Technologies Inc
+PackageName: Fusion Programming Language
+License: MIT
+InstallerType: exe
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language/releases/download/v2.0.0/Fusion-v2.0-Vortex-Setup.exe
+    InstallerSha256: TBD
+    Scope: machine
+Commands:
+  - fuc
+  - fusion
+Tags:
+  - programming-language
+  - systems-programming
+  - post-quantum
+  - blockchain
+ShortDescription: A modern, polyglot systems programming language with post-quantum cryptography
+Description: |-
+  Fusion v2.0 Vortex is a general-purpose, polyglot systems programming language
+  with post-quantum cryptography, quantum computing, blockchain, and advanced type system features.

@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+# Remove Fusion from PATH
+rm -f /etc/profile.d/fusion.sh

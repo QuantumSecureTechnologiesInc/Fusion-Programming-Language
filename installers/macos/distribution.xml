@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Fusion v2.0 Vortex</title>
+    <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <domains enable="localSystem"/>
+    <choices-outline>
+        <line choice="fusion"/>
+    </choices-outline>
+    <choice id="fusion" title="Fusion v2.0 Vortex Programming Language"/>
+    <pkg-ref id="com.quantumsecure.fusion" version="2.0.0" choice="fusion">Fusion.pkg</pkg-ref>
+</installer-gui-script>

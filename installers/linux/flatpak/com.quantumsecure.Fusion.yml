@@ -1,0 +1,12 @@
+app-id: com.quantumsecure.Fusion
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+command: fuc
+
+modules:
+  - name: fusion-lang
+    buildsystem: cmake
+    sources:
+      - type: dir
+        path: ../../

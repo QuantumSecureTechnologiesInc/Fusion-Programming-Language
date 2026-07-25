@@ -1,0 +1,26 @@
+name: fusion-lang
+version: '2.0.0'
+summary: Fusion v2.0 Vortex Programming Language
+description: |
+  A modern, polyglot systems programming language with
+  post-quantum cryptography, quantum computing, blockchain.
+base: core22
+grade: stable
+confinement: strict
+
+parts:
+  fusion-lang:
+    plugin: rust
+    source: .
+    build-packages:
+      - gcc
+      - cmake
+    stage-packages:
+      - libc6
+      - libstdc++6
+
+apps:
+  fuc:
+    command: bin/fuc
+  fusion:
+    command: bin/fusion

@@ -1,0 +1,11 @@
+Package: fusion-lang
+Version: 2.0.0
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: QuantumSecure Technologies Inc <quantumsecure@fusion-lang.org>
+Description: Fusion v2.0 Vortex Programming Language
+ A modern, polyglot systems programming language with
+ post-quantum cryptography, quantum computing, blockchain,
+ and advanced type system features.
+Depends: libc6 (>= 2.17), libstdc++6 (>= 4.8)

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "about": {
+    "name": "Fusion",
+    "description": "Fusion v2.0 Vortex Programming Language",
+    "license": "MIT"
+  },
+  "ingredients": {
+    "appDir": "AppDir",
+    "packages": ["fuse"],
+    "files": {
+      "usr/bin/fuc": "bin/fuc",
+      "usr/bin/fusion": "bin/fusion"
+    }
+  },
+  "Script": {
+    "exec": "bin/fuc"
+  },
+  "DesktopFile": {
+    "Name": "Fusion",
+    "Comment": "Fusion Programming Language",
+    "Categories": "Development;ProgrammingLanguage;"
+  }
+}
