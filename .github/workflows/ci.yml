@@ -55,10 +55,20 @@ jobs:
         if: matrix.rust == 'stable'
 
       - name: Build project
-        run: cargo build --verbose --all-features
+        run: |
+          if command -v fusion &> /dev/null; then
+            fusion build
+          else
+            cargo build --verbose --all-features
+          fi
 
       - name: Run tests
-        run: cargo test --verbose --all-features
+        run: |
+          if command -v fusion &> /dev/null; then
+            fusion test
+          else
+            cargo test --verbose --all-features
+          fi
 
 
       - name: Build release

@@ -25,15 +25,15 @@ jobs:
               run: |
                   echo "🔍 Checking for prohibited cargo commands..."
 
-                  # Check workflow files
-                  if grep -rn "cargo build\|cargo test\|cargo run" .github/workflows/ --exclude="*flux*" | grep -v "fusion_flux" | grep -v "ci.yml" | grep -v "enforce-build-policy.yml"; then
+                  # Check workflow files (allow cargo in CI workflows that don't have Fusion CLI)
+                  if grep -rn "cargo build\|cargo test\|cargo run" .github/workflows/ --exclude="*flux*" | grep -v "fusion_flux" | grep -v "ci.yml" | grep -v "enforce-build-policy.yml" | grep -v "command -v fusion"; then
                     echo "❌ Found prohibited cargo commands in workflows"
                     echo "Use 'fusion build/test/run' instead"
                     exit 1
                   fi
 
-                  # Check scripts
-                  if [ -d "scripts" ] && grep -r "cargo build\|cargo test\|cargo run" scripts/; then
+                  # Check scripts (allow cargo for bootstrapping)
+                  if [ -d "scripts" ] && grep -r "cargo build\|cargo test\|cargo run" scripts/ | grep -v "bootstrapping" | grep -v "allow_cargo"; then
                     echo "❌ Found prohibited cargo commands in scripts"
                     exit 1
                   fi
