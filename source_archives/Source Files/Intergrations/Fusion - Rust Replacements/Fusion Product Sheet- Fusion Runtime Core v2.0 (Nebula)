@@ -1,5 +1,0 @@
-Product Guide: Fusion Runtime Core v2.0 (Nebula)Component ID: F-RUNTIME-V2Classification: Cooperative Preemption RuntimeAuthor: Systems Lead1. Vision & PurposeNebula (v2.0) solves the "Long-Running Task" problem in async programming. It introduces compiler-enforced cooperative preemption to ensure no single task can hijack a CPU core.2. Technical Replacement SpecsReplaces: Manual yield_now() calls.Mechanism: Compiler-Injected Yield Points.3. Technical DetailThe nucleus compiler inserts code at every loop header:// Pseudo-code inserted by Nebula
-if reactor::should_yield() {
-    reactor::yield_control().await;
-}
-This guarantees that the reactor can regain control every 10 microseconds, regardless of how "tight" the developer's loops are.4. Why this existsTo prevent "Heartbeat Failures" in distributed systems caused by a single heavy compute task blocking the I/O thread.

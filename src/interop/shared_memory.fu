@@ -1,0 +1,20 @@
+package interop
+
+// Shared memory for cross-language pass-by-reference
+
+struct SharedRegion {
+    id: int
+    size: int
+    lang: string
+    name: string
+}
+
+extern fn shm_create(name: string, size: int) -> SharedRegion
+extern fn shm_open(name: string) -> SharedRegion
+extern fn shm_read(region: SharedRegion, offset: int, len: int) -> []byte
+extern fn shm_write(region: SharedRegion, offset: int, data: []byte) -> void
+extern fn shm_map(region: SharedRegion) -> *byte
+extern fn shm_unmap(region: SharedRegion) -> void
+extern fn shm_destroy(region: SharedRegion) -> void
+extern fn shm_size(region: SharedRegion) -> int
+extern fn shm_attach_foreign(region: SharedRegion, lang: string) -> ForeignProxy

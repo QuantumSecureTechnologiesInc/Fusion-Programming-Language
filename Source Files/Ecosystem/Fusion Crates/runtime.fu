@@ -32,9 +32,16 @@ impl Default for AgentConfig {
 struct AgentRuntime {
     agent: Arc<Mutex<Box<dyn Agent>>>,
     config: AgentConfig,
-    tools:  FMap<FString, Box<dyn Tool>>, // Registry
+    tools: FMap<FString, Box<dyn Tool>>,
+    context: FVec<ContextEntry>,
 }
 
+#[derive(Debug, Clone)]
+struct ContextEntry {
+    role: FString,       // "user", "assistant", "tool", "system"
+    content: FString,
+    timestamp_ms: u64,
+}
 
 impl AgentRuntime {
     fn new(agent: Box<dyn Agent>, config: AgentConfig) -> Self {
@@ -42,6 +49,7 @@ impl AgentRuntime {
             agent: Arc::new(Mutex::new(agent)),
             config,
             tools: HashMap::new(),
+            context: Vec::new(),
         }
     }
 
@@ -49,49 +57,112 @@ impl AgentRuntime {
         self.tools.insert(tool.name().to_string(), tool);
     }
 
-    /// Execute a goal with safety constraints.
-    pub async fn execute(&self, goal: &str) -> StdResult<FString> {
+    fn push_context(&mut self, role: &str, content: &str) {
+        self.context.push(ContextEntry {
+            role: role.to_string(),
+            content: content.to_string(),
+            timestamp_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        });
+        self.evict_context();
+    }
+
+    fn evict_context(&mut self) {
+        while self.context.len() > self.config.max_memory_items {
+            self.context.remove(0);
+        }
+    }
+
+    fn build_prompt(&self, goal: &str) -> FString {
+        let mut prompt = String::new();
+        for entry in &self.context {
+            prompt.push_str(&format!("[{}]: {}\n", entry.role, entry.content));
+        }
+        prompt.push_str(&format!("[user]: {}\n", goal));
+        prompt.push_str("[assistant]: ");
+        prompt
+    }
+
+    fn dispatch_tool(&self, tool_name: &str, args: &str) -> Option<FString> {
+        self.tools.get(tool_name).map(|tool| {
+            println!("[Runtime] Dispatching tool: {} with args: {}", tool_name, args);
+            match tokio::runtime::Handle::current().block_on(tool.execute(args)) {
+                Ok(result) => result,
+                Err(e) => format!("Tool error: {}", e),
+            }
+        })
+    }
+
+    async fn execute(&self, goal: &str) -> StdResult<FString> {
         let mut steps = 0;
-        let mut agent = self.agent.lock().await; // Lock for session
-        
-        // Initial prompt/goal setting would happen here on the agent struct
-        // agent.set_goal(goal);
+        let mut agent = self.agent.lock().await;
+        let mut memory = self.context.clone();
+
+        agent.initialize(goal, &memory).await?;
 
         while steps < self.config.max_steps {
-            // 1. Agent Think (Simulated or LLM Call)
-            // In real impl: let action = agent.think().await?;
-            // For architecture demo: we simulate a tool call decision logic
-            let action_plan = "Reasoning: checking step count..."; 
-            
-            // 2. Safety Check
-            if steps > self.config.max_steps {
-                return Err(StdError::Core(fusion_core::FusionError::CompilationError("Agent exceeded step limit".into())));
-            }
+            let prompt = self.build_prompt(goal);
+            let decision = agent.think(&prompt).await?;
 
-            // 3. Tool Execution (Protected)
-            // Assume agent returns a tool name to call.
-            // For demo: if goal contains "calc", call calc tool once.
-            if goal.contains("calc") && steps == 0 {
-                if let Some(tool) = self.tools.get("Calculator") {
-                    println!("[Agent] Invoking tool: Calculator");
-                    
+            match decision {
+                AgentAction::CallTool { name, args } => {
                     let execution = timeout(
                         Duration::from_millis(self.config.tool_timeout_ms),
-                        tool.execute("2+2")
-                    ).await;
+                        async {
+                            if let Some(tool) = self.tools.get(&name) {
+                                tool.execute(&args).await
+                            } else {
+                                Err(StdError::Core(fusion_core::FusionError::CompilationError(
+                                    format!("Unknown tool: {}", name),
+                                )))
+                            }
+                        },
+                    )
+                    .await;
 
                     match execution {
-                        Ok(Ok(res)) => println!("[Agent] Tool Output: {}", res),
-                        Ok(Err(e)) => eprintln!("[Agent] Tool Failed: {}", e),
-                        Err(_) => eprintln!("[Agent] Tool Timed out!"),
+                        Ok(Ok(res)) => {
+                            memory.push(ContextEntry {
+                                role: "tool".into(),
+                                content: format!("{}: {}", name, res),
+                                timestamp_ms: 0,
+                            });
+                            agent.observe_tool_result(&name, &res).await?;
+                        }
+                        Ok(Err(e)) => {
+                            agent.observe_tool_error(&name, &e.to_string()).await?;
+                        }
+                        Err(_) => {
+                            agent.observe_tool_error(&name, "timed out").await?;
+                        }
                     }
+                }
+                AgentAction::Reply(text) => {
+                    memory.push(ContextEntry {
+                        role: "assistant".into(),
+                        content: text.clone(),
+                        timestamp_ms: 0,
+                    });
+                    if agent.is_done() {
+                        return Ok(text);
+                    }
+                }
+                AgentAction::Done => {
+                    return Ok("Agent signaled completion.".into());
                 }
             }
 
             steps += 1;
-            // if agent.is_done() { break; }
         }
 
-        Ok("Task finished (or limit reached)".to_string())
+        Ok("Task limit reached.".into())
     }
+}
+
+enum AgentAction {
+    CallTool { name: FString, args: FString },
+    Reply(FString),
+    Done,
 }

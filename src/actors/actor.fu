@@ -1,0 +1,41 @@
+// Built-in Actor Model
+// Provides actor creation, message passing, and lifecycle management
+
+struct Actor {
+    id: int
+    name: string
+    state: string
+    mailbox: Channel
+}
+
+struct ActorRef {
+    id: int
+    name: string
+}
+
+// Create a new actor with the given name and initial state
+extern fn actor_new(name: string, init_state: string) -> ActorRef
+
+// Send a message to an actor (fire-and-forget)
+extern fn actor_send(actor: ActorRef, message: string) -> void
+
+// Send a message to an actor and wait for a response (synchronous)
+extern fn actor_ask(actor: ActorRef, message: string) -> string
+
+// Broadcast a message to all registered actors
+extern fn actor_broadcast(message: string) -> void
+
+// Stop an actor and clean up its resources
+extern fn actor_stop(actor: ActorRef) -> void
+
+// Get the current state of an actor
+extern fn actor_state(actor: ActorRef) -> string
+
+// Spawn a new actor with a custom message handler
+extern fn actor_spawn(name: string, init_state: string, handler: string) -> ActorRef
+
+// Register an actor in the global actor registry
+extern fn actor_register(name: string, actor: ActorRef) -> void
+
+// Look up an actor by name from the global registry
+extern fn actor_lookup(name: string) -> ActorRef

@@ -1,0 +1,103 @@
+// Fusion v2.0 Vortex — Decentralized Oracle System
+
+struct Oracle {
+    id: string
+    name: string
+    url: string
+    reputation: float       // 0.0–1.0 trust score
+    data: string            // latest committed data feed
+}
+
+struct OracleRequest {
+    id: int
+    query: string
+    oracle: string          // oracle id
+    callback: string
+    timestamp: int
+}
+
+struct OracleResponse {
+    request_id: int
+    data: string
+    oracle: string
+    timestamp: int
+    signature: string
+}
+
+fn oracle_new(name: string, url: string) -> Oracle {
+    let id = hash_concat(name, url)
+    Oracle {
+        id: id,
+        name: name,
+        url: url,
+        reputation: 1.0,
+        data: ""
+    }
+}
+
+fn oracle_submit(oracle: Oracle, data: string) -> Oracle {
+    Oracle { ...oracle, data: data }
+}
+
+fn oracle_query(oracle: Oracle, query: string) -> string {
+    assert(len(query) > 0, "Query must not be empty")
+    oracle.data
+}
+
+fn oracle_request(query: string, oracle: string) -> OracleRequest {
+    let now = current_timestamp()
+    OracleRequest {
+        id: hash_concat(query, oracle),
+        query: query,
+        oracle: oracle,
+        callback: "",
+        timestamp: now
+    }
+}
+
+fn oracle_respond(request: OracleRequest, data: string, oracle: string) -> OracleResponse {
+    let now = current_timestamp()
+    let sig = sign_data(concat(data, oracle, to_string(now)))
+
+    OracleResponse {
+        request_id: request.id,
+        data: data,
+        oracle: oracle,
+        timestamp: now,
+        signature: sig
+    }
+}
+
+fn oracle_verify_response(response: OracleResponse, oracle: Oracle) -> bool {
+    let expected_sig = sign_data(concat(response.data, oracle.id, to_string(response.timestamp)))
+    if response.signature != expected_sig {
+        return false
+    }
+    if response.oracle != oracle.id {
+        return false
+    }
+    let now = current_timestamp()
+    (now - response.timestamp) < 300
+}
+
+fn oracle_aggregate(responses: []OracleResponse) -> string {
+    assert(len(responses) > 0, "Cannot aggregate empty responses")
+
+    // Frequency-based aggregation: return the most common data value
+    let counts: map<string, int> = {}
+    for resp in responses {
+        let current = counts[resp.data] ?? 0
+        counts[resp.data] = current + 1
+    }
+
+    let best_data = ""
+    let best_count = 0
+    for (data, count) in counts {
+        if count > best_count {
+            best_count = count
+            best_data = data
+        }
+    }
+
+    best_data
+}

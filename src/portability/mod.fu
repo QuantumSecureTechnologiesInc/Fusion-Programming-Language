@@ -1,0 +1,12 @@
+module portability
+
+// Portability module for Fusion v2.0 Vortex
+// Provides platform abstraction and binary serialization
+
+pub import platform
+pub import serialization
+
+// Cross-references to related features
+pub use crate::concurrency::thread         // portability includes threading
+pub use crate::modules::resolution         // portability includes module resolution
+pub use crate::safety::types               // portability includes type safety

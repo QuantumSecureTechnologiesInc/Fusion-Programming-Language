@@ -1,0 +1,29 @@
+// Macro System
+// Provides compile-time code transformation via pattern-based macros
+
+struct Macro {
+    name: string
+    pattern: string
+    replacement: string
+}
+
+// Register a new macro with pattern and replacement template
+extern fn macro_register(name: string, pattern: string, replacement: string) -> void
+
+// Expand a registered macro with the given arguments
+extern fn macro_expand(name: string, args: string) -> string
+
+// List all registered macro names
+extern fn macro_list() -> []string
+
+// Check if a macro with the given name exists
+extern fn macro_exists(name: string) -> bool
+
+// Helper to create a Macro struct
+fn macro_rules(pattern: string, replacement: string) -> Macro {
+    return Macro {
+        name: ""
+        pattern: pattern
+        replacement: replacement
+    }
+}

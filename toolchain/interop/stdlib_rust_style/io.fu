@@ -1,8 +1,0 @@
-// io helpers (pure .fu)
-
-extern fn printf(fmt: string, val: int) -> int;
-extern fn puts(s: string) -> int;
-
-fn print_line(s: string) -> void { puts(s); }
-fn print_int(n: int) -> void { printf("%d\n", n); }
-

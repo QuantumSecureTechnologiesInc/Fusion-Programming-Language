@@ -1,0 +1,11 @@
+// Python interoperability for Fusion V2.0 Vortex
+
+struct PyModule {
+    handle: int,
+    name: string
+}
+
+extern fn py_import(module_name: string) -> PyModule
+extern fn py_call(func: string, args: string) -> string
+extern fn py_eval(expression: string) -> string
+extern fn py_release(module: PyModule) -> void

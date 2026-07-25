@@ -1,8 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/cmd/fusion/src/commands/doc.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-use fusion_docgen;
-
-fn doc(open: FBool, private: FBool) -> Result<()> {
-    fusion_docgen::generate(open, private)
-}

@@ -1,0 +1,179 @@
+{
+  "name": "fusion-lang",
+  "displayName": "Fusion Language Support",
+  "description": "Syntax highlighting, code completion, diagnostics, and formatting for the Fusion programming language",
+  "version": "2.0.0",
+  "publisher": "fusion-lang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "keywords": [
+    "fusion",
+    "fuc",
+    "language",
+    "quantum",
+    "hybrid",
+    "ai",
+    "ml",
+    "pqc",
+    "cloud",
+    "interop",
+    "tensor",
+    "kubernetes",
+    "supernova",
+    "cortex"
+  ],
+  "activationEvents": [
+    "onLanguage:fusion",
+    "onCommand:fusion.restartServer",
+    "onCommand:fusion.format",
+    "onCommand:fusion.diagnose",
+    "onCommand:fusion.compile",
+    "onCommand:fusion.run",
+    "onCommand:fusion.test",
+    "onCommand:fusion.quantum.simulate",
+    "onCommand:fusion.ai.chat",
+    "onCommand:fusion.crypto.sign",
+    "onCommand:fusion.deploy"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "fusion",
+        "aliases": [
+          "Fusion",
+          "fusion"
+        ],
+        "extensions": [
+          ".fus"
+        ],
+        "configuration": "./languages/fusion.configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fusion",
+        "scopeName": "source.fusion",
+        "path": "./syntaxes/fusion.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "fusion",
+        "path": "./snippets/fusion.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "fusion.restartServer",
+        "title": "Fusion: Restart Language Server"
+      },
+      {
+        "command": "fusion.format",
+        "title": "Fusion: Format Document"
+      },
+      {
+        "command": "fusion.diagnose",
+        "title": "Fusion: Run Diagnostics"
+      },
+      {
+        "command": "fusion.compile",
+        "title": "Fusion: Compile"
+      },
+      {
+        "command": "fusion.run",
+        "title": "Fusion: Run"
+      },
+      {
+        "command": "fusion.test",
+        "title": "Fusion: Run Tests"
+      },
+      {
+        "command": "fusion.quantum.simulate",
+        "title": "Fusion: Quantum Simulate"
+      },
+      {
+        "command": "fusion.ai.chat",
+        "title": "Fusion: AI Chat (Cortex)"
+      },
+      {
+        "command": "fusion.crypto.sign",
+        "title": "Fusion: Sign File (PQC)"
+      },
+      {
+        "command": "fusion.deploy",
+        "title": "Fusion: Deploy"
+      }
+    ],
+    "configuration": {
+      "title": "Fusion",
+      "properties": {
+        "fusion.fucPath": {
+          "type": "string",
+          "default": "fuc",
+          "description": "Path to the fuc compiler executable"
+        },
+        "fusion.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically format .fus files on save"
+        },
+        "fusion.diagnosticsOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run diagnostics when opening a .fus file"
+        },
+        "fusion.diagnosticsOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run diagnostics when saving a .fus file"
+        },
+        "fusion.enableStdlibCompletions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable stdlib module completions (quantum, tensor, cloud, etc.)"
+        },
+        "fusion.logLevel": {
+          "type": "string",
+          "default": "info",
+          "enum": [
+            "off",
+            "error",
+            "warn",
+            "info",
+            "debug"
+          ],
+          "description": "Log level for the Fusion extension"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  }
+}

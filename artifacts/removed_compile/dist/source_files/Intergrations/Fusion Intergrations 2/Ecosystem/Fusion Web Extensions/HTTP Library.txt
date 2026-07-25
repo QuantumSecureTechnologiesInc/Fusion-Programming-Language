@@ -1,9 +1,0 @@
-//! # Fusion HTTP
-//! 
-//! High-performance async HTTP implementation built on `fusion_net`.
-
-pub mod types;
-pub mod server;
-
-pub use types::{Request, Response};
-pub use server::Server;

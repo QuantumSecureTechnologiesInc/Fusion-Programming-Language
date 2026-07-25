@@ -1,0 +1,17 @@
+// Automatic differentiation for Fusion AI backpropagation
+
+struct ADNode {
+    id: int
+    value: float
+    grad: float
+}
+
+extern fn ad_variable(value: float) -> ADNode
+
+extern fn ad_add(a: ADNode, b: ADNode) -> ADNode
+
+extern fn ad_mul(a: ADNode, b: ADNode) -> ADNode
+
+extern fn ad_backward(node: ADNode) -> void
+
+extern fn ad_grad(node: ADNode) -> float

@@ -1,0 +1,25 @@
+// commands/test.fu — Test command.
+// Runs the project's test suite via fuc.exe test.
+
+fn cmd_test(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+
+    print_info("Running tests for ");
+    puts(manifest.name);
+
+    // Discover test files
+    let cmd = "fuc.exe test --manifest Fusion.toml";
+
+    if args.verbose_flag {
+        cmd = cmd + " --verbose";
+    }
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("All tests passed");
+    } else {
+        print_error("Some tests failed");
+        exit(1);
+    }
+}

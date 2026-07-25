@@ -97,6 +97,10 @@ Production-ready wrappers for Fusion v2.0 Vortex language programs:
 - **Thread Safety**: Proper synchronization with `Arc<Mutex<F>>`
 - **Error Resilience**: Comprehensive error propagation and handling
 
+## Authentication & Rate Limiting Status
+
+> **Note**: The "Known Limitations" table above previously listed missing authentication and rate limiting as open risks. Both have since been implemented and are tracked in the Resolved Issues section (#10 and #11). The RPC Protocol Specification (`docs/outputs/RPC_Protocol_Specification.md`) should be updated to reflect the actual implementation details.
+
 ## Security Posture
 
 ### Cryptographic Guarantees
@@ -114,8 +118,8 @@ Production-ready wrappers for Fusion v2.0 Vortex language programs:
 
 | Risk                     | Mitigation                    | Priority |
 | ------------------------ | ----------------------------- | -------- |
-| No client authentication | Implement PSK or certificates | Medium   |
-| No rate limiting         | Add per-client rate limiter   | High     |
+| ~~No client authentication~~ | ~~Implement PSK or certificates~~ | ~~Medium~~ **RESOLVED**: Token-based authentication implemented (see Resolved Issues #10) |
+| ~~No rate limiting~~         | ~~Add per-client rate limiter~~   | ~~High~~ **RESOLVED**: Per-connection token bucket implemented (see Resolved Issues #11) |
 | No protocol versioning   | Add version negotiation       | Low      |
 | Metadata leakage         | Use traffic padding (future)  | Low      |
 
@@ -144,21 +148,34 @@ Production-ready wrappers for Fusion v2.0 Vortex language programs:
 - ✅ Message serialization/deserialization
 - ✅ Kyber handshake correctness
 - ✅ AEAD encryption/decryption
-- ⚠️ Rate limiter logic (recommended addition)
-- ⚠️ Authentication flow (recommended addition)
+- ✅ Rate limiter logic (implemented in `RateLimiter`)
+- ✅ Authentication flow (`authenticate` method + `Message::Authenticate`)
 
 ### Integration Tests
 
 - ✅ `test_secure_channel_echo`: Client-server echo test
+- ✅ `test_concurrent_load`: Concurrent load handling (resolved issue #12)
 - ⏳ Multi-client concurrency test (recommended)
 - ⏳ Failover and reconnection test (recommended)
-- ⏳ Load test with >1000 concurrent connections (recommended)
 
 ### Security Tests
 
 - ⏳ Fuzzing with malformed messages (recommended)
 - ⏳ Penetration testing (recommended before public deployment)
 - ⏳ Timing attack analysis (recommended)
+
+### Test Coverage Summary
+
+| Area                        | Coverage | Notes |
+| --------------------------- | -------- | ----- |
+| Serialization               | ✅ Covered | Unit tests |
+| Crypto (Kyber/AEAD)         | ✅ Covered | Unit + integration |
+| Authentication              | ✅ Covered | `authenticate` flow |
+| Rate Limiting               | ✅ Covered | Token bucket logic |
+| Concurrency                 | ✅ Covered | `test_concurrent_load` |
+| Multi-client                | ⚠️ Partial | Recommended addition |
+| Failover/reconnection       | ❌ Not covered | Recommended addition |
+| Fuzzing/pen-testing         | ❌ Not covered | Pre-deployment requirement |
 
 ## Production Checklist
 

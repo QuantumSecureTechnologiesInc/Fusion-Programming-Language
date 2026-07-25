@@ -1,0 +1,12 @@
+// Android mobile integration for Fusion V2.0 Vortex
+
+struct AndroidView {
+    id: int,
+    kind: string,
+    text: string
+}
+
+extern fn android_create_view(kind: string, text: string) -> AndroidView
+extern fn android_add_child(parent: AndroidView, child: AndroidView) -> void
+extern fn android_update_text(view: AndroidView, text: string) -> void
+extern fn android_set_on_click(view: AndroidView, callback: fn() -> void) -> void

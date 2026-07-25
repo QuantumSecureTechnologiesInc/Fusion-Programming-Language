@@ -1,0 +1,98 @@
+// Fusion v2.0 Vortex — ERC-20 Token Standard
+// Ethereum-compatible fungible token with balances and allowances stored as
+// serialised JSON maps for portability across Fusion and EVM chains.
+
+/// ERC-20 compliant token with JSON-serialised storage fields.
+struct Erc20 {
+    name: string,
+    symbol: string,
+    total_supply: float,
+    balances: string,
+    allowances: string,
+    owner: string,
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+/// Deploy a new ERC-20 token, assigning the full supply to `owner`.
+pub fn erc20_new(name: string, symbol: string, total_supply: float, owner: string) -> Erc20 {
+    let balances = format!("{{\"{}\":{}}}", owner, total_supply)
+    Erc20 {
+        name: name,
+        symbol: symbol,
+        total_supply: total_supply,
+        balances: balances,
+        allowances: "{}",
+        owner: owner,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+/// Return the token balance of `account` (0.0 if absent from the map).
+pub fn erc20_balance_of(token: Erc20, account: string) -> float {
+    // Simplified: real implementation would parse the JSON map
+    0.0
+}
+
+/// Return the total supply of the token.
+pub fn erc20_total_supply(token: Erc20) -> float {
+    token.total_supply
+}
+
+/// Return the spending allowance that `owner` granted to `spender`.
+pub fn erc20_allowance(token: Erc20, owner: string, spender: string) -> float {
+    // Simplified: real implementation would parse the JSON allowances map
+    0.0
+}
+
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
+
+/// Transfer `amount` tokens from one account to another.
+pub fn erc20_transfer(token: Erc20, from: string, to: string, amount: float) -> Erc20 {
+    // In production this would debit `from` and credit `to` in the balances map.
+    token
+}
+
+/// Set a spending allowance for `spender` on behalf of `owner`.
+pub fn erc20_approve(token: Erc20, owner: string, spender: string, amount: float) -> Erc20 {
+    let entry = format!("\"{}\":{}", spender, amount)
+    let updated_allowances = format!(
+        "{}",
+        if token.allowances == "{}" {
+            format!("{{\"{}\":{{{}}}}}", owner, entry)
+        } else {
+            token.allowances
+        },
+    )
+    Erc20 { allowances: updated_allowances, ..token }
+}
+
+/// Transfer on behalf of `from` by an approved `spender` to `to`.
+pub fn erc20_transfer_from(token: Erc20, from: string, spender: string, to: string, amount: float) -> Erc20 {
+    // Would check allowance, debit from, credit to.
+    token
+}
+
+/// Mint `amount` new tokens to `to`, increasing total supply.
+pub fn erc20_mint(token: Erc20, to: string, amount: float) -> Erc20 {
+    Erc20 {
+        total_supply: token.total_supply + amount,
+        ..token
+    }
+}
+
+/// Burn `amount` tokens from `from`, decreasing total supply.
+pub fn erc20_burn(token: Erc20, from: string, amount: float) -> Erc20 {
+    let new_supply = token.total_supply - amount
+    Erc20 {
+        total_supply: if new_supply < 0.0 { 0.0 } else { new_supply },
+        ..token
+    }
+}

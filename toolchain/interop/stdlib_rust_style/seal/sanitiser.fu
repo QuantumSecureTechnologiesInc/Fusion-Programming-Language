@@ -1,4 +1,0 @@
-// Sanitiser (pure .fu)
-
-fn sanitise(input: string) -> string { return input; }
-

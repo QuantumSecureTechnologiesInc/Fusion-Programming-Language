@@ -1,0 +1,32 @@
+//! Lock-free atomic integer operations.
+//!
+//! All operations map to the platform's hardware atomics
+//! (e.g. x86 LOCK-prefix instructions) and provide the appropriate
+//! memory-ordering guarantees.
+
+struct AtomicInt {
+    value: int,
+}
+
+/// Create a new atomic integer initialised to `value`.
+extern fn atomic_new(value: int) -> AtomicInt
+
+/// Atomically load the current value (acquire semantics).
+extern fn atomic_load(a: AtomicInt) -> int
+
+/// Atomically store `value` (release semantics).
+extern fn atomic_store(a: AtomicInt, value: int) -> void
+
+/// Atomically add `delta` and return the **previous** value.
+extern fn atomic_add(a: AtomicInt, delta: int) -> int
+
+/// Atomically subtract `delta` and return the **previous** value.
+extern fn atomic_sub(a: AtomicInt, delta: int) -> int
+
+/// Atomically replace the value with `new` and return the **previous** value.
+extern fn atomic_swap(a: AtomicInt, new: int) -> int
+
+/// Atomically compare the current value with `expected`.
+/// If they match, store `new` and return `true`.
+/// Otherwise the value is left unchanged and `false` is returned.
+extern fn atomic_compare_and_swap(a: AtomicInt, expected: int, new: int) -> bool

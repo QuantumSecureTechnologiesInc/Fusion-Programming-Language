@@ -146,14 +146,360 @@ impl SemanticAnalyzer {
     // --- Utility Methods ---
 
     fn get_constraint(&self, type_name: &str) -> Option<&TraitBound> {
-        // Placeholder for looking up constraints in the current function scope
+        // Walk the scope stack from innermost to outermost to find a constraint
+        // for the given type parameter.  Each scope frame may contain its own
+        // generic constraints introduced by `where` clauses on functions, impls,
+        // or trait definitions.
+        for frame in self.constraint_stack.iter().rev() {
+            if let Some(bound) = frame.get(type_name) {
+                return Some(bound);
+            }
+        }
         None
     }
 
-    fn default_expression_check(&self, expr: &Expression) -> Result<Type, FVec<FString>> {
-        // ... (existing default checks)
-        Ok(Type::Unknown)
+    fn default_expression_check(&mut self, expr: &Expression) -> Result<Type, FVec<FString>> {
+        match expr {
+            Expression::Literal(lit) => Ok(self.literal_type(lit)),
+
+            Expression::Variable(name) => {
+                match self.symbol_table.lookup(name) {
+                    Some(entry) => Ok(entry.ty.clone()),
+                    None => {
+                        self.type_errors.push(format!("Undefined variable '{}'.", name));
+                        Ok(Type::Unknown)
+                    }
+                }
+            }
+
+            Expression::BinaryOp { op, left, right } => {
+                let left_ty = self.check_expression(left)?;
+                let right_ty = self.check_expression(right)?;
+
+                // Arithmetic / comparison operators require compatible numeric types.
+                if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod) {
+                    if !self.types_compatible(&left_ty, &right_ty) {
+                        self.type_errors.push(format!(
+                            "Cannot apply '{}' to operands of type '{}' and '{}'.",
+                            op, left_ty, right_ty
+                        ));
+                        return Ok(Type::Unknown);
+                    }
+                    return Ok(left_ty);
+                }
+
+                // Comparison / logical operators always return Bool.
+                if matches!(op, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le
+                         | BinOp::Gt | BinOp::Ge | BinOp::And | BinOp::Or) {
+                    if !self.types_compatible(&left_ty, &right_ty) {
+                        self.type_errors.push(format!(
+                            "Cannot compare values of type '{}' and '{}'.",
+                            left_ty, right_ty
+                        ));
+                    }
+                    return Ok(Type::Bool);
+                }
+
+                Ok(Type::Unknown)
+            }
+
+            Expression::UnaryOp { op, operand } => {
+                let operand_ty = self.check_expression(operand)?;
+                match op {
+                    UnaryOp::Neg => {
+                        if !self.is_numeric(&operand_ty) {
+                            self.type_errors.push(format!(
+                                "Cannot apply unary '-' to type '{}'.", operand_ty
+                            ));
+                        }
+                        Ok(operand_ty)
+                    }
+                    UnaryOp::Not => {
+                        if !self.types_compatible(&operand_ty, &Type::Bool) {
+                            self.type_errors.push(format!(
+                                "Cannot apply '!' to type '{}'.", operand_ty
+                            ));
+                        }
+                        Ok(Type::Bool)
+                    }
+                    UnaryOp::Deref => {
+                        match &operand_ty {
+                            Type::Ptr(inner) => Ok((**inner).clone()),
+                            Type::Reference(inner) => Ok((**inner).clone()),
+                            _ => {
+                                self.type_errors.push(format!(
+                                    "Cannot dereference type '{}'.", operand_ty
+                                ));
+                                Ok(Type::Unknown)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Expression::FunctionCall { name, args } => {
+                let arg_types: FVec<Type> = args.iter()
+                    .map(|a| self.check_expression(a))
+                    .collect::<Result<_, _>>()?;
+
+                match self.symbol_table.lookup(name) {
+                    Some(entry) => {
+                        if let Type::Function { params, return_type } = &entry.ty {
+                            if params.len() != arg_types.len() {
+                                self.type_errors.push(format!(
+                                    "Function '{}' expects {} arguments, found {}.",
+                                    name, params.len(), arg_types.len()
+                                ));
+                                return Ok((**return_type).clone());
+                            }
+                            for (i, (expected, actual)) in params.iter().zip(arg_types.iter()).enumerate() {
+                                if !self.types_compatible(expected, actual) {
+                                    self.type_errors.push(format!(
+                                        "Argument {} of '{}': expected '{}', found '{}'.",
+                                        i + 1, name, expected, actual
+                                    ));
+                                }
+                            }
+                            Ok((**return_type).clone())
+                        } else {
+                            self.type_errors.push(format!("'{}' is not callable.", name));
+                            Ok(Type::Unknown)
+                        }
+                    }
+                    None => {
+                        self.type_errors.push(format!("Undefined function '{}'.", name));
+                        Ok(Type::Unknown)
+                    }
+                }
+            }
+
+            Expression::If { condition, then_branch, else_branch } => {
+                let cond_ty = self.check_expression(condition)?;
+                if !self.types_compatible(&cond_ty, &Type::Bool) {
+                    self.type_errors.push(format!(
+                        "If condition must be Bool, found '{}'.", cond_ty
+                    ));
+                }
+                let then_ty = self.check_expression(then_branch)?;
+                if let Some(else_expr) = else_branch {
+                    let else_ty = self.check_expression(else_expr)?;
+                    if !self.types_compatible(&then_ty, &else_ty) {
+                        self.type_errors.push(format!(
+                            "If branches return different types: '{}' vs '{}'.",
+                            then_ty, else_ty
+                        ));
+                    }
+                }
+                Ok(then_ty)
+            }
+
+            Expression::Block(block) => {
+                self.symbol_table.push_scope();
+                let mut last_ty = Type::Unit;
+                for stmt in &block.statements {
+                    match stmt {
+                        Statement::Expr(expr) => {
+                            last_ty = self.check_expression(expr)?;
+                        }
+                        Statement::VarDecl { name, ty, init, .. } => {
+                            let init_ty = self.check_expression(init)?;
+                            if !self.types_compatible(ty, &init_ty) {
+                                self.type_errors.push(format!(
+                                    "Variable '{}': expected type '{}', found '{}'.",
+                                    name, ty, init_ty
+                                ));
+                            }
+                            self.symbol_table.define(name.clone(), ty.clone(), false);
+                            last_ty = Type::Unit;
+                        }
+                        _ => { self.check_statement(stmt)?; }
+                    }
+                }
+                self.symbol_table.pop_scope();
+                Ok(last_ty)
+            }
+
+            Expression::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    return Ok(Type::Array(Box::new(Type::Unknown), 0));
+                }
+                let elem_ty = self.check_expression(&elements[0])?;
+                for (i, elem) in elements.iter().enumerate().skip(1) {
+                    let ty = self.check_expression(elem)?;
+                    if !self.types_compatible(&elem_ty, &ty) {
+                        self.type_errors.push(format!(
+                            "Array element {} has type '{}', expected '{}'.",
+                            i, ty, elem_ty
+                        ));
+                    }
+                }
+                Ok(Type::Array(Box::new(elem_ty), elements.len()))
+            }
+
+            Expression::StructLiteral { fields, .. } => {
+                // Resolve each field expression.
+                for (_field_name, field_expr) in fields {
+                    self.check_expression(field_expr)?;
+                }
+                Ok(Type::Unknown) // Exact type depends on the struct definition context.
+            }
+
+            Expression::Match { scrutinee, arms } => {
+                let scrutinee_ty = self.check_expression(scrutinee)?;
+                let mut result_ty: Option<Type> = None;
+                for arm in arms {
+                    let arm_ty = self.check_expression(&arm.body)?;
+                    match &result_ty {
+                        None => result_ty = Some(arm_ty),
+                        Some(prev) => {
+                            if !self.types_compatible(prev, &arm_ty) {
+                                self.type_errors.push(format!(
+                                    "Match arms return different types: '{}' vs '{}'.",
+                                    prev, arm_ty
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(result_ty.unwrap_or(Type::Unit))
+            }
+
+            Expression::Closure { params, return_type, body } => {
+                self.symbol_table.push_scope();
+                let param_types: FVec<Type> = params.iter().map(|p| p.ty.clone()).collect();
+                for param in params {
+                    self.symbol_table.define(param.name.clone(), param.ty.clone(), false);
+                }
+                let body_ty = self.check_expression(body)?;
+                self.symbol_table.pop_scope();
+                if let Some(expected) = return_type {
+                    if !self.types_compatible(expected, &body_ty) {
+                        self.type_errors.push(format!(
+                            "Closure return type mismatch: expected '{}', found '{}'.",
+                            expected, body_ty
+                        ));
+                    }
+                }
+                Ok(Type::Function {
+                    params: param_types,
+                    return_type: Box::new(body_ty),
+                })
+            }
+
+            _ => {
+                self.type_errors.push(format!(
+                    "Unimplemented expression type in type checker: {:?}", expr
+                ));
+                Ok(Type::Unknown)
+            }
+        }
     }
 
-    // ... (literal_type, types_compatible methods) ...
+    /// Returns the canonical type for a literal value.
+    fn literal_type(&self, lit: &Literal) -> Type {
+        match lit {
+            Literal::Int(value) => {
+                // Infer smallest fitting integer type; default to i64.
+                if *value >= i32::MIN as i64 && *value <= i32::MAX as i64 {
+                    Type::Int32
+                } else {
+                    Type::Int64
+                }
+            }
+            Literal::Float(_) => {
+                // Fusion defaults to f64 for float literals.
+                Type::Float64
+            }
+            Literal::String(_) => Type::String,
+            Literal::Bool(_) => Type::Bool,
+            Literal::Char(_) => Type::Char,
+            Literal::Unit => Type::Unit,
+            Literal::Null => Type::Nullable(Box::new(Type::Unknown)),
+            Literal::Array(elements) => {
+                if elements.is_empty() {
+                    Type::Array(Box::new(Type::Unknown), 0)
+                } else {
+                    let elem_ty = self.literal_type(&elements[0]);
+                    Type::Array(Box::new(elem_ty), elements.len())
+                }
+            }
+            Literal::Tuple(elements) => {
+                let tys: FVec<Type> = elements.iter().map(|e| self.literal_type(e)).collect();
+                Type::Tuple(tys)
+            }
+        }
+    }
+
+    /// Checks whether two types are compatible (assignable / coercible).
+    fn types_compatible(&self, expected: &Type, actual: &Type) -> bool {
+        // Exact match.
+        if expected == actual {
+            return true;
+        }
+
+        match (expected, actual) {
+            // Numeric coercion: any numeric type can coerce to any other numeric type.
+            (a, b) if self.is_numeric(a) && self.is_numeric(b) => true,
+
+            // Reference / borrowed types: &T matches &T, &mut T matches &mut T.
+            (Type::Reference(e), Type::Reference(a)) => self.types_compatible(e, a),
+            (Type::MutableReference(e), Type::MutableReference(a)) => self.types_compatible(e, a),
+
+            // Shared reference can coerce to mutable reference within same scope.
+            (Type::MutableReference(e), Type::Reference(a)) => self.types_compatible(e, a),
+
+            // Nullable coercion: T is compatible with ?T.
+            (Type::Nullable(e), a) => self.types_compatible(e, a),
+            (e, Type::Nullable(a)) => self.types_compatible(e, a),
+
+            // Function types: check parameter-wise compatibility.
+            (Type::Function { params: ep, return_type: er },
+             Type::Function { params: ap, return_type: ar }) => {
+                if ep.len() != ap.len() {
+                    return false;
+                }
+                ep.iter().zip(ap.iter()).all(|(e, a)| self.types_compatible(e, a))
+                    && self.types_compatible(er, ar)
+            }
+
+            // Array types: same length and compatible element types.
+            (Type::Array(ee, el), Type::Array(ae, al)) => {
+                el == al && self.types_compatible(ee, ae)
+            }
+
+            // Slice: any array of T is compatible with &[T].
+            (Type::Slice(e), Type::Array(a, _)) => self.types_compatible(e, a),
+
+            // Tuple types: same length, element-wise compatible.
+            (Type::Tuple(e), Type::Tuple(a)) => {
+                e.len() == a.len() && e.iter().zip(a.iter()).all(|(e, a)| self.types_compatible(e, a))
+            }
+
+            // Class / struct: same name means compatible (nominal typing).
+            (Type::Class(e), Type::Class(a)) => e == a,
+            (Type::Struct(e), Type::Struct(a)) => e == a,
+            (Type::Enum(e), Type::Enum(a)) => e == a,
+
+            // Generic type parameters: same parameter name means compatible.
+            (Type::TypeParameter(e), Type::TypeParameter(a)) => e == a,
+
+            // TypeParameter is compatible with any concrete type (constrained at call site).
+            (Type::TypeParameter(_), _) => true,
+            (_, Type::TypeParameter(_)) => true,
+
+            // Unknown type is compatible with everything (error recovery).
+            (Type::Unknown, _) | (_, Type::Unknown) => true,
+
+            _ => false,
+        }
+    }
+
+    /// Returns true if the type is a numeric primitive.
+    fn is_numeric(&self, ty: &Type) -> bool {
+        matches!(ty,
+            Type::Int8 | Type::Int16 | Type::Int32 | Type::Int64 |
+            Type::UInt8 | Type::UInt16 | Type::UInt32 | Type::UInt64 |
+            Type::Float32 | Type::Float64
+        )
+    }
 }

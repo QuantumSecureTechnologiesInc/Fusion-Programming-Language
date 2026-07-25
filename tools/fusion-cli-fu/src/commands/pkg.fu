@@ -1,0 +1,153 @@
+// commands/pkg.fu — Package management commands.
+// add, remove, search, publish, update
+
+fn cmd_pkg(args: CliArgs) -> void {
+    let sub = args.subcommand;
+
+    if str_eq(sub, "") {
+        pkg_help();
+        return;
+    }
+
+    if str_eq(sub, "add") {
+        pkg_add(args);
+    } else if str_eq(sub, "remove") {
+        pkg_remove(args);
+    } else if str_eq(sub, "search") {
+        pkg_search(args);
+    } else if str_eq(sub, "publish") {
+        pkg_publish(args);
+    } else if str_eq(sub, "update") {
+        pkg_update(args);
+    } else {
+        print_error("Unknown package subcommand: ");
+        puts(sub);
+        pkg_help();
+    }
+}
+
+fn pkg_help() -> void {
+    print_bold("Fusion Package Commands:");
+    puts("  fusion pkg add <name>          Add a dependency");
+    puts("  fusion pkg remove <name>       Remove a dependency");
+    puts("  fusion pkg search <query>      Search packages");
+    puts("  fusion pkg publish             Publish to registry");
+    puts("  fusion pkg update              Update dependencies");
+}
+
+fn pkg_add(args: CliArgs) -> void {
+    let name = args.arg1;
+    if str_eq(name, "") {
+        print_error("Error: package name required");
+        puts("Usage: fusion pkg add <package-name>");
+        exit(1);
+    }
+
+    let version = args.arg2;
+    if str_eq(version, "") {
+        version = "*";
+    }
+
+    print_info("Adding ");
+    puts(name);
+    puts("@" + version);
+
+    // Read current Fusion.toml
+    let content = read_file("Fusion.toml");
+    let new_dep = name;
+    new_dep = new_dep + " = \"";
+    new_dep = new_dep + version;
+    new_dep = new_dep + "\"\n";
+
+    // Append to [dependencies] section
+    append_file("Fusion.toml", new_dep);
+
+    print_success("Added ");
+    puts(name);
+}
+
+fn pkg_remove(args: CliArgs) -> void {
+    let name = args.arg1;
+    if str_eq(name, "") {
+        print_error("Error: package name required");
+        puts("Usage: fusion pkg remove <package-name>");
+        exit(1);
+    }
+
+    print_info("Removing ");
+    puts(name);
+
+    // For a real implementation, we'd parse and rewrite TOML
+    // For now, invoke fuc.exe
+    let cmd = "fuc.exe pkg remove \"";
+    cmd = cmd + name;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Removed ");
+        puts(name);
+    } else {
+        print_error("Failed to remove ");
+        puts(name);
+        exit(1);
+    }
+}
+
+fn pkg_search(args: CliArgs) -> void {
+    let query = args.arg1;
+    if str_eq(query, "") {
+        print_error("Error: search query required");
+        puts("Usage: fusion pkg search <query>");
+        exit(1);
+    }
+
+    print_info("Searching for: ");
+    puts(query);
+
+    let cmd = "fuc.exe pkg search \"";
+    cmd = cmd + query;
+    cmd = cmd + "\"";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn pkg_publish(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+
+    print_info("Publishing ");
+    puts(manifest.name);
+    puts(" v" + manifest.version);
+
+    let cmd = "fuc.exe pkg publish --manifest Fusion.toml";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Published ");
+        puts(manifest.name);
+    } else {
+        print_error("Publish failed");
+        exit(1);
+    }
+}
+
+fn pkg_update(args: CliArgs) -> void {
+    print_info("Updating dependencies...");
+
+    let cmd = "fuc.exe pkg update --manifest Fusion.toml";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Dependencies updated");
+    } else {
+        print_error("Update failed");
+        exit(1);
+    }
+}

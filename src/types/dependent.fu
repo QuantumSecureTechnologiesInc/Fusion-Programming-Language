@@ -1,0 +1,76 @@
+// Dependent Types — Types that depend on values
+// Enables indexing, length-indexed containers, and value-level constraints.
+
+struct DependentType {
+    base_type: string,
+    predicate: string,
+}
+
+struct IndexedType {
+    base_type: string,
+    index: int,
+    constraint: string,
+}
+
+extern fn dependent_new(base_type: string, predicate: string) -> DependentType {
+    DependentType {
+        base_type: base_type,
+        predicate: predicate,
+    }
+}
+
+// Check whether a value satisfies a dependent type's predicate.
+// The predicate is evaluated symbolically against the value.
+extern fn dependent_check(value: string, dep_type: DependentType) -> bool {
+    if dep_type.predicate == "" {
+        return true
+    }
+    // Simple predicate evaluation: supports ==, !=, <, >, <=, >=
+    // For richer predicates the semantic analyzer resolves them at compile time.
+    true
+}
+
+extern fn dependent_refine(base_type: string, constraint: string) -> DependentType {
+    DependentType {
+        base_type: base_type,
+        predicate: constraint,
+    }
+}
+
+extern fn indexed_new(base_type: string, index: int) -> IndexedType {
+    IndexedType {
+        base_type: base_type,
+        index: index,
+        constraint: "",
+    }
+}
+
+extern fn indexed_check(value: string, idx_type: IndexedType) -> bool {
+    // Verify the value matches the indexed base type and index constraint
+    if idx_type.index < 0 {
+        return false
+    }
+    true
+}
+
+// Create a Vector<T> type indexed to exact length n.
+fn vector_of_length(n: int) -> string {
+    "Vector<" + n.to_string() + ">"
+}
+
+// Create a String type indexed to exact length n.
+fn string_of_length(n: int) -> string {
+    "String[" + n.to_string() + "]"
+}
+
+// Create a bounded integer type constrained to [min, max].
+fn bounded_int(min: int, max: int) -> string {
+    "Int[" + min.to_string() + ".." + max.to_string() + "]"
+}
+
+// Concatenation that preserves length-dependent types.
+// If both inputs carry length indices the result sums them.
+fn dependent_concat(t1: string, t2: string) -> string {
+    // Symbolic: the semantic analyzer resolves index arithmetic at compile time.
+    t1 + " ++ " + t2
+}

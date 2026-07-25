@@ -1,0 +1,54 @@
+//! Synchronization primitives — Mutex and RwLock.
+//!
+//! Mutex provides exclusive access to a shared resource.
+//! RwLock allows multiple concurrent readers or one exclusive writer.
+
+// ---------------------------------------------------------------------------
+// Mutex
+// ---------------------------------------------------------------------------
+
+struct Mutex {
+    handle: int,
+    locked: bool,
+}
+
+/// Allocate a new mutex in the unlocked state.
+extern fn mutex_new() -> Mutex
+
+/// Acquire the mutex, blocking the caller until the lock is available.
+extern fn mutex_lock(m: Mutex) -> void
+
+/// Attempt to acquire the mutex without blocking.
+/// Returns `true` if the lock was acquired, `false` otherwise.
+extern fn mutex_try_lock(m: Mutex) -> bool
+
+/// Release a previously acquired mutex.
+extern fn mutex_unlock(m: Mutex) -> void
+
+/// Destroy the mutex and release its underlying resources.
+extern fn mutex_destroy(m: Mutex) -> void
+
+// ---------------------------------------------------------------------------
+// RwLock  (reader-writer lock)
+// ---------------------------------------------------------------------------
+
+struct RwLock {
+    handle: int,
+}
+
+/// Allocate a new reader-writer lock.
+extern fn rwlock_new() -> RwLock
+
+/// Acquire a shared (read) lock. Multiple readers may hold the lock
+/// simultaneously.
+extern fn rwlock_read(lock: RwLock) -> void
+
+/// Acquire an exclusive (write) lock. Blocks until all readers and
+/// other writers have released the lock.
+extern fn rwlock_write(lock: RwLock) -> void
+
+/// Release a previously acquired read lock.
+extern fn rwlock_unlock_read(lock: RwLock) -> void
+
+/// Release a previously acquired write lock.
+extern fn rwlock_unlock_write(lock: RwLock) -> void

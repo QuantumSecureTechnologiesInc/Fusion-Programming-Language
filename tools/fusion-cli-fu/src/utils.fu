@@ -1,0 +1,186 @@
+// utils.fu — Low-level system bindings and helpers for Fusion CLI.
+// All system interaction goes through extern fn declarations bound to C runtime.
+
+// ── C Runtime Bindings ────────────────────────────────────────────────
+
+extern fn printf(fmt: string) -> int;
+extern fn puts(s: string) -> int;
+extern fn exit(code: int) -> void;
+extern fn malloc(size: int) -> int;
+extern fn free(ptr: int) -> void;
+extern fn strlen(s: string) -> int;
+extern fn system(cmd: string) -> int;
+extern fn getenv(name: string) -> string;
+extern fn strcmp(a: string, b: string) -> int;
+
+// ── File System Bindings ──────────────────────────────────────────────
+
+extern fn fusion_fs_read(path: string) -> string;
+extern fn fusion_fs_write(path: string, data: string) -> bool;
+extern fn fusion_fs_append(path: string, data: string) -> bool;
+extern fn fusion_fs_exists(path: string) -> bool;
+extern fn fusion_fs_create_dir(path: string) -> bool;
+extern fn fusion_fs_remove(path: string) -> bool;
+extern fn fusion_fs_remove_dir(path: string) -> bool;
+extern fn fusion_fs_rename(old: string, new: string) -> bool;
+extern fn fusion_fs_is_dir(path: string) -> bool;
+
+// ── String Helpers ────────────────────────────────────────────────────
+
+fn str_eq(a: string, b: string) -> bool {
+    return strcmp(a, b) == 0;
+}
+
+fn str_len(s: string) -> int {
+    return strlen(s);
+}
+
+// ── File I/O Helpers ──────────────────────────────────────────────────
+
+fn read_file(path: string) -> string {
+    return fusion_fs_read(path);
+}
+
+fn write_file(path: string, data: string) -> bool {
+    return fusion_fs_write(path, data);
+}
+
+fn append_file(path: string, data: string) -> bool {
+    return fusion_fs_append(path, data);
+}
+
+fn file_exists(path: string) -> bool {
+    return fusion_fs_exists(path);
+}
+
+fn create_dir(path: string) -> bool {
+    return fusion_fs_create_dir(path);
+}
+
+fn remove_file(path: string) -> bool {
+    return fusion_fs_remove(path);
+}
+
+fn remove_dir(path: string) -> bool {
+    return fusion_fs_remove_dir(path);
+}
+
+fn rename_file(old: string, new: string) -> bool {
+    return fusion_fs_rename(old, new);
+}
+
+fn is_directory(path: string) -> bool {
+    return fusion_fs_is_dir(path);
+}
+
+// ── Process Execution ─────────────────────────────────────────────────
+
+fn run_command(cmd: string) -> int {
+    return system(cmd);
+}
+
+fn run_command_output(cmd: string) -> string {
+    return fusion_fs_read(cmd);
+}
+
+fn get_env(name: string) -> string {
+    return getenv(name);
+}
+
+// ── Colored Output Helpers ────────────────────────────────────────────
+
+fn print_green(s: string) -> void {
+    printf("\033[32m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_red(s: string) -> void {
+    printf("\033[31m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_yellow(s: string) -> void {
+    printf("\033[33m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_blue(s: string) -> void {
+    printf("\033[34m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_magenta(s: string) -> void {
+    printf("\033[35m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_cyan(s: string) -> void {
+    printf("\033[36m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_bold(s: string) -> void {
+    printf("\033[1m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_dim(s: string) -> void {
+    printf("\033[2m%s\033[0m\n");
+    puts(s);
+}
+
+fn print_success(s: string) -> void {
+    print_green(s);
+}
+
+fn print_error(s: string) -> void {
+    print_red(s);
+}
+
+fn print_warning(s: string) -> void {
+    print_yellow(s);
+}
+
+fn print_info(s: string) -> void {
+    print_cyan(s);
+}
+
+fn print_banner(s: string) -> void {
+    print_magenta(s);
+}
+
+// ── JSON Helpers ──────────────────────────────────────────────────────
+
+fn json_escape(s: string) -> string {
+    // Minimal JSON string escaping
+    return s;
+}
+
+fn json_kv(key: string, value: string) -> string {
+    let result = "\"";
+    result = result + key;
+    result = result + "\": \"";
+    result = result + value;
+    result = result + "\"";
+    return result;
+}
+
+fn json_kv_int(key: string, value: int) -> string {
+    let result = "\"";
+    result = result + key;
+    result = result + "\": ";
+    result = result + value;
+    return result;
+}
+
+fn json_kv_bool(key: string, value: bool) -> string {
+    let result = "\"";
+    result = result + key;
+    result = result + "\": ";
+    if value {
+        result = result + "true";
+    } else {
+        result = result + "false";
+    }
+    return result;
+}

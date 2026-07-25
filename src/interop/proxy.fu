@@ -1,0 +1,19 @@
+package interop
+
+// Foreign value proxy system for cross-language interop
+
+struct ForeignProxy {
+    handle: int
+    lang: string
+    type_name: string
+    ref_count: int
+}
+
+extern fn proxy_create(lang: string, handle: int, type_name: string) -> ForeignProxy
+extern fn proxy_clone(proxy: ForeignProxy) -> ForeignProxy
+extern fn proxy_drop(proxy: ForeignProxy) -> void
+extern fn proxy_get_field(proxy: ForeignProxy, field: string) -> ForeignValue
+extern fn proxy_set_field(proxy: ForeignProxy, field: string, value: ForeignValue) -> void
+extern fn proxy_call_method(proxy: ForeignProxy, method: string, args: string) -> ForeignValue
+extern fn proxy_to_string(proxy: ForeignProxy) -> string
+extern fn proxy_is_alive(proxy: ForeignProxy) -> bool

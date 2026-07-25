@@ -1,0 +1,89 @@
+// Fusion v2.0 Vortex - Linux Installer
+// Written in native Fusion language
+
+fn main() -> void {
+    println("=== Fusion v2.0 Vortex Installer (Linux) ===")
+    println("")
+
+    // Step 1: Check prerequisites
+    println("[1/6] Checking prerequisites...")
+    let rust_version = exec_command("rustc --version")
+    if rust_version == "" {
+        println("Error: Rust is not installed.")
+        println("  Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")
+        exit(1)
+    }
+    println("  Rust: " + rust_version)
+
+    // Step 2: Install system dependencies
+    println("")
+    println("[2/6] Installing system dependencies...")
+    let os = exec_command("cat /etc/os-release 2>/dev/null | head -1")
+    if os.contains("Ubuntu") || os.contains("Debian") {
+        exec_command("sudo apt-get update -qq && sudo apt-get install -y -qq build-essential libssl-dev pkg-config cmake")
+    } else if os.contains("Fedora") || os.contains("RHEL") || os.contains("CentOS") {
+        exec_command("sudo dnf install -y gcc openssl-devel pkg-config cmake")
+    } else if os.contains("Arch") || os.contains("Manjaro") {
+        exec_command("sudo pacman -S --noconfirm base-devel openssl pkg-config cmake")
+    } else {
+        println("  Warning: Unknown distro. Ensure build-essential, libssl-dev, pkg-config are installed.")
+    }
+
+    // Step 3: Build compiler
+    println("")
+    println("[3/6] Building fuc compiler...")
+    exec_command("cargo install --path crates/fuc --features llvm")
+
+    // Step 4: Build CLI
+    println("")
+    println("[4/6] Building fusion CLI...")
+    exec_command("cargo install --path tools/fusion-cli")
+
+    // Step 5: Install stdlib
+    println("")
+    println("[5/6] Installing standard library...")
+    let home = exec_command("echo $HOME")
+    let stdlib_path = home + "/.fusion/stdlib"
+    exec_command("mkdir -p " + stdlib_path)
+    exec_command("cp -r stdlib/* " + stdlib_path)
+    println("  Installed to " + stdlib_path)
+
+    // Step 6: Configure shell
+    println("")
+    println("[6/6] Configuring shell...")
+    let cargo_bin = home + "/.cargo/bin"
+    let bashrc = home + "/.bashrc"
+    let profile = home + "/.profile"
+
+    // Add to .bashrc
+    let check_cmd = "grep -q '" + cargo_bin + "' " + bashrc + " 2>/dev/null"
+    let path_line = "export PATH=\"" + cargo_bin + ":$PATH\""
+    exec_command(check_cmd + " || echo '" + path_line + "' >> " + bashrc)
+
+    // Add to .profile (for login shells)
+    exec_command(check_cmd + " || echo '" + path_line + "' >> " + profile)
+
+    println("  Added " + cargo_bin + " to PATH")
+
+    // Verify
+    println("")
+    println("Verifying installation...")
+    let version = exec_command("fusion --version")
+    if version != "" {
+        println("  Fusion " + version + " installed successfully!")
+    } else {
+        println("  Run: source " + bashrc)
+    }
+
+    println("")
+    println("=== Installation Complete ===")
+    println("")
+    println("Quick start:")
+    println("  fusion init my_project")
+    println("  cd my_project")
+    println("  fusion build")
+    println("  fusion run")
+    println("")
+    println("Documentation: docs/guides/")
+    println("Language Spec: docs/reference/FUSION_LANGUAGE_SPEC.md")
+}

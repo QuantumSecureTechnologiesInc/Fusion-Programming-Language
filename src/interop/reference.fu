@@ -1,0 +1,18 @@
+package interop
+
+// Pass-by-reference semantics
+
+struct RefValue {
+    handle: int
+    lang: string
+    type_name: string
+    data: *byte
+}
+
+extern fn ref_create(value: string) -> RefValue
+extern fn ref_read(ref_val: RefValue) -> string
+extern fn ref_write(ref_val: RefValue, value: string) -> void
+extern fn ref_clone(ref_val: RefValue) -> RefValue
+extern fn ref_drop(ref_val: RefValue) -> void
+extern fn ref_is_mutable(ref_val: RefValue) -> bool
+extern fn ref_to_foreign(ref_val: RefValue, target_lang: string) -> ForeignProxy

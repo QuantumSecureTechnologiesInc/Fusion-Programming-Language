@@ -1,0 +1,127 @@
+// Fusion v2.0 Vortex — Non-Fungible Token (ERC-721 style)
+// Unique digital assets with collection management.
+
+/// A single non-fungible token.
+struct NFT {
+    id: int,
+    name: string,
+    description: string,
+    image: string,
+    owner: string,
+    attributes: string,
+    collection: string,
+    created_at: int,
+}
+
+/// A collection of NFTs sharing a common name and creator.
+struct NFTCollection {
+    name: string,
+    symbol: string,
+    nfts: []NFT,
+    creator: string,
+    total_minted: int,
+}
+
+// ---------------------------------------------------------------------------
+// NFT Lifecycle
+// ---------------------------------------------------------------------------
+
+/// Create a standalone NFT (not yet in a collection).
+pub fn nft_new(name: string, description: string, image: string, owner: string) -> NFT {
+    NFT {
+        id: 0,
+        name: name,
+        description: description,
+        image: image,
+        owner: owner,
+        attributes: "{}",
+        collection: "",
+        created_at: 0,
+    }
+}
+
+/// Mint a new NFT into a collection, returning the updated collection and the
+/// new token.
+pub fn nft_mint(collection: NFTCollection, name: string, description: string, image: string, to: string) -> (NFTCollection, NFT) {
+    let new_id = collection.total_minted + 1
+    let nft = NFT {
+        id: new_id,
+        name: name,
+        description: description,
+        image: image,
+        owner: to,
+        attributes: "{}",
+        collection: collection.name,
+        created_at: 0,
+    }
+    let updated = NFTCollection {
+        total_minted: new_id,
+        ..collection
+    }
+    (updated, nft)
+}
+
+/// Transfer an NFT to a new owner.
+pub fn nft_transfer(nft: NFT, from: string, to: string) -> NFT {
+    NFT { owner: to, ..nft }
+}
+
+/// Return the current owner of an NFT.
+pub fn nft_owner(nft: NFT) -> string {
+    nft.owner
+}
+
+/// Serialise NFT metadata as JSON.
+pub fn nft_metadata(nft: NFT) -> string {
+    format!(
+        "{{\"id\":{},\"name\":\"{}\",\"description\":\"{}\",\"image\":\"{}\",\"owner\":\"{}\",\"attributes\":{},\"collection\":\"{}\"}}",
+        nft.id, nft.name, nft.description, nft.image, nft.owner, nft.attributes, nft.collection,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Collection Lifecycle
+// ---------------------------------------------------------------------------
+
+/// Create a new empty collection.
+pub fn collection_new(name: string, symbol: string, creator: string) -> NFTCollection {
+    NFTCollection {
+        name: name,
+        symbol: symbol,
+        nfts: [],
+        creator: creator,
+        total_minted: 0,
+    }
+}
+
+/// Append an existing NFT to a collection.
+pub fn collection_add(collection: NFTCollection, nft: NFT) -> NFTCollection {
+    let mut nfts = collection.nfts
+    nfts.push(nft)
+    NFTCollection { nfts: nfts, ..collection }
+}
+
+/// Retrieve an NFT by its id within the collection.
+pub fn collection_get(collection: NFTCollection, id: int) -> NFT {
+    for nft in collection.nfts {
+        if nft.id == id {
+            return nft
+        }
+    }
+    // Return a default empty NFT if not found
+    NFT {
+        id: -1,
+        name: "",
+        description: "",
+        image: "",
+        owner: "",
+        attributes: "{}",
+        collection: "",
+        created_at: 0,
+    }
+}
+
+/// Return the number of NFTs in the collection.
+pub fn collection_size(collection: NFTCollection) -> int {
+    collection.nfts.len()
+}

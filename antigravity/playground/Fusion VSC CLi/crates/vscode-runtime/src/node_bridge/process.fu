@@ -1,6 +1,0 @@
-// SOURCE: antigravity/playground/Fusion VSC CLi/crates/vscode-runtime/src/node_bridge/process.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-//! Process module implementation
-
-// Process is implemented directly in the main mod.rs setup_process
-// This file exists for module structure completeness

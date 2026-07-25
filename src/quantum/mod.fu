@@ -3,6 +3,23 @@
 
 pub mod qubit;
 pub mod circuit;
+pub mod gates;
+pub mod simulator;
+pub mod analysis;
+
+pub mod ibm_backend;
+pub mod aws_backend;
+pub mod azure_backend;
+pub mod google_backend;
+pub mod rigetti_backend;
 
 pub use qubit::Qubit;
 pub use circuit::Circuit;
+pub use gates::Gate;
+pub use simulator::QuantumSimulator;
+
+pub use ibm_backend::{IBMConfig, ibm_run};
+pub use aws_backend::{AWSConfig, aws_braket_run};
+pub use azure_backend::{AzureConfig, azure_quantum_run, azure_estimate};
+pub use google_backend::{CirqConfig, google_build_circuit, google_simulate, google_run_on_device};
+pub use rigetti_backend::{RigettiConfig, rigetti_run, rigetti_get_devices};

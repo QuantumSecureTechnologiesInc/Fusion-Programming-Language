@@ -101,8 +101,27 @@ impl Gate {
             }
         }
     }
-    /// Check if gate is unitary
+    /// Check if gate is unitary by verifying U * U_dagger = I
     pub fn is_unitary(&self) -> FBool {
+        let m = self.matrix();
+        let epsilon = 1e-10;
+
+        // Compute U * U_dagger (U * conjugate transpose of U)
+        // For a 2x2 gate, this gives a 2x2 identity check
+        for i in 0..2 {
+            for j in 0..2 {
+                let mut sum = Complex::zero();
+                for k in 0..2 {
+                    // m[i][k] * conj(m[j][k]) since U_dagger[k][j] = conj(m[j][k])
+                    sum = sum.add(&m[i][k].mul(&m[j][k].conj()));
+                }
+                let expected = if i == j { Complex::one() } else { Complex::zero() };
+                let diff = sum.sub(&expected);
+                if diff.magnitude() > epsilon {
+                    return false;
+                }
+            }
+        }
         true
     }
     /// Check if gate is Hermitian

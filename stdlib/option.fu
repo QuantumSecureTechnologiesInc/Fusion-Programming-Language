@@ -1,4 +1,88 @@
 // stdlib/option.fu - Option types for Fusion
+//
+// Provides generic-style Option<T> plus typed variants for int and bool.
+// The OptionAny struct stores a value as int with a tag, allowing it to
+// represent Some(value) or None for any integer-like type.
+
+// ============================================================
+// OptionAny - generic-style Option that works for int values
+// ============================================================
+
+struct OptionAny {
+    has_value: int,
+    value: int,
+}
+
+impl OptionAny {
+    fn some(val: int) -> OptionAny {
+        return OptionAny { has_value: 1, value: val };
+    }
+    fn none() -> OptionAny {
+        return OptionAny { has_value: 0, value: 0 };
+    }
+    fn is_some(opt: OptionAny) -> bool { return opt.has_value != 0; }
+    fn is_none(opt: OptionAny) -> bool { return opt.has_value == 0; }
+    fn unwrap(opt: OptionAny) -> int { return opt.value; }
+    fn unwrap_or(opt: OptionAny, default: int) -> int {
+        if opt.has_value != 0 { return opt.value; }
+        return default;
+    }
+    fn map(opt: OptionAny, f: fn(int) -> int) -> OptionAny {
+        if opt.has_value != 0 { return OptionAny { has_value: 1, value: f(opt.value) }; }
+        return OptionAny { has_value: 0, value: 0 };
+    }
+    fn and_then(opt: OptionAny, f: fn(int) -> OptionAny) -> OptionAny {
+        if opt.has_value != 0 { return f(opt.value); }
+        return OptionAny { has_value: 0, value: 0 };
+    }
+}
+
+// ============================================================
+// Free functions for OptionAny
+// ============================================================
+
+fn option_some(val: int) -> OptionAny {
+    return OptionAny { has_value: 1, value: val };
+}
+
+fn option_none() -> OptionAny {
+    return OptionAny { has_value: 0, value: 0 };
+}
+
+fn option_expect(opt: OptionAny, msg: string) -> int {
+    if opt.has_value != 0 { return opt.value; }
+    panic(msg);
+    return 0;
+}
+
+fn option_unwrap_or(opt: OptionAny, default: int) -> int {
+    if opt.has_value != 0 { return opt.value; }
+    return default;
+}
+
+fn option_map(opt: OptionAny, f: fn(int) -> int) -> OptionAny {
+    if opt.has_value != 0 {
+        return OptionAny { has_value: 1, value: f(opt.value) };
+    }
+    return OptionAny { has_value: 0, value: 0 };
+}
+
+fn option_and_then(opt: OptionAny, f: fn(int) -> OptionAny) -> OptionAny {
+    if opt.has_value != 0 { return f(opt.value); }
+    return OptionAny { has_value: 0, value: 0 };
+}
+
+fn option_is_none(opt: OptionAny) -> bool {
+    return opt.has_value == 0;
+}
+
+fn option_is_some(opt: OptionAny) -> bool {
+    return opt.has_value != 0;
+}
+
+// ============================================================
+// OptionInt - typed Option for int values
+// ============================================================
 
 struct OptionInt {
     has_value: int,
@@ -19,6 +103,14 @@ impl OptionInt {
         if opt.has_value != 0 { return opt.value; }
         return default;
     }
+    fn map(opt: OptionInt, f: fn(int) -> int) -> OptionInt {
+        if opt.has_value != 0 { return OptionInt { has_value: 1, value: f(opt.value) }; }
+        return OptionInt { has_value: 0, value: 0 };
+    }
+    fn and_then(opt: OptionInt, f: fn(int) -> OptionInt) -> OptionInt {
+        if opt.has_value != 0 { return f(opt.value); }
+        return OptionInt { has_value: 0, value: 0 };
+    }
 }
 
 fn option_int_some(val: int) -> OptionInt {
@@ -28,6 +120,10 @@ fn option_int_none() -> OptionInt {
     return OptionInt { has_value: 0, value: 0 };
 }
 fn option_int_unwrap(opt: OptionInt) -> int { return opt.value; }
+
+// ============================================================
+// OptionBool - typed Option for bool values
+// ============================================================
 
 struct OptionBool {
     has_value: int,
@@ -45,6 +141,10 @@ impl OptionBool {
     fn is_some(opt: OptionBool) -> bool { return opt.has_value != 0; }
     fn is_none(opt: OptionBool) -> bool { return opt.has_value == 0; }
     fn unwrap(opt: OptionBool) -> bool { return opt.value != 0; }
+    fn unwrap_or(opt: OptionBool, default: bool) -> bool {
+        if opt.has_value != 0 { return opt.value != 0; }
+        return default;
+    }
 }
 
 fn option_bool_some(val: bool) -> OptionBool {
@@ -55,5 +155,3 @@ fn option_bool_none() -> OptionBool {
     return OptionBool { has_value: 0, value: 0 };
 }
 fn option_bool_unwrap(opt: OptionBool) -> bool { return opt.value != 0; }
-
-// NOTE: Generic Option<T> requires generics support.

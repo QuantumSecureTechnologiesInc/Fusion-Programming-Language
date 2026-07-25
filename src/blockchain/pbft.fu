@@ -1,0 +1,91 @@
+// Practical Byzantine Fault Tolerance implementation for Fusion v2.0 Vortex
+
+import Block from blockchain
+
+struct PbftNode {
+    id: string,
+    view: int,
+    sequence: int,
+    prepared: bool,
+    committed: bool
+}
+
+struct PbftMessage {
+    type: string,
+    sequence: int,
+    view: int,
+    block_hash: string,
+    sender: string,
+    signature: string
+}
+
+fn pbft_new_node(id: string) -> PbftNode {
+    PbftNode {
+        id: id,
+        view: 0,
+        sequence: 0,
+        prepared: false,
+        committed: false
+    }
+}
+
+fn pbft_pre_prepare(node: PbftNode, block: Block) -> PbftMessage {
+    PbftMessage {
+        type: "pre-prepare",
+        sequence: node.sequence + 1,
+        view: node.view,
+        block_hash: sha256(block.to_string()),
+        sender: node.id,
+        signature: sign(node.id + block.to_string())
+    }
+}
+
+fn pbft_prepare(node: PbftNode, message: PbftMessage) -> PbftMessage {
+    if message.type != "pre-prepare" {
+        panic("Invalid message type for prepare phase")
+    }
+
+    PbftMessage {
+        type: "prepare",
+        sequence: message.sequence,
+        view: message.view,
+        block_hash: message.block_hash,
+        sender: node.id,
+        signature: sign(node.id + message.block_hash)
+    }
+}
+
+fn pbft_commit(node: PbftNode, message: PbftMessage) -> PbftMessage {
+    if message.type != "prepare" {
+        panic("Invalid message type for commit phase")
+    }
+
+    PbftMessage {
+        type: "commit",
+        sequence: message.sequence,
+        view: message.view,
+        block_hash: message.block_hash,
+        sender: node.id,
+        signature: sign(node.id + message.block_hash)
+    }
+}
+
+fn pbft_is_byzantine_fault_tolerant(n: int) -> bool {
+    n >= 3 * (n / 3) + 1 && n >= 4
+}
+
+fn pbft_validate_message(node: PbftNode, message: PbftMessage) -> bool {
+    if message.sender == node.id {
+        return false
+    }
+
+    if message.view != node.view {
+        return false
+    }
+
+    if message.sequence <= node.sequence {
+        return false
+    }
+
+    verify_signature(message.sender, message.signature, message.sender + message.block_hash)
+}

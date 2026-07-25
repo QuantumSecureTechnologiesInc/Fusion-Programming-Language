@@ -1,0 +1,52 @@
+// src/compiler/feature_toggle.fu
+// Feature Toggle Engine — controls which compiler features are active
+
+struct FeatureToggle {
+    name: string,
+    dependencies: []string,
+    conflicts: []string,
+    transform_pass: string,
+    priority: int,
+}
+
+struct FeatureRegistry {
+    features: []FeatureToggle,
+}
+
+extern fn feature_toggle_register(
+    registry: FeatureRegistry,
+    name: string,
+    deps: []string,
+    conflicts: []string,
+    transform: string,
+    priority: int,
+) -> FeatureRegistry
+
+extern fn feature_toggle_resolve(registry: FeatureRegistry, uses: []string) -> []FeatureToggle
+
+extern fn feature_toggle_check_conflicts(uses: []string) -> []string
+
+extern fn feature_toggle_inject_transforms(uses: []string, code: string) -> string
+
+extern fn feature_toggle_get_order(uses: []string) -> []string
+
+fn feature_toggle_init() -> FeatureRegistry {
+    let mut reg = FeatureRegistry { features: [] }
+    reg = feature_toggle_register(reg, "cps", [], [], "cps_transform", 1)
+    reg = feature_toggle_register(reg, "tco", [], [], "tco_loop_transform", 2)
+    reg = feature_toggle_register(reg, "linear", [], [], "linear_resource_tracking", 3)
+    reg = feature_toggle_register(reg, "capability", ["linear"], [], "capability_check_injection", 4)
+    reg = feature_toggle_register(reg, "effects", [], [], "effect_handler_injection", 5)
+    reg = feature_toggle_register(reg, "multimethod", [], [], "dispatch_table_generation", 6)
+    reg = feature_toggle_register(reg, "refinement", [], [], "refinement_check_insertion", 7)
+    reg = feature_toggle_register(reg, "dependent", ["refinement"], [], "dependent_check_insertion", 8)
+    reg = feature_toggle_register(reg, "provenance", [], ["linear"], "provenance_tracking_injection", 9)
+    reg = feature_toggle_register(reg, "actor", [], ["effects"], "actor_supervision_injection", 10)
+    reg = feature_toggle_register(reg, "staging", [], [], "staging_specialization", 11)
+    reg = feature_toggle_register(reg, "allocator", [], [], "allocator_replacement", 12)
+    reg = feature_toggle_register(reg, "effect_specialize", ["effects"], [], "effect_specialization", 13)
+    reg = feature_toggle_register(reg, "verification", [], [], "verification_hook_injection", 14)
+    reg = feature_toggle_register(reg, "gradual", [], [], "gradual_annotation_check", 15)
+    reg = feature_toggle_register(reg, "tmc", ["tco"], [], "tmc_transform", 16)
+    reg
+}

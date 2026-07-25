@@ -10,12 +10,16 @@ members = [
     "crates/fusion_finance",
     "crates/fusion_net",
     "crates/fusion_quantum",
-    "crates/fusion_traits",           # ⭐ Phase 2: Core traits
-    "crates/fusion_tensor_core",      # ⭐ Phase 2: Tensor operations
-    "crates/fusion_quantum_core",     # ⭐ Phase 2: Quantum primitives
-    "crates/fusion_cortex",           # ⭐ v0.3.0: AI Scheduler
-    "crates/fusion_hal",              # ⭐ v0.3.0: Hardware Abstraction Layer
-    "crates/fusion_flux_resolve",     # ⭐ Flux-Resolve Engine
+    "crates/fusion_traits",               # ⭐ Phase 2: Core traits
+    "crates/fusion_tensor_core",          # ⭐ Phase 2: Tensor operations
+    "crates/fusion_quantum_core",         # ⭐ Phase 2: Quantum primitives
+    "crates/fusion_cortex",               # ⭐ v0.3.0: AI Scheduler
+    "crates/fusion_hal",                  # ⭐ v0.3.0: Hardware Abstraction Layer
+    "crates/fusion_flux_resolve",         # ⭐ Flux-Resolve Engine
+    "crates/fusion_supernova",            # ⭐ Vortex: Tribrid execution engine
+    "crates/fusion_cortex_scheduler",     # ⭐ Vortex: AI workload routing
+    "crates/fusion_intent",               # ⭐ Vortex: Intent annotation parsing
+    "crates/fusion_haft",                 # ⭐ Vortex: Hyper-Adaptive Flux Tensor memory
 ]
 
 [workspace.package]

@@ -45,12 +45,27 @@ impl Qubit {
         // X-gate flips 0->1, 1->0
         if self.state.state_id == 0 {
             self.state = QubitState::one();
-        } else {
-            if self.state.state_id == 1 {
-                self.state = QubitState::zero();
-            }
+        } else if self.state.state_id == 1 {
+            self.state = QubitState::zero();
+        }
+        // Superposition remains superposition (phase change only)
+    }
+
+    fn pauli_y(mut self) {
+        // Y-gate: maps |0⟩ → i|1⟩, |1⟩ → -i|0⟩
+        // In our discrete model, superposition stays superposition with phase change
+        if self.state.state_id == 0 {
+            self.state = QubitState::one();
+        } else if self.state.state_id == 1 {
+            self.state = QubitState::zero();
         }
         // Superposition remains superposition
+    }
+
+    fn pauli_z(mut self) {
+        // Z-gate: |0⟩ → |0⟩, |1⟩ → -|1⟩ (phase flip)
+        // In our discrete model, |0⟩ and |1⟩ are unchanged; superposition gets phase flip
+        // Since we don't track phase explicitly, superposition stays superposition
     }
 
     fn measure(mut self) -> int {
@@ -58,22 +73,25 @@ impl Qubit {
         if self.state.state_id == 0 {
             self.state = QubitState::zero(); // Already collapsed
             return 0;
+        } else if self.state.state_id == 1 {
+            self.state = QubitState::one(); // Already collapsed
+            return 1;
         } else {
-            if self.state.state_id == 1 {
-                self.state = QubitState::one(); // Already collapsed
-                return 1;
+            // Superposition collapses with 50/50 probability
+            // Use system time for proper random number generation
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+            let nanos = now.subsec_nanos();
+            // XOR-shift the nanosecond value for better distribution
+            let seed = nanos ^ (nanos >> 13) ^ (nanos << 7);
+            let collapsed = seed % 2;
+
+            if collapsed == 0 {
+                self.state = QubitState::zero();
+                return 0;
             } else {
-                // Superposition collapses with 50/50 probability
-                // Using qubit ID as seed for deterministic "randomness"
-                let collapsed = (self.id % 2);
-                
-                if collapsed == 0 {
-                    self.state = QubitState::zero();
-                    return 0;
-                } else {
-                    self.state = QubitState::one();
-                    return 1;
-                }
+                self.state = QubitState::one();
+                return 1;
             }
         }
     }

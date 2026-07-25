@@ -188,6 +188,8 @@ pub struct ExternFunction {
     pub return_type: Type,
     /// Whether the function is variadic (C-style).
     pub is_variadic: FBool,
+    /// Calling convention (e.g., "C", "stdcall", "fastcall", "system").
+    pub calling_convention: FString,
 }
 /// Function definition.
 #[derive(Clone, Debug, PartialEq)]

@@ -51,8 +51,14 @@ pub enum Declaration {
     ModuleDecl { name: String, body: Vec<Declaration> },
     UseDecl { path: Vec<String> },
     ImportDecl { path: Vec<String> },
-    ExternFunction { name: String, params: Vec<Parameter>, return_type: Type },
+    ExternFunction { name: String, params: Vec<Parameter>, return_type: Type, calling_convention: String },
     StructDefinition(StructDefinition),
+    EnumDefinition(EnumDefinition),
+    ImplBlock(ImplBlock),
+    TraitDefinition(TraitDefinition),
+    ConstDecl(ConstDeclaration),
+    StaticDecl(StaticDeclaration),
+    TypeAlias(TypeAlias),
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +132,66 @@ pub struct StructDefinition {
     pub name: String,
     pub fields: Vec<(String, Type)>,
     pub generics: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum EnumVariantData {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(Vec<(String, Type)>),
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub data: EnumVariantData,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumDefinition {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImplBlock {
+    pub trait_name: Option<String>,
+    pub self_type: String,
+    pub methods: Vec<Function>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraitMethod {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub return_type: Type,
+    pub body: Option<Block>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraitDefinition {
+    pub name: String,
+    pub methods: Vec<TraitMethod>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstDeclaration {
+    pub name: String,
+    pub ty: Type,
+    pub value: Expression,
+}
+
+#[derive(Debug, Clone)]
+pub struct StaticDeclaration {
+    pub name: String,
+    pub ty: Type,
+    pub value: Expression,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeAlias {
+    pub name: String,
+    pub ty: Type,
 }
 
 pub trait Spanned {

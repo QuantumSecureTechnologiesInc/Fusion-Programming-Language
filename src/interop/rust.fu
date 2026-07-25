@@ -1,0 +1,361 @@
+// Fusion Rust Interop Bridge
+// Enables Fusion .fu code to call into Rust functions and vice versa
+// Uses C FFI (extern "C") as the bridge layer since both Fusion and Rust
+// can produce C-compatible ABI functions
+
+// ============================================================
+// Rust FFI Types
+// ============================================================
+
+struct RustLibrary {
+    handle: int,
+    name: string,
+    path: string,
+}
+
+struct RustFunction {
+    name: string,
+    library: RustLibrary,
+    arg_count: int,
+    return_type: string,
+}
+
+struct RustObject {
+    handle: int,
+    type_name: string,
+    size: int,
+}
+
+// ============================================================
+// Rust Library Loading
+// ============================================================
+
+// Load a compiled Rust library (.so/.dylib/.dll)
+extern fn rust_lib_load(path: string) -> int;
+
+// Get function pointer from loaded library
+extern fn rust_lib_get_fn(lib_handle: int, fn_name: string) -> int;
+
+// Unload a Rust library
+extern fn rust_lib_unload(lib_handle: int) -> void;
+
+// Check if a Rust library is loaded
+extern fn rust_lib_is_loaded(lib_handle: int) -> int;
+
+// ============================================================
+// Rust Function Calls (via C FFI)
+// ============================================================
+
+// Call a Rust function that takes no arguments and returns int
+extern fn rust_call_i32(fn_ptr: int) -> int;
+
+// Call a Rust function that takes one int argument
+extern fn rust_call_i32_i32(fn_ptr: int, arg1: int) -> int;
+
+// Call a Rust function that takes two int arguments
+extern fn rust_call_i32_i32_i32(fn_ptr: int, arg1: int, arg2: int) -> int;
+
+// Call a Rust function that takes a string argument
+extern fn rust_call_str(fn_ptr: int, arg1: string) -> int;
+
+// Call a Rust function that takes string and returns string
+extern fn rust_call_str_str(fn_ptr: int, arg1: string) -> string;
+
+// Call a Rust function with raw bytes
+extern fn rust_call_bytes(fn_ptr: int, data: *byte, len: int) -> int;
+
+// Call a Rust function and get raw bytes back
+extern fn rust_call_bytes_out(fn_ptr: int, buf: *byte, buf_len: int) -> int;
+
+// ============================================================
+// Rust-Specific FFI: Boxing and Allocation
+// ============================================================
+
+// Allocate memory on Rust's heap (uses Rust's global allocator)
+extern fn rust_alloc(size: int) -> *byte;
+
+// Free memory allocated by Rust
+extern fn rust_free(ptr: *byte) -> void;
+
+// Clone a Rust Box<T> (increments reference count for Rc/Arc)
+extern fn rust_clone(ptr: *byte) -> *byte;
+
+// Get the size of a Rust type (for safe allocation)
+extern fn rust_type_size(type_name: string) -> int;
+
+// ============================================================
+// Rust String Handling
+// ============================================================
+
+// Create a Rust String from a Fusion string
+extern fn rust_string_from_fusion(fus_str: string) -> *byte;
+
+// Get a Fusion string from a Rust String (consumes the Rust String)
+extern fn rust_string_to_fusion(rust_str: *byte) -> string;
+
+// Get the length of a Rust string
+extern fn rust_string_len(rust_str: *byte) -> int;
+
+// Concatenate two Rust strings
+extern fn rust_string_concat(a: *byte, b: *byte) -> *byte;
+
+// ============================================================
+// Rust Closure / Function Pointer Support
+// ============================================================
+
+// Create a closure wrapper that can be called from Rust
+extern fn rust_wrap_closure(fusion_fn: fn(int) -> int) -> *byte;
+
+// Call a Rust closure with an int argument
+extern fn rust_call_closure(closure_ptr: *byte, arg: int) -> int;
+
+// Free a Rust closure wrapper
+extern fn rust_free_closure(closure_ptr: *byte) -> void;
+
+// ============================================================
+// Rust Trait Object Support (via Box<dyn Fn>)
+// ============================================================
+
+// Create a trait object from a Fusion function
+extern fn rust_trait_from_fn(fn_name: string, fn_ptr: int) -> *byte;
+
+// Call a Rust trait object
+extern fn rust_trait_call(trait_ptr: *byte, arg: int) -> int;
+
+// Free a Rust trait object
+extern fn rust_free_trait(trait_ptr: *byte) -> void;
+
+// ============================================================
+// High-Level Rust Interop API
+// ============================================================
+
+fn rust_lib_open(path: string) -> RustLibrary {
+    let handle = rust_lib_load(path);
+    if handle == 0 {
+        printf("Error: Failed to load Rust library: %s\n", path);
+        exit(1);
+    }
+    return RustLibrary { handle: handle, name: path, path: path };
+}
+
+fn rust_lib_close(lib: RustLibrary) -> void {
+    rust_lib_unload(lib.handle);
+}
+
+fn rust_find_function(lib: RustLibrary, fn_name: string) -> RustFunction {
+    let fn_ptr = rust_lib_get_fn(lib.handle, fn_name);
+    if fn_ptr == 0 {
+        printf("Error: Function '%s' not found in library '%s'\n", fn_name, lib.name);
+        exit(1);
+    }
+    return RustFunction { name: fn_name, library: lib, arg_count: 0, return_type: "int" };
+}
+
+fn rust_call(func: RustFunction) -> int {
+    let fn_ptr = rust_lib_get_fn(func.library.handle, func.name);
+    return rust_call_i32(fn_ptr);
+}
+
+fn rust_call_with_int(func: RustFunction, arg: int) -> int {
+    let fn_ptr = rust_lib_get_fn(func.library.handle, func.name);
+    return rust_call_i32_i32(fn_ptr, arg);
+}
+
+fn rust_call_with_two_ints(func: RustFunction, arg1: int, arg2: int) -> int {
+    let fn_ptr = rust_lib_get_fn(func.library.handle, func.name);
+    return rust_call_i32_i32_i32(fn_ptr, arg1, arg2);
+}
+
+fn rust_call_with_string(func: RustFunction, arg: string) -> string {
+    let fn_ptr = rust_lib_get_fn(func.library.handle, func.name);
+    return rust_call_str_str(fn_ptr, arg);
+}
+
+// ============================================================
+// Rust Object Lifecycle
+// ============================================================
+
+fn rust_create_object(type_name: string) -> RustObject {
+    let size = rust_type_size(type_name);
+    let ptr = rust_alloc(size);
+    return RustObject { handle: ptr, type_name: type_name, size: size };
+}
+
+fn rust_destroy_object(obj: RustObject) -> void {
+    rust_free(obj.handle);
+}
+
+// ============================================================
+// Rust Async Runtime Bridge
+// ============================================================
+
+// Initialize the Rust async runtime (tokio)
+extern fn rust_async_init() -> int;
+
+// Spawn an async task on the Rust runtime
+extern fn rust_async_spawn(task_id: string, fn_ptr: int, arg: int) -> int;
+
+// Poll an async task for completion
+extern fn rust_async_poll(task_id: string) -> int;
+
+// Cancel an async task
+extern fn rust_async_cancel(task_id: string) -> void;
+
+// Shutdown the Rust async runtime
+extern fn rust_async_shutdown() -> void;
+
+// ============================================================
+// Rust Serde Bridge (JSON/MessagePack)
+// ============================================================
+
+// Serialize a Fusion value to JSON using Rust's serde
+extern fn rust_serde_to_json(value: string) -> string;
+
+// Deserialize JSON to Fusion value using Rust's serde
+extern fn rust_serde_from_json(json: string) -> string;
+
+// Serialize to MessagePack (binary, more compact)
+extern fn rust_serde_to_msgpack(value: string) -> *byte;
+
+// Deserialize from MessagePack
+extern fn rust_serde_from_msgpack(data: *byte, len: int) -> string;
+
+// ============================================================
+// Rust Error Handling Bridge
+// ============================================================
+
+struct RustResult {
+    ok: bool,
+    value: int,
+    error_msg: string,
+}
+
+// Call a Rust function that returns Result<T, E>
+extern fn rust_call_result(fn_ptr: int, arg: int) -> RustResult;
+
+// Get the last Rust error message
+extern fn rust_last_error() -> string;
+
+// Clear the last Rust error
+extern fn rust_clear_error() -> void;
+
+// ============================================================
+// Rust Macro Expansion Bridge
+// ============================================================
+
+// Expand a Rust declarative macro
+extern fn rust_macro_expand(macro_name: string, args: string) -> string;
+
+// Check if a Rust macro exists
+extern fn rust_macro_exists(macro_name: string) -> int;
+
+// ============================================================
+// Rust Procedural Macro Bridge
+// ============================================================
+
+// Run a Rust derive macro on a type definition
+extern fn rust_derive_macro(macro_name: string, type_def: string) -> string;
+
+// Run a Rust attribute macro
+extern fn rust_attr_macro(macro_name: string, item: string) -> string;
+
+// ============================================================
+// Rust Proc-Macro Crate Loading
+// ============================================================
+
+// Load a Rust proc-macro crate
+extern fn rust_proc_macro_load(crate_path: string) -> int;
+
+// Expand a procedural macro using loaded crate
+extern fn rust_proc_macro_expand(lib_handle: int, macro_name: string, input: string) -> string;
+
+// ============================================================
+// Rust-Specific Type Mapping
+// ============================================================
+
+// Fusion type -> Rust FFI type mapping:
+// int -> i64 / u64
+// float -> f64
+// bool -> bool / u8
+// string -> *const c_char / *mut c_char
+// *byte -> *mut u8
+// void -> ()
+// []int -> *const i64 + len
+// []byte -> *const u8 + len
+// struct -> #[repr(C)] struct
+// enum -> #[repr(u8)] enum
+
+// ============================================================
+// Rust Cargo Integration
+// ============================================================
+
+// Build a Rust crate from Fusion project
+extern fn rust_cargo_build(manifest_path: string, profile: string) -> int;
+
+// Run Rust tests
+extern fn rust_cargo_test(manifest_path: string) -> int;
+
+// Get Rust crate metadata
+extern fn rust_cargo_metadata(manifest_path: string) -> string;
+
+// Check Rust toolchain version
+extern fn rust_version() -> string;
+
+// ============================================================
+// Rust WASM Bridge
+// ============================================================
+
+// Compile Rust code to WASM
+extern fn rust_wasm_build(source: string, output: string) -> int;
+
+// Load a WASM module compiled from Rust
+extern fn rust_wasm_load(module_path: string) -> int;
+
+// Call a function in a WASM module
+extern fn rust_wasm_call(module: int, fn_name: string, args: string) -> string;
+
+// ============================================================
+// Rust Bindgen (auto-generate FFI bindings)
+// ============================================================
+
+// Generate Fusion FFI bindings from a Rust header file
+extern fn rust_bindgen(header_path: string) -> string;
+
+// Generate bindings from a Cargo.toml
+extern fn rust_bindgen_cargo(manifest_path: string) -> string;
+
+// ============================================================
+// Example Usage
+// ============================================================
+
+fn example_rust_interop() -> void {
+    // Load a Rust library
+    let lib = rust_lib_open("libmy_rust_crate.so");
+
+    // Find a function
+    let process_fn = rust_find_function(lib, "process_data");
+
+    // Call it with arguments
+    let result = rust_call_with_two_ints(process_fn, 42, 100);
+    printf("Rust function returned: %d\n", result);
+
+    // Use Rust async runtime
+    rust_async_init();
+    let task_id = rust_async_spawn("task1", process_fn.name, 0);
+    let status = rust_async_poll(task_id);
+    printf("Async task status: %d\n", status);
+
+    // Serialize with Rust serde
+    let json = rust_serde_to_json("{ \"key\": \"value\" }");
+    printf("Serialized: %s\n", json);
+
+    // Build a Rust crate
+    let build_result = rust_cargo_build("Cargo.toml", "release");
+    if build_result == 0 {
+        printf("Rust crate built successfully\n");
+    }
+
+    // Clean up
+    rust_lib_close(lib);
+    rust_async_shutdown();
+}

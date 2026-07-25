@@ -1,0 +1,26 @@
+// Function-as-a-Service integration for Fusion V2.0 Vortex
+
+struct Function {
+    name: string,
+    runtime: string,
+    handler: string,
+    timeout_ms: int
+}
+
+struct FaasRequest {
+    method: string,
+    path: string,
+    body: string,
+    headers: string
+}
+
+struct FaasResponse {
+    status: int,
+    body: string,
+    headers: string
+}
+
+extern fn faas_register(func: Function) -> void
+extern fn faas_invoke(name: string, request: FaasRequest) -> FaasResponse
+extern fn faas_list() -> string
+extern fn faas_delete(name: string) -> void

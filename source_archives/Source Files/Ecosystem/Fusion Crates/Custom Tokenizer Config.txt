@@ -1,9 +1,0 @@
-[package]
-name = "fusion_llm_custom_tokenizer"
-version = "0.1.0"
-edition = "2021"
-description = "BPE/SentencePiece training utility for custom vocabulary creation"
-license = "MIT"
-
-[dependencies]
-fusion_std = { path = "../std", version = "0.1.0" }

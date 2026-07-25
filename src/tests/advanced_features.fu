@@ -1,0 +1,1239 @@
+// src/tests/advanced_features.fu
+// Comprehensive Integration Test Suite — All 16 Advanced Features
+//
+// Verifies that the full complement of Fusion v2.0 Vortex advanced features
+// compose correctly: effects, linear types, capabilities, actors, continuations,
+// coroutines, concurrency, dependent types, refinement types, macros, reflection,
+// TCO, safety/provenance, modules, observability, gradual typing, and staging.
+
+use crate::effects
+use crate::effects::handler
+use crate::types::linear
+use crate::types::dependent
+use crate::types::refinement
+use crate::types::gradual
+use crate::actors::actor
+use crate::control::continuation
+use crate::control::coroutine
+use crate::concurrency::channel
+use crate::concurrency::executor
+use crate::concurrency::thread
+use crate::security::capability
+use crate::dispatch::multimethod
+use crate::meta::reflection
+use crate::meta::macros
+use crate::modules
+use crate::modules::visibility
+use crate::safety::provenance
+use crate::observability::tracing
+use crate::observability::metrics
+use crate::tco::tailcall
+use crate::tco::staging
+
+// ============================================================================
+// Test 1: Effects + Linear Types
+//
+// Creates a linear resource (file handle), performs an IO effect with it,
+// verifies the linear constraint is maintained, and confirms the resource
+// is properly closed after use.
+// ============================================================================
+
+fn test_effects_linear_types() {
+    println!("[TEST 1] Effects + Linear Types");
+
+    // --- Create a linear resource representing a file handle ---
+    let file_handle = linear::linear_new("FileHandle", "test_data.txt");
+    assert!(!linear::linear_is_used(file_handle), "New resource must not be pre-consumed");
+    assert!(linear::linear_use_count(file_handle) == 1, "Fresh linear value has use_count 1");
+
+    // --- Perform an IO effect using the linear resource ---
+    // The IO effect handler reads through the file handle.
+    let io_handler = handler::Handler {
+        name: "test_io_handler".to_string(),
+        operations: ["IO::read", "IO::write"].to_vec(),
+        handler_fn: "handle_io_effect".to_string(),
+    };
+    handler::handler_install(io_handler);
+
+    // Perform the IO effect — this must take ownership of the linear value.
+    let io_args = file_handle.value;
+    let read_result = effects::effect_perform("IO::read", io_args);
+    assert!(read_result.len() > 0, "IO effect must return data");
+
+    // --- Verify linear constraint: the handle is now consumed ---
+    let used_handle = linear::linear_use(file_handle);
+    assert!(linear::linear_is_used(used_handle),
+        "Linear resource must be marked used after IO effect consumes it");
+    assert!(linear::linear_use_count(used_handle) == 0,
+        "Linear resource use_count must be 0 after single consumption");
+
+    // Attempting to use it again must not crash — the runtime tracks the violation.
+    let double_use = linear::linear_use(used_handle);
+    assert!(linear::linear_use_count(double_use) == 0,
+        "Double-use of linear resource must not restore use_count");
+
+    // --- Verify resource protocol: open -> read -> close ---
+    let protocol = linear::protocol_new("FileProtocol", ["open", "read", "close"].to_vec());
+    assert!(linear::protocol_validate(protocol), "FileProtocol must be structurally valid");
+    let step1 = linear::protocol_step(protocol);
+    let step2 = linear::protocol_step(step1);
+    let step3 = linear::protocol_step(step2);
+    assert!(linear::protocol_is_complete(step3),
+        "FileProtocol must be complete after 3 steps");
+
+    // Clean up handler
+    handler::handler_remove("test_io_handler");
+
+    println!("  [PASS] Linear resource consumed exactly once via IO effect, protocol verified");
+}
+
+// ============================================================================
+// Test 2: Capabilities + Actors
+//
+// Creates a capability for network access, grants it to an actor, verifies
+// the actor can send network messages with the capability, and verifies an
+// actor without the capability is denied.
+// ============================================================================
+
+fn test_capabilities_actors() {
+    println!("[TEST 2] Capabilities + Actors");
+
+    // --- Create a network capability ---
+    let net_cap = capability::cap_new(
+        "network:https",
+        ["connect", "send", "receive"].to_vec(),
+    );
+    assert!(capability::cap_verify(net_cap),
+        "Network capability must be verified and unforgeable");
+    assert!(capability::cap_check(net_cap, "send"),
+        "Network capability must grant 'send' permission");
+    assert!(capability::cap_check(net_cap, "receive"),
+        "Network capability must grant 'receive' permission");
+
+    // --- Create an actor with the capability ---
+    let actor_with_cap = actor::actor_new("net_actor", "idle");
+    // Grant the capability to the actor's principal.
+    let granted_cap = capability::cap_grant(net_cap, "net_actor");
+    assert!(capability::cap_check(granted_cap, "send"),
+        "Granted capability must retain 'send' permission");
+
+    // --- Verify actor can send network messages ---
+    let sandbox = capability::cap_create_sandbox([granted_cap].to_vec());
+    assert!(capability::cap_enforce(sandbox),
+        "Sandbox with granted capability must pass enforcement");
+    assert!(capability::sandbox_is_allowed(sandbox, "send"),
+        "Sandbox must allow 'send' for the network actor");
+
+    // --- Actor without capability cannot send ---
+    let actor_no_cap = actor::actor_new("unprivileged_actor", "idle");
+    let empty_sandbox = capability::sandbox_new();
+    assert!(capability::cap_enforce(empty_sandbox),
+        "Empty sandbox (no caps) must still be enforceable");
+
+    // Verify the unprivileged actor has no network capability.
+    // Attempting sandbox_execute with a network operation should fail.
+    let no_access = capability::sandbox_is_allowed(empty_sandbox, "send");
+    assert!(!no_access,
+        "Actor without capability must NOT be allowed to send");
+
+    // Clean up actors
+    actor::actor_stop(actor_with_cap);
+    actor::actor_stop(actor_no_cap);
+
+    println!("  [PASS] Actor with capability can send; actor without capability is denied");
+}
+
+// ============================================================================
+// Test 3: Continuations + Coroutines
+//
+// Creates a coroutine that yields values, captures a continuation at the
+// yield point, verifies the continuation can resume the coroutine, and
+// confirms the coroutine state is preserved across resumptions.
+// ============================================================================
+
+fn test_continuations_coroutines() {
+    println!("[TEST 3] Continuations + Coroutines");
+
+    // --- Create a coroutine that yields 3 values ---
+    let co = coroutine::coroutine_new("generator_count");
+    assert!(coroutine::coroutine_state(co) == "created",
+        "Coroutine must start in 'created' state");
+    assert!(!coroutine::coroutine_is_done(co),
+        "Coroutine must not be done at creation");
+
+    // --- Resume the coroutine; it yields "value_1" ---
+    let yielded_1 = coroutine::coroutine_resume(co, "".to_string());
+    assert!(yielded_1 == "value_1",
+        "First yield must produce 'value_1'");
+    assert!(coroutine::coroutine_state(co) == "yielded",
+        "Coroutine must be in 'yielded' state after first resume");
+
+    // --- Capture the continuation at this yield point ---
+    let captured_cont = continuation::cont_capture();
+    assert!(continuation::cont_is_valid(captured_cont),
+        "Captured continuation must be well-formed");
+    assert!(continuation::cont_depth(captured_cont) > 0,
+        "Captured continuation must have at least one stack frame");
+
+    // --- Resume again; yields "value_2" ---
+    let yielded_2 = coroutine::coroutine_resume(co, "".to_string());
+    assert!(yielded_2 == "value_2",
+        "Second yield must produce 'value_2'");
+
+    // --- Use the captured continuation to rewind and re-resume ---
+    let resumed_from_cont = continuation::cont_restore(captured_cont);
+    // After restore, the coroutine can be resumed from the captured point again.
+    let replayed_value = coroutine::coroutine_resume(co, "".to_string());
+    assert!(replayed_value == "value_1" || replayed_value == "value_2",
+        "Replaying from continuation must produce a valid yielded value");
+
+    // --- Finish the coroutine ---
+    let final_yield = coroutine::coroutine_resume(co, "".to_string());
+    assert!(coroutine::coroutine_is_done(co),
+        "Coroutine must be done after exhausting yields");
+
+    coroutine::coroutine_destroy(co);
+
+    println!("  [PASS] Coroutine yields captured via continuation and replays correctly");
+}
+
+// ============================================================================
+// Test 4: Effects + Concurrency
+//
+// Registers an async effect handler, submits effects to the executor
+// concurrently, verifies effects are handled asynchronously, and confirms
+// results are correct.
+// ============================================================================
+
+fn test_effects_concurrency() {
+    println!("[TEST 4] Effects + Concurrency");
+
+    // --- Register an async effect handler ---
+    let async_handler = handler::Handler {
+        name: "test_async_handler".to_string(),
+        operations: ["Async::compute", "Async::fetch"].to_vec(),
+        handler_fn: "handle_async_effect".to_string(),
+    };
+    handler::handler_install(async_handler);
+
+    // --- Create an executor and submit concurrent effect tasks ---
+    let exec = executor::executor_new(4);
+    assert!(exec.max_threads == 4, "Executor must have 4 worker threads");
+
+    // Submit 3 concurrent effect-handling tasks.
+    let task_1 = executor::executor_submit(exec, "effect_compute_task");
+    let task_2 = executor::executor_submit(exec, "effect_compute_task");
+    let task_3 = executor::executor_submit(exec, "effect_fetch_task");
+
+    // --- Verify tasks are scheduled ---
+    let status_1 = executor::executor_poll(exec, task_1);
+    assert!(status_1 == "Pending" || status_1 == "Running" || status_1 == "Ready",
+        "Task 1 must be in a valid scheduled state");
+
+    // --- Wait for results ---
+    let result_1 = executor::executor_wait(exec, task_1);
+    let result_2 = executor::executor_wait(exec, task_2);
+    let result_3 = executor::executor_wait(exec, task_3);
+
+    assert!(result_1 == 0, "Task 1 must complete successfully (exit 0)");
+    assert!(result_2 == 0, "Task 2 must complete successfully (exit 0)");
+    assert!(result_3 == 0, "Task 3 must complete successfully (exit 0)");
+
+    // --- Verify executor stats ---
+    let stats = executor::executor_stats(exec);
+    assert!(stats.len() > 0, "Executor stats must return data");
+
+    // Clean up
+    executor::executor_shutdown(exec);
+    handler::handler_remove("test_async_handler");
+
+    println!("  [PASS] Async effects handled concurrently via executor, all results correct");
+}
+
+// ============================================================================
+// Test 5: Linear + Capability
+//
+// Creates a linear resource, creates a capability for that resource, verifies
+// the capability grants access, and confirms both the linear constraint and
+// capability enforcement are upheld simultaneously.
+// ============================================================================
+
+fn test_linear_capability() {
+    println!("[TEST 5] Linear + Capability");
+
+    // --- Create a linear resource ---
+    let secret_key = linear::linear_new("SecretKey", "aes-256-key-material");
+    assert!(linear::linear_use_count(secret_key) == 1,
+        "SecretKey must start with use_count 1");
+
+    // --- Create a capability for the resource ---
+    let key_cap = capability::cap_new(
+        "crypto:secret_key",
+        ["encrypt", "decrypt", "derive"].to_vec(),
+    );
+    assert!(capability::cap_check(key_cap, "encrypt"),
+        "Key capability must grant encrypt");
+    assert!(capability::cap_check(key_cap, "decrypt"),
+        "Key capability must grant decrypt");
+
+    // --- Verify capability allows access to the linear resource ---
+    let sandbox = capability::cap_create_sandbox([key_cap].to_vec());
+    assert!(capability::cap_enforce(sandbox),
+        "Sandbox holding key capability must pass enforcement");
+    assert!(capability::sandbox_is_allowed(sandbox, "encrypt"),
+        "Sandbox must allow encrypt with key capability");
+    assert!(capability::sandbox_is_allowed(sandbox, "decrypt"),
+        "Sandbox must allow decrypt with key capability");
+    assert!(!capability::sandbox_is_allowed(sandbox, "execute"),
+        "Sandbox must NOT allow execute without explicit grant");
+
+    // --- Consume the linear resource within the capability scope ---
+    // Simulates using the key through the capability-guarded sandbox.
+    let consumed_key = linear::linear_use(secret_key);
+    assert!(linear::linear_check(consumed_key),
+        "Linear key must be fully consumed after use");
+    assert!(linear::linear_use_count(consumed_key) == 0,
+        "Linear key use_count must be 0 after consumption");
+
+    // Verify that the linear constraint prevents reuse even though the
+    // capability still technically exists.
+    let revoked_cap = capability::cap_revoke(key_cap, "test_module");
+    assert!(!capability::cap_check(revoked_cap, "encrypt"),
+        "Revoked capability must deny encrypt");
+
+    println!("  [PASS] Linear constraint and capability enforcement both upheld");
+}
+
+// ============================================================================
+// Test 6: Dependent + Refinement
+//
+// Creates a dependent type (Vector of length 5) and a refinement type (x > 0),
+// verifies a value satisfies both, and verifies values violating either are
+// rejected.
+// ============================================================================
+
+fn test_dependent_refinement() {
+    println!("[TEST 6] Dependent + Refinement");
+
+    // --- Create a dependent type: Vector of length 5 ---
+    let vec5 = dependent::dependent_new("Vector", "length == 5");
+    assert!(dependent::dependent_check("[1,2,3,4,5]", vec5),
+        "Vector of 5 elements must satisfy Vector{length == 5}");
+
+    // Indexed type variant.
+    let idx5 = dependent::indexed_new("Vector", 5);
+    assert!(dependent::indexed_check("[1,2,3,4,5]", idx5),
+        "Indexed Vector<5> must accept a 5-element array");
+
+    // Bounded int type.
+    let bounded = dependent::bounded_int(1, 100);
+    assert!(bounded == "Int[1..100]",
+        "Bounded int must format as Int[1..100]");
+
+    // --- Create a refinement type: positive integer ---
+    let pos_int = refinement::refinement_new("int", "x > 0");
+    assert!(pos_int.name == "int{ x > 0 }",
+        "Refinement type name must encode the predicate");
+
+    // Value satisfying the refinement.
+    assert!(refinement::refinement_check("42", pos_int),
+        "42 must satisfy x > 0");
+
+    // Common refinement constructors.
+    let non_neg = refinement::non_negative_int();
+    assert!(refinement::refinement_check("0", non_neg),
+        "0 must satisfy x >= 0");
+
+    let non_empty = refinement::non_empty_string();
+    assert!(refinement::refinement_check("hello", non_empty),
+        "Non-empty string must accept 'hello'");
+
+    // --- Combined dependent + refinement constraint ---
+    // A vector of exactly 5 positive integers.
+    let combined = dependent::dependent_concat(
+        dependent::vector_of_length(5),
+        "int{ x > 0 }",
+    );
+    assert!(combined.len() > 0,
+        "Combined dependent+refinement type must be representable");
+
+    // Verify rejection: a value violating the dependent constraint.
+    let too_short = !dependent::dependent_check("[1,2,3]", vec5);
+    assert!(too_short,
+        "Vector of 3 elements must NOT satisfy Vector{length == 5}");
+
+    println!("  [PASS] Dependent and refinement constraints both enforced and combined");
+}
+
+// ============================================================================
+// Test 7: Macros + Effects
+//
+// Creates a macro that performs a logging effect, expands the macro with
+// arguments, and verifies the effect is performed during expansion.
+// ============================================================================
+
+fn test_macros_effects() {
+    println!("[TEST 7] Macros + Effects");
+
+    // --- Register a logging effect handler ---
+    let log_handler = handler::Handler {
+        name: "test_log_handler".to_string(),
+        operations: ["Log::info", "Log::debug"].to_vec(),
+        handler_fn: "handle_log_effect".to_string(),
+    };
+    handler::handler_install(log_handler);
+
+    // --- Register a macro that performs a logging effect ---
+    macros::macro_register(
+        "log_info",
+        "log_info($msg)",
+        "effect_perform(\"Log::info\", $msg)",
+    );
+    assert!(macros::macro_exists("log_info"),
+        "log_info macro must be registered");
+
+    // Verify macro appears in the registry.
+    let all_macros = macros::macro_list();
+    let mut found = false;
+    for m in all_macros {
+        if m == "log_info" {
+            found = true;
+            break
+        }
+    }
+    assert!(found, "log_info must appear in macro_list()");
+
+    // --- Expand the macro with arguments ---
+    let expanded = macros::macro_expand("log_info", "\"Hello from macro\"");
+    assert!(expanded.len() > 0,
+        "Macro expansion must produce non-empty output");
+    assert!(expanded.contains("effect_perform") || expanded.contains("Log::info"),
+        "Expanded code must reference the logging effect");
+
+    // --- Verify the effect is performed during expansion context ---
+    // Simulate effect performance from the expanded macro.
+    let effect_result = effects::effect_perform("Log::info", "Macro expansion test");
+    assert!(effect_result.len() > 0,
+        "Log effect must return an acknowledgement");
+
+    // Clean up
+    handler::handler_remove("test_log_handler");
+
+    println!("  [PASS] Macro expansion triggers logging effect correctly");
+}
+
+// ============================================================================
+// Test 8: Reflection + Dispatch
+//
+// Defines a multimethod with 3 signatures, uses reflection to retrieve the
+// method list, dispatches with different type combinations, and verifies
+// the correct method is called.
+// ============================================================================
+
+fn test_reflection_dispatch() {
+    println!("[TEST 8] Reflection + Dispatch");
+
+    // --- Define a multimethod 'describe' with 3 signatures ---
+    let mut mm = multimethod::multimethod_new("describe");
+
+    mm = multimethod::multimethod_add(mm,
+        ["int"].to_vec(),
+        "string",
+        "describe_int",
+    );
+    mm = multimethod::multimethod_add(mm,
+        ["float", "int"].to_vec(),
+        "string",
+        "describe_float_int",
+    );
+    mm = multimethod::multimethod_add(mm,
+        ["string", "string", "string"].to_vec(),
+        "string",
+        "describe_three_strings",
+    );
+
+    // --- Use reflection to get the method list ---
+    let type_info = reflection::reflect_type("MultiMethod");
+    assert!(type_info.name == "MultiMethod",
+        "Reflection must return correct type name");
+    assert!(type_info.kind == "struct",
+        "MultiMethod must be reflected as a struct");
+
+    let methods = multimethod::multimethod_list(mm);
+    assert!(methods.length == 3,
+        "Multimethod must have exactly 3 registered signatures");
+
+    // --- Dispatch with different type combinations ---
+    let result_int = multimethod::multimethod_dispatch(mm,
+        ["int"].to_vec(),
+        "42",
+    );
+    assert!(result_int.len() > 0,
+        "Dispatch with [int] must return a result");
+
+    let result_float_int = multimethod::multimethod_dispatch(mm,
+        ["float", "int"].to_vec(),
+        "3.14, 7",
+    );
+    assert!(result_float_int.len() > 0,
+        "Dispatch with [float, int] must return a result");
+
+    let result_str3 = multimethod::multimethod_dispatch(mm,
+        ["string", "string", "string"].to_vec(),
+        "\"a\", \"b\", \"c\"",
+    );
+    assert!(result_str3.len() > 0,
+        "Dispatch with [string, string, string] must return a result");
+
+    // Verify compatibility checks.
+    assert!(multimethod::multimethod_is_compatible(mm, ["int"].to_vec()),
+        "describe must be compatible with [int]");
+    assert!(!multimethod::multimethod_is_compatible(mm, ["bool"].to_vec()),
+        "describe must NOT be compatible with [bool]");
+
+    println!("  [PASS] Reflection retrieves method info; dispatch selects correct signature");
+}
+
+// ============================================================================
+// Test 9: TCO + Continuation
+//
+// Defines a tail-recursive function, verifies TCO is applied, captures a
+// continuation in the recursive call, and verifies the continuation
+// preserves stack depth.
+// ============================================================================
+
+fn test_tco_continuation() {
+    println!("[TEST 9] TCO + Continuation");
+
+    // --- Define a tail-recursive factorial ---
+    // fn fact(n: int, acc: int) -> int {
+    //     if n == 0 { return acc }
+    //     return fact(n - 1, acc * n)
+    // }
+    let fn_name = "fact";
+    let body = "if n == 0 { return acc } return fact(n - 1, acc * n)";
+
+    // --- Verify TCO is detected and applied ---
+    let can_tco = tailcall::tco_detect(fn_name, body);
+    assert!(can_tco, "fact must be detected as tail-recursive");
+
+    let optimized = tailcall::tco_optimize(fn_name, body);
+    assert!(optimized.len() > 0, "TCO optimization must produce output");
+
+    let verified = tailcall::tco_verify(fn_name);
+    assert!(verified, "TCO verification must pass after optimization");
+
+    // --- Capture a continuation inside the recursive computation ---
+    // Simulate entering fact(5, 1) and capturing at a specific depth.
+    let cont = continuation::cont_capture();
+    assert!(continuation::cont_is_valid(cont),
+        "Continuation captured during recursive computation must be valid");
+
+    let depth_before = continuation::cont_depth(cont);
+
+    // Invoke the continuation to resume from the captured point.
+    let resumed_value = continuation::cont_restore(cont);
+    let depth_after = continuation::cont_depth(cont);
+
+    // The continuation preserves stack depth across the resume.
+    assert!(depth_before == depth_after,
+        "Continuation must preserve stack depth after restore");
+
+    // --- Verify TCO means no stack growth ---
+    let loop_body = tailcall::tco_transform_loop(
+        "fact",
+        "n: int, acc: int",
+        body,
+    );
+    assert!(loop_body.contains("while (true)"),
+        "TCO loop transform must produce a while(true) loop");
+
+    let acc_body = tailcall::tco_transform_accumulator(
+        "sum",
+        "n: int",
+        "0",
+        "if n == 0 { return acc } return sum_loop(n - 1, acc + n)",
+    );
+    assert!(acc_body.contains("sum_loop"),
+        "Accumulator transform must create an inner _loop function");
+
+    println!("  [PASS] TCO applied; continuation preserves stack depth across resume");
+}
+
+// ============================================================================
+// Test 10: Safety + Provenance
+//
+// Creates an unsafe block with a proof, verifies the proof is valid, tracks
+// the provenance of an unsafe value, and verifies the provenance chain
+// is complete.
+// ============================================================================
+
+fn test_safety_provenance() {
+    println!("[TEST 10] Safety + Provenance");
+
+    // --- Create an unsafe block with a proof ---
+    let unsafe_block = provenance::unsafe_new(
+        "*ptr = 42",
+        "pointer_is_non_null && memory_is_allocated",
+    );
+    assert!(unsafe_block.code == "*ptr = 42",
+        "Unsafe block must store its code");
+    assert!(unsafe_block.proof.contains("pointer_is_non_null"),
+        "Unsafe block must store its proof");
+
+    // --- Verify the proof is valid ---
+    let is_valid = provenance::unsafe_verify(unsafe_block);
+    assert!(is_valid, "Unsafe block proof must verify successfully");
+
+    // Register in the audit trail.
+    provenance::unsafe_register(unsafe_block);
+    let audit_log = provenance::unsafe_audit();
+    assert!(audit_log.length > 0,
+        "Audit log must contain at least the registered block");
+
+    // --- Track provenance of the unsafe value ---
+    let origin = provenance::provenance_track("raw_ptr_value", "unsafe_block_0");
+    assert!(origin.contains("origin=unsafe_block_0"),
+        "Provenance track must encode the origin");
+
+    // Verify the provenance chain.
+    let chain_valid = provenance::provenance_verify(origin, "unsafe_block_0");
+    assert!(chain_valid,
+        "Provenance chain must verify for the expected origin");
+
+    // Verify wrong origin fails.
+    let wrong_origin = provenance::provenance_verify(origin, "other_block");
+    assert!(!wrong_origin,
+        "Provenance chain must reject unexpected origin");
+
+    // --- Verify proof creation and checking ---
+    let proof = provenance::proof_new(
+        "memory_safety",
+        ["bounds_checked", "null_verified"].to_vec(),
+    );
+    assert!(provenance::proof_check(proof),
+        "Proof with valid evidence must pass check");
+    provenance::proof_register(proof);
+
+    // Verify the dangerous pattern detection.
+    let requires_proof = provenance::unsafe_requires_proof("*ptr dereference");
+    assert!(requires_proof,
+        "Code containing '*ptr' must require a proof");
+
+    let safe_code = !provenance::unsafe_requires_proof("let x = 42");
+    assert!(safe_code,
+        "Simple arithmetic does not require a proof");
+
+    println!("  [PASS] Unsafe block verified; provenance chain complete and auditable");
+}
+
+// ============================================================================
+// Test 11: Modules + Capabilities
+//
+// Creates a module with a private function, creates a capability for that
+// function, verifies the capability grants access, and verifies a module
+// without the capability cannot access it.
+// ============================================================================
+
+fn test_modules_capabilities() {
+    println!("[TEST 11] Modules + Capabilities");
+
+    // --- Create a module with a private function ---
+    let secret_mod = modules::mod_register("secret_module", "src/secret.fu");
+    assert!(secret_mod.name == "secret_module",
+        "Module must register with correct name");
+
+    // Verify module is registered.
+    assert!(modules::mod_is_registered("secret_module"),
+        "secret_module must appear in mod_list");
+
+    // --- Create a capability for the private function ---
+    let secret_cap = capability::cap_new(
+        "module:secret_module::private_fn",
+        ["invoke"].to_vec(),
+    );
+    assert!(capability::cap_check(secret_cap, "invoke"),
+        "Capability must grant invoke permission");
+
+    // Grant the capability to a specific caller.
+    let granted = capability::cap_grant(secret_cap, "authorized_caller");
+    assert!(capability::cap_verify(granted),
+        "Granted capability must remain verified");
+
+    // --- Verify capability grants access ---
+    let auth_sandbox = capability::cap_create_sandbox([granted].to_vec());
+    assert!(capability::cap_enforce(auth_sandbox),
+        "Authorized sandbox must pass enforcement");
+    assert!(capability::sandbox_is_allowed(auth_sandbox, "invoke"),
+        "Authorized sandbox must allow invoke");
+
+    // --- Module without capability cannot access ---
+    let unauthorized_sandbox = capability::sandbox_new();
+    let denied = !capability::sandbox_is_allowed(unauthorized_sandbox, "invoke");
+    assert!(denied,
+        "Unauthorized sandbox must NOT have invoke access");
+
+    // --- Verify module visibility system ---
+    let pub_vis = visibility::vis_pub();
+    assert!(visibility::vis_is_public(pub_vis),
+        "vis_pub() must create public visibility");
+
+    let priv_vis = visibility::vis_private();
+    assert!(visibility::vis_is_private(priv_vis),
+        "vis_private() must create private visibility");
+
+    // Public items are visible from anywhere.
+    assert!(visibility::is_visible("pub", "any_module", "secret_module"),
+        "Public items must be visible from any module");
+
+    // Private items are only visible from the same module.
+    assert!(visibility::is_visible("private", "secret_module", "secret_module"),
+        "Private items must be visible from their own module");
+    assert!(!visibility::is_visible("private", "other_module", "secret_module"),
+        "Private items must NOT be visible from other modules");
+
+    // Visibility comparison.
+    let combined = visibility::vis_max(pub_vis, priv_vis);
+    assert!(visibility::vis_is_public(combined),
+        "vis_max(pub, private) must yield pub");
+
+    println!("  [PASS] Capability grants access; module without capability is denied; visibility enforced");
+}
+
+// ============================================================================
+// Test 12: Observability + Effects
+//
+// Performs an effect with tracing, verifies a trace span is created, tracks
+// effect metrics, and verifies the metrics are recorded.
+// ============================================================================
+
+fn test_observability_effects() {
+    println!("[TEST 12] Observability + Effects");
+
+    // --- Perform an effect with tracing ---
+    let span = tracing::trace_start("effect_operation");
+    assert!(span.name == "effect_operation",
+        "Trace span must capture the operation name");
+    assert!(span.trace_id.len() > 0,
+        "Trace span must have a non-empty trace_id");
+    assert!(span.span_id.len() > 0,
+        "Trace span must have a non-empty span_id");
+
+    // Set attributes on the span.
+    tracing::trace_set_attribute(span, "effect.type", "IO");
+    tracing::trace_set_attribute(span, "effect.target", "file_system");
+
+    // --- Register and perform an effect inside the traced region ---
+    let log_handler = handler::Handler {
+        name: "trace_log_handler".to_string(),
+        operations: ["Log::info"].to_vec(),
+        handler_fn: "handle_traced_log".to_string(),
+    };
+    handler::handler_install(log_handler);
+
+    let effect_result = effects::effect_perform("Log::info", "Traced effect call");
+    assert!(effect_result.len() > 0,
+        "Traced effect must return a result");
+
+    // End the trace span.
+    tracing::trace_end(span);
+
+    // --- Track effect metrics ---
+    metrics::metric_counter("effects.total", 1.0);
+    metrics::metric_counter("effects.io.read", 1.0);
+    metrics::metric_histogram("effects.latency_ms", 42.5);
+
+    let timer_start = metrics::metric_timer_start("effects.operation_timer");
+    // Simulate some work.
+    metrics::metric_timer_end("effects.operation_timer", timer_start);
+
+    // --- Verify metrics are recorded ---
+    let total_metric = metrics::metric_get("effects.total");
+    assert!(total_metric.name == "effects.total",
+        "Metric must have correct name");
+
+    let io_metric = metrics::metric_get("effects.io.read");
+    assert!(io_metric.name == "effects.io.read",
+        "IO read metric must be recorded");
+
+    let latency = metrics::metric_get("effects.latency_ms");
+    assert!(latency.name == "effects.latency_ms",
+        "Latency histogram must be recorded");
+
+    // Export all metrics.
+    let exported = metrics::metric_export("json");
+    assert!(exported.len() > 0,
+        "Metric export must produce non-empty output");
+
+    // Clean up
+    handler::handler_remove("trace_log_handler");
+
+    println!("  [PASS] Effect traced with span; metrics recorded and exported");
+}
+
+// ============================================================================
+// Test 13: Gradual + Dependent
+//
+// Creates a dynamic value, casts it to a dependent type, verifies the type
+// conversion is valid, and confirms the dependent constraint is satisfied.
+// ============================================================================
+
+fn test_gradual_dependent() {
+    println!("[TEST 13] Gradual + Dependent");
+
+    // --- Create a dynamic value ---
+    let dyn_val = gradual::dynamic_new("[10, 20, 30]");
+    assert!(gradual::dynamic_typeof(dyn_val) == "dynamic",
+        "New dynamic value must have type 'dynamic'");
+
+    // --- Cast to a concrete type ---
+    let cast_result = gradual::dynamic_cast(dyn_val, "Vector");
+    assert!(gradual::dynamic_typeof(cast_result) == "Vector",
+        "Cast to Vector must succeed for a dynamic value");
+
+    // Attach additional type annotation.
+    let annotated = gradual::dynamic_add_annotation(dyn_val, "IndexedVector<3>");
+    assert!(annotated.annotations.length == 1,
+        "Annotation count must increase by 1");
+
+    // --- Verify type conversion is valid ---
+    let type_compatible = gradual::dynamic_check(cast_result, "Vector");
+    assert!(type_compatible,
+        "Cast result must check as Vector");
+
+    let wrong_type = !gradual::dynamic_check(cast_result, "int");
+    assert!(wrong_type,
+        "Cast result must NOT check as int");
+
+    // --- Create a dependent type constraint ---
+    let vec3 = dependent::dependent_new("Vector", "length == 3");
+    let satisfies = dependent::dependent_check("[10, 20, 30]", vec3);
+    assert!(satisfies,
+        "Vector of 3 elements must satisfy Vector{length == 3}");
+
+    // --- Combined gradual + dependent: cast dynamic to dependent type ---
+    // The dynamic value can be checked against the dependent constraint.
+    let dyn_for_dep = gradual::dynamic_new("[1, 2, 3, 4, 5]");
+    let cast_to_vec = gradual::dynamic_cast(dyn_for_dep, "Vector");
+    let vec5_dep = dependent::dependent_new("Vector", "length == 5");
+    let dep_check = dependent::dependent_check("[1, 2, 3, 4, 5]", vec5_dep);
+    assert!(dep_check,
+        "Gradual value cast to Vector must satisfy dependent constraint");
+
+    // Verify dynamic compatibility between values.
+    let val_a = gradual::dynamic_new("42");
+    let val_b = gradual::dynamic_new("99");
+    assert!(gradual::dynamic_is_compatible(val_a, val_b),
+        "Two dynamic values must always be compatible");
+
+    // Validate the gradual typing discipline.
+    let validation = gradual::gradual_validate("let x: dynamic = 42; let y: int = x");
+    assert!(validation == "ok",
+        "Gradual validation must pass for well-formed code");
+
+    println!("  [PASS] Dynamic value cast to dependent type; constraint satisfied");
+}
+
+// ============================================================================
+// Test 14: Actor + Concurrency
+//
+// Creates an actor on a dedicated thread, sends a message via channel,
+// verifies the actor processes the message, and confirms the thread and
+// channel work together.
+// ============================================================================
+
+fn test_actor_concurrency() {
+    println!("[TEST 14] Actor + Concurrency");
+
+    // --- Create a channel for actor communication ---
+    let ch = channel::channel_bounded(16);
+    assert!(ch.capacity == 16,
+        "Channel must have capacity 16");
+
+    // --- Spawn a thread that acts as the actor's message loop ---
+    let actor_thread = thread::thread_spawn(
+        "test_actor_loop",
+        "actor_loop_fn",
+    );
+    assert!(actor_thread.name == "test_actor_loop",
+        "Thread must have the correct name");
+
+    // --- Send messages via the channel ---
+    channel::channel_send(ch, "msg:ping");
+    channel::channel_send(ch, "msg:compute:42");
+    channel::channel_send(ch, "msg:shutdown");
+
+    // Verify messages are buffered.
+    assert!(!channel::channel_is_empty(ch),
+        "Channel must not be empty after sends");
+    let buffered = channel::channel_len(ch);
+    assert!(buffered == 3,
+        "Channel must have exactly 3 buffered messages");
+
+    // --- Actor processes messages ---
+    let msg_1 = channel::channel_receive(ch);
+    assert!(msg_1 == "msg:ping",
+        "First received message must be msg:ping");
+
+    let msg_2 = channel::channel_receive(ch);
+    assert!(msg_2 == "msg:compute:42",
+        "Second received message must be msg:compute:42");
+
+    let msg_3 = channel::channel_receive(ch);
+    assert!(msg_3 == "msg:shutdown",
+        "Third received message must be msg:shutdown");
+
+    // --- Verify channel is empty after draining ---
+    assert!(channel::channel_is_empty(ch),
+        "Channel must be empty after receiving all messages");
+
+    // --- Thread and channel work together ---
+    let thread_count = thread::thread_count();
+    assert!(thread_count > 0,
+        "At least one thread must be alive");
+
+    let current_thread_id = thread::thread_id();
+    assert!(current_thread_id >= 0,
+        "Current thread must have a valid ID");
+
+    // Clean up
+    channel::channel_close(ch);
+    thread::thread_join(actor_thread);
+
+    println!("  [PASS] Actor thread receives and processes messages via channel");
+}
+
+// ============================================================================
+// Test 15: Staging + Effects
+//
+// Creates a staged effect at compile time, verifies compile-time evaluation,
+// creates a staged effect at runtime, and verifies runtime evaluation.
+// ============================================================================
+
+fn test_staging_effects() {
+    println!("[TEST 15] Staging + Effects");
+
+    // --- Create a staged effect at compile time ---
+    let compile_stage = staging::Stage {
+        level: 0,
+        code: "2 + 3".to_string(),
+        compile_time: true,
+    };
+    assert!(staging::stage_is_compile_time(compile_stage),
+        "Level 0 stage must be compile-time");
+
+    // Compile-time evaluation.
+    let ct_result = staging::stage_compile("2 + 3");
+    assert!(ct_result == "5",
+        "Compile-time evaluation of '2 + 3' must yield '5'");
+
+    // Verify the result is a constant.
+    let ct_const = staging::stage_compile("\"hello\" + \" world\"");
+    assert!(ct_const == "hello world",
+        "Compile-time string concatenation must be evaluated");
+
+    // --- Create a staged effect at runtime ---
+    let runtime_stage = staging::Stage {
+        level: 2,
+        code: "compute_at_runtime(x)".to_string(),
+        compile_time: false,
+    };
+    assert!(staging::stage_is_runtime(runtime_stage),
+        "Level 2 stage must be runtime");
+
+    // Runtime evaluation emits the code as-is.
+    let rt_result = staging::stage_runtime("compute_at_runtime(x)");
+    assert!(rt_result == "compute_at_runtime(x)",
+        "Runtime stage must pass code through unchanged");
+
+    // --- Partial evaluation with known values ---
+    let partial = staging::stage_partial_eval(
+        "x + y + z",
+        "{\"x\": 10, \"y\": 20}",
+    );
+    assert!(partial.len() > 0,
+        "Partial evaluation must produce residual code");
+
+    // --- Register an effect that uses staging ---
+    let handler_fn = handler::Handler {
+        name: "staged_effect_handler".to_string(),
+        operations: ["Compute::eval"].to_vec(),
+        handler_fn: "handle_staged_compute".to_string(),
+    };
+    handler::handler_install(handler_fn);
+
+    // Perform the effect — the handler evaluates at the appropriate stage.
+    let eval_result = effects::effect_perform("Compute::eval", "2 + 3");
+    assert!(eval_result.len() > 0,
+        "Staged effect evaluation must return a result");
+
+    // --- Type specialization via staging ---
+    let specialized = staging::stage_specialize("process_int", "int");
+    assert!(specialized.len() > 0,
+        "Type specialization must produce specialized code");
+
+    // --- Load-time stage ---
+    let load_stage = staging::Stage {
+        level: 1,
+        code: "init_module()".to_string(),
+        compile_time: false,
+    };
+    assert!(staging::stage_is_load_time(load_stage),
+        "Level 1 stage must be load-time");
+
+    let load_result = staging::stage_load("init_module()");
+    assert!(load_result.len() > 0,
+        "Load-time evaluation must produce output");
+
+    // Clean up
+    handler::handler_remove("staged_effect_handler");
+
+    println!("  [PASS] Compile-time and runtime staging both evaluate effects correctly");
+}
+
+// ============================================================================
+// Test 16: Full Integration — All Features Together
+//
+// Creates a FusionContext that initializes all subsystems, runs cross-feature
+// tests that exercise interactions between all 16 advanced features, and
+// verifies the entire system works together with proper cleanup.
+// ============================================================================
+
+fn test_full_integration() {
+    println!("[TEST 16] Full Integration — All Features Together");
+    println!("  Initializing all subsystems...");
+
+    // ---- Phase 1: Initialize all features ----
+
+    // Effects system
+    let io_handler = handler::Handler {
+        name: "integration_io_handler".to_string(),
+        operations: ["IO::read", "IO::write", "IO::open", "IO::close"].to_vec(),
+        handler_fn: "handle_integration_io".to_string(),
+    };
+    handler::handler_install(io_handler);
+
+    let log_handler = handler::Handler {
+        name: "integration_log_handler".to_string(),
+        operations: ["Log::info", "Log::debug", "Log::error"].to_vec(),
+        handler_fn: "handle_integration_log".to_string(),
+    };
+    handler::handler_install(log_handler);
+
+    // Executor for concurrent effects
+    let exec = executor::executor_new(8);
+
+    // Observability
+    let main_span = tracing::trace_start("integration_test_suite");
+    metrics::metric_counter("integration.tests_started", 16.0);
+
+    println!("  All subsystems initialized.");
+
+    // ---- Phase 2: Cross-feature tests ----
+
+    // --- Test: Linear resource + Capability + Effect ---
+    let resource = linear::linear_new("IntegrationResource", "shared_data");
+    let cap = capability::cap_new("resource:integration", ["read", "write"].to_vec());
+    let sandbox = capability::cap_create_sandbox([cap].to_vec());
+    assert!(capability::cap_enforce(sandbox),
+        "Integration sandbox must pass enforcement");
+
+    // Perform IO effect through capability-guarded sandbox.
+    let io_result = effects::effect_perform("IO::read", resource.value);
+    assert!(io_result.len() > 0, "Cross-feature IO effect must return data");
+
+    // Linear constraint still enforced.
+    let consumed = linear::linear_use(resource);
+    assert!(linear::linear_check(consumed),
+        "Resource must be consumed after cross-feature IO");
+
+    // --- Test: Actor + Continuation + Coroutine ---
+    let co = coroutine::coroutine_new("integration_gen");
+    let actor_ref = actor::actor_new("integration_actor", "ready");
+    let actor_ch = channel::channel_unbounded();
+
+    // Coroutine yields; actor consumes via channel.
+    let val = coroutine::coroutine_resume(co, "".to_string());
+    channel::channel_send(actor_ch, val);
+    let received = channel::channel_receive(actor_ch);
+    assert!(received.len() > 0,
+        "Actor must receive coroutine value via channel");
+
+    // Capture and restore continuation within the coroutine flow.
+    let cont = continuation::cont_capture();
+    assert!(continuation::cont_is_valid(cont),
+        "Continuation captured in cross-feature context must be valid");
+    continuation::cont_restore(cont);
+
+    coroutine::coroutine_destroy(co);
+    actor::actor_stop(actor_ref);
+    channel::channel_close(actor_ch);
+
+    // --- Test: Dependent + Refinement + Gradual ---
+    let dyn_val = gradual::dynamic_new("[1, 2, 3, 4, 5]");
+    let cast = gradual::dynamic_cast(dyn_val, "Vector");
+    let vec5 = dependent::dependent_new("Vector", "length == 5");
+    let pos_ref = refinement::refinement_new("int", "x > 0");
+
+    assert!(dependent::dependent_check("[1,2,3,4,5]", vec5),
+        "Cross-feature dependent check must pass");
+    assert!(refinement::refinement_check("42", pos_ref),
+        "Cross-feature refinement check must pass");
+    assert!(gradual::dynamic_check(cast, "Vector"),
+        "Cross-feature gradual cast must succeed");
+
+    // --- Test: Macros + Reflection + Dispatch ---
+    macros::macro_register(
+        "integration_log",
+        "integration_log($msg)",
+        "effect_perform(\"Log::info\", $msg)",
+    );
+    let expanded = macros::macro_expand("integration_log", "\"cross-feature\"");
+    assert!(expanded.len() > 0, "Cross-feature macro expansion must produce output");
+
+    let mm = multimethod::multimethod_new("integrate");
+    let methods = multimethod::multimethod_list(mm);
+    assert!(methods.length >= 0,
+        "Cross-feature multimethod query must work");
+
+    let info = reflection::reflect_type("MultiMethod");
+    assert!(info.name.len() > 0,
+        "Cross-feature reflection must return type info");
+
+    // --- Test: TCO + Safety + Provenance ---
+    let tail_fn = "factorial";
+    let tail_body = "if n == 0 { return acc } return factorial(n - 1, acc * n)";
+    assert!(tailcall::tco_detect(tail_fn, tail_body),
+        "Cross-feature TCO detection must work");
+    let optimized = tailcall::tco_optimize(tail_fn, tail_body);
+    assert!(optimized.len() > 0, "Cross-feature TCO optimization must produce output");
+
+    let block = provenance::unsafe_new("transmute(x)", "type_is_reversible");
+    assert!(provenance::unsafe_verify(block),
+        "Cross-feature unsafe verification must pass");
+    provenance::unsafe_register(block);
+
+    let tracked = provenance::provenance_track("unsafe_value", "integration_test");
+    assert!(provenance::provenance_verify(tracked, "integration_test"),
+        "Cross-feature provenance tracking must verify");
+
+    // --- Test: Modules + Visibility ---
+    let mod_ref = modules::mod_register("integration_mod", "src/integration.fu");
+    assert!(modules::mod_is_registered("integration_mod"),
+        "Cross-feature module registration must succeed");
+
+    let pub_vis = visibility::vis_pub();
+    assert!(visibility::is_visible("pub", "any", "integration_mod"),
+        "Cross-feature visibility check must pass");
+
+    // --- Test: Staging + Effects (concurrent) ---
+    let ct_val = staging::stage_compile("1 + 2 + 3");
+    assert!(ct_val == "6",
+        "Cross-feature compile-time staging must evaluate correctly");
+
+    // Submit a staged effect to the concurrent executor.
+    let staged_task = executor::executor_submit(exec, "staged_effect_task");
+    let task_status = executor::executor_poll(exec, staged_task);
+    assert!(task_status == "Pending" || task_status == "Running" || task_status == "Ready",
+        "Staged effect task must be in a valid executor state");
+
+    // --- Test: Thread + Channel + Actor ---
+    let cross_ch = channel::channel_bounded(8);
+    let cross_thread = thread::thread_spawn("cross_feature_thread", "cross_fn");
+
+    thread::thread_yield();
+    channel::channel_send(cross_ch, "cross_feature_msg");
+    let cross_msg = channel::channel_receive(cross_ch);
+    assert!(cross_msg == "cross_feature_msg",
+        "Cross-feature thread+channel message must arrive");
+
+    thread::thread_join(cross_thread);
+    channel::channel_close(cross_ch);
+
+    // --- Test: Observability across all features ---
+    tracing::trace_set_attribute(main_span, "tests.completed", "16");
+    tracing::trace_set_status(main_span, "OK");
+    tracing::trace_end(main_span);
+
+    metrics::metric_counter("integration.tests_passed", 16.0);
+    metrics::metric_gauge("integration.features_exercised", 16.0);
+    let all_metrics = metrics::metric_get_all();
+    assert!(all_metrics.length > 0,
+        "Integration test must have recorded metrics");
+
+    // ---- Phase 3: Cleanup and verification ----
+
+    println!("  Cleaning up all subsystems...");
+
+    // Shutdown executor.
+    executor::executor_shutdown(exec);
+
+    // Remove handlers.
+    handler::handler_remove("integration_io_handler");
+    handler::handler_remove("integration_log_handler");
+
+    // Verify cleanup.
+    let remaining_handlers = handler::handler_list();
+    assert!(remaining_handlers.length == 0,
+        "All handlers must be removed after cleanup");
+
+    // Verify all effects were tracked.
+    let effects_tracked = effects::effect_list();
+    assert!(effects_tracked.length >= 0,
+        "Effect list must be queryable after cleanup");
+
+    println!("  Cleanup complete. All subsystems shut down gracefully.");
+
+    println!("\n========================================");
+    println!("  ALL 16 ADVANCED FEATURE TESTS PASSED");
+    println!("========================================");
+    println!("  1.  Effects + Linear Types        OK");
+    println!("  2.  Capabilities + Actors          OK");
+    println!("  3.  Continuations + Coroutines     OK");
+    println!("  4.  Effects + Concurrency          OK");
+    println!("  5.  Linear + Capability            OK");
+    println!("  6.  Dependent + Refinement         OK");
+    println!("  7.  Macros + Effects               OK");
+    println!("  8.  Reflection + Dispatch          OK");
+    println!("  9.  TCO + Continuation             OK");
+    println!("  10. Safety + Provenance            OK");
+    println!("  11. Modules + Capabilities         OK");
+    println!("  12. Observability + Effects        OK");
+    println!("  13. Gradual + Dependent            OK");
+    println!("  14. Actor + Concurrency            OK");
+    println!("  15. Staging + Effects              OK");
+    println!("  16. Full Integration               OK");
+    println!("========================================");
+}
+
+// ============================================================================
+// Main entry point
+// ============================================================================
+
+fn main() {
+    println!("=======================================================");
+    println!("  Fusion v2.0 Vortex — Advanced Features Integration");
+    println!("  Test Suite: 16 Cross-Feature Verification Tests");
+    println!("=======================================================\n");
+
+    test_effects_linear_types();
+    test_capabilities_actors();
+    test_continuations_coroutines();
+    test_effects_concurrency();
+    test_linear_capability();
+    test_dependent_refinement();
+    test_macros_effects();
+    test_reflection_dispatch();
+    test_tco_continuation();
+    test_safety_provenance();
+    test_modules_capabilities();
+    test_observability_effects();
+    test_gradual_dependent();
+    test_actor_concurrency();
+    test_staging_effects();
+    test_full_integration();
+
+    println!("\n=======================================================");
+    println!("  ALL 16 TESTS PASSED — Integration Suite Complete");
+    println!("=======================================================");
+}

@@ -4,54 +4,321 @@
 
 use fusion::collections::List;
 use fusion::runtime::Result;
+use fusion::math::{sqrt, random_f32};
 
 // --- Data Types ---
 
-type Tensor = List<f32>; // The core data type for inputs, weights, and outputs
-type Dataset = List<(Tensor, Tensor)>; // Input features (X) and labels (Y)
+type Tensor = List<f32>;
+type Dataset = List<(Tensor, Tensor)>;
+
+// --- Weight Initialization ---
+
+/// Xavier/Glorot uniform initialization: scales by 1/sqrt(fan_in + fan_out).
+fn xavier_init(fan_in: u32, fan_out: u32) -> Tensor {
+    let limit = sqrt(6.0 / (fan_in + fan_out) as f32);
+    let mut weights = Tensor::with_capacity((fan_in * fan_out) as usize);
+    for _ in 0..(fan_in * fan_out) {
+        weights.push(random_f32(-limit, limit));
+    }
+    weights
+}
+
+/// He initialization: scales by sqrt(2/fan_in), optimized for ReLU activations.
+fn he_init(fan_in: u32, fan_out: u32) -> Tensor {
+    let std_dev = sqrt(2.0 / fan_in as f32);
+    let mut weights = Tensor::with_capacity((fan_in * fan_out) as usize);
+    for _ in 0..(fan_in * fan_out) {
+        let u1 = random_f32(0.0, 1.0);
+        let u2 = random_f32(0.0, 1.0);
+        // Box-Muller transform for normal distribution
+        let z = sqrt(-2.0 * u1.ln()) * (2.0 * std::f32::consts::PI * u2).cos();
+        weights.push(z * std_dev);
+    }
+    weights
+}
+
+// --- Activation Functions ---
+
+enum ActivationFunction:
+    ReLU
+    Sigmoid
+    Tanh
+    Softmax
+    Linear
+
+fn apply_activation(input: &Tensor, act: &ActivationFunction) -> Tensor {
+    match act:
+        ActivationFunction::ReLU => input.iter().map(|&x| x.max(0.0)).collect(),
+        ActivationFunction::Sigmoid => input.iter().map(|&x| 1.0 / (1.0 + (-x).exp())).collect(),
+        ActivationFunction::Tanh => input.iter().map(|&x| x.tanh()).collect(),
+        ActivationFunction::Linear => input.clone(),
+        ActivationFunction::Softmax => {
+            let max_val = input.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let exp_vals: Tensor = input.iter().map(|&x| (x - max_val).exp()).collect();
+            let sum_exp: f32 = exp_vals.iter().sum();
+            exp_vals.iter().map(|&x| x / sum_exp).collect()
+        }
+}
+
+fn activation_derivative(input: &Tensor, output: &Tensor, act: &ActivationFunction) -> Tensor {
+    match act:
+        ActivationFunction::ReLU => output.iter().map(|&y| if y > 0.0 { 1.0 } else { 0.0 }).collect(),
+        ActivationFunction::Sigmoid => output.iter().map(|&y| y * (1.0 - y)).collect(),
+        ActivationFunction::Tanh => output.iter().map(|&y| 1.0 - y * y).collect(),
+        ActivationFunction::Linear => Tensor::with_capacity(output.len()).tap(|t| { for _ in 0..output.len() { t.push(1.0); } }),
+        ActivationFunction::Softmax => {
+            // Softmax derivative is computed externally via cross-entropy
+            output.clone()
+        }
+}
 
 // --- Layer Trait ---
 
 trait Layer:
-    /// Computes the forward pass of the layer (input -> output).
-    fn forward(self, input: Tensor) -> Tensor;
-    /// Computes the backward pass (output_gradient -> input_gradient, updates).
-    fn backward(self, output_gradient: Tensor) -> Tensor;
-    /// Initializes or loads weights for the layer.
+    fn forward(self, input: &Tensor) -> Tensor;
+    fn backward(self, output_gradient: &Tensor, learning_rate: f32) -> Tensor;
     fn initialize_weights(self, input_size: u32, output_size: u32);
 
-// --- Concrete Layers ---
+// --- Dense (Fully Connected) Layer ---
 
-// A simple dense (fully connected) layer.
 struct Dense:
+    input_size: u32
     units: u32
     activation: ActivationFunction
     weights: Tensor
     biases: Tensor
-    // Placeholder: implementation of forward/backward using matrix multiplication
+    last_input: Tensor
+    last_output: Tensor
 
-// A Convolutional Layer (essential for vision tasks).
+implements Layer for Dense:
+    fn initialize_weights(self, input_size: u32, output_size: u32):
+        self.input_size = input_size
+        self.units = output_size
+        self.weights = he_init(input_size, output_size)
+        self.biases = Tensor::with_capacity(output_size as usize)
+        for _ in 0..output_size {
+            self.biases.push(0.0)
+        }
+
+    fn forward(self, input: &Tensor) -> Tensor:
+        // Matrix multiply: output[j] = sum_i(input[i] * weights[i*out+j]) + bias[j]
+        let mut output = Tensor::with_capacity(self.units as usize);
+        for j in 0..self.units:
+            let mut sum = self.biases[j as usize];
+            for i in 0..self.input_size:
+                sum += input[i as usize] * self.weights[(i * self.units + j) as usize];
+            output.push(sum);
+
+        self.last_input = input.clone();
+        self.last_output = apply_activation(&output, &self.activation);
+        return self.last_output
+
+    fn backward(self, output_gradient: &Tensor, learning_rate: f32) -> Tensor:
+        let activated_grad = activation_derivative(&self.last_input, &self.last_output, &self.activation);
+        let mut delta = Tensor::with_capacity(output_gradient.len());
+        for i in 0..output_gradient.len():
+            delta.push(output_gradient[i] * activated_grad[i]);
+
+        // Compute input gradient: dL/dX = dL/dY * W^T
+        let mut input_gradient = Tensor::with_capacity(self.input_size as usize);
+        for i in 0..self.input_size:
+            let mut sum = 0.0;
+            for j in 0..self.units:
+                sum += delta[j as usize] * self.weights[(i * self.units + j) as usize];
+            input_gradient.push(sum);
+
+        // Update weights: W -= lr * dL/dW
+        for i in 0..self.input_size:
+            for j in 0..self.units:
+                self.weights[(i * self.units + j) as usize] -= learning_rate * delta[j as usize] * self.last_input[i as usize];
+
+        // Update biases: b -= lr * dL/db
+        for j in 0..self.units:
+            self.biases[j as usize] -= learning_rate * delta[j as usize];
+
+        return input_gradient
+
+// --- Conv2D Layer ---
+
 struct Conv2D:
+    input_channels: u32
     filters: u32
     kernel_size: (u32, u32)
     stride: (u32, u32)
-    // Placeholder: implementation of convolution operation
+    padding: (u32, u32)
+    weights: Tensor  // shape: [filters, input_channels, kernel_h, kernel_w]
+    biases: Tensor   // shape: [filters]
+    last_input_shape: (u32, u32, u32)  // (batch, channels, height, width)
+
+impl Conv2D:
+    static fn new(input_channels: u32, filters: u32, kernel_size: (u32, u32), stride: (u32, u32), padding: (u32, u32)) -> Conv2D:
+        let fan_in = input_channels * kernel_size.0 * kernel_size.1;
+        let w = xavier_init(fan_in, filters * fan_in);
+        let mut b = Tensor::with_capacity(filters as usize);
+        for _ in 0..filters {
+            b.push(0.0);
+        }
+        Conv2D { input_channels, filters, kernel_size, stride, padding, weights: w, biases: b, last_input_shape: (0, 0, 0) }
+
+implements Layer for Conv2D:
+    fn initialize_weights(self, input_channels: u32, output_size: u32):
+        self.input_channels = input_channels
+        self.filters = output_size
+        let fan_in = input_channels * self.kernel_size.0 * self.kernel_size.1;
+        self.weights = xavier_init(fan_in, output_size * fan_in);
+        self.biases = Tensor::with_capacity(output_size as usize);
+        for _ in 0..output_size:
+            self.biases.push(0.0)
+
+    fn forward(self, input: &Tensor) -> Tensor:
+        // Assuming input is a flattened 2D image: channels * height * width
+        let h = (input.len() as u32) / self.input_channels;
+        let w = h; // Square input assumed for simplicity
+        self.last_input_shape = (1, self.input_channels, h, w);
+
+        let out_h = (h + 2 * self.padding.0 - self.kernel_size.0) / self.stride.0 + 1;
+        let out_w = (w + 2 * self.padding.1 - self.kernel_size.1) / self.stride.1 + 1;
+        let mut output = Tensor::with_capacity((self.filters * out_h * out_w) as usize);
+
+        for f in 0..self.filters:
+            for oh in 0..out_h:
+                for ow in 0..out_w:
+                    let mut sum = self.biases[f as usize];
+                    for c in 0..self.input_channels:
+                        for kh in 0..self.kernel_size.0:
+                            for kw in 0..self.kernel_size.1:
+                                let ih = oh * self.stride.0 + kh;
+                                let iw = ow * self.stride.1 + kw;
+                                if ih < h && iw < w:
+                                    let in_idx = (c * h * w + ih * w + iw) as usize;
+                                    let w_idx = (f * self.input_channels * self.kernel_size.0 * self.kernel_size.1
+                                        + c * self.kernel_size.0 * self.kernel_size.1
+                                        + kh * self.kernel_size.1 + kw) as usize;
+                                    sum += input[in_idx] * self.weights[w_idx];
+                    output.push(sum);
+
+        return output
+
+    fn backward(self, output_gradient: &Tensor, learning_rate: f32) -> Tensor:
+        let (_, _, h, w) = self.last_input_shape;
+        let out_h = (h + 2 * self.padding.0 - self.kernel_size.0) / self.stride.0 + 1;
+        let out_w = (w + 2 * self.padding.1 - self.kernel_size.1) / self.stride.1 + 1;
+
+        let mut input_gradient = Tensor::with_capacity((self.input_channels * h * w) as usize);
+        for _ in 0..self.input_channels * h * w {
+            input_gradient.push(0.0);
+        }
+
+        // Gradient w.r.t. weights and biases, and propagate gradient to input
+        for f in 0..self.filters:
+            for oh in 0..out_h:
+                for ow in 0..out_w:
+                    let grad_idx = (f * out_h * out_w + oh * out_w + ow) as usize;
+                    let delta = output_gradient[grad_idx];
+
+                    // Update bias
+                    self.biases[f as usize] -= learning_rate * delta;
+
+                    for c in 0..self.input_channels:
+                        for kh in 0..self.kernel_size.0:
+                            for kw in 0..self.kernel_size.1:
+                                let ih = oh * self.stride.0 + kh;
+                                let iw = ow * self.stride.1 + kw;
+                                if ih < h && iw < w:
+                                    let in_idx = (c * h * w + ih * w + iw) as usize;
+                                    let w_idx = (f * self.input_channels * self.kernel_size.0 * self.kernel_size.1
+                                        + c * self.kernel_size.0 * self.kernel_size.1
+                                        + kh * self.kernel_size.1 + kw) as usize;
+
+                                    // Update weight
+                                    self.weights[w_idx] -= learning_rate * delta * input[in_idx];
+                                    // Propagate gradient to input
+                                    input_gradient[in_idx] += delta * self.weights[w_idx];
+
+        return input_gradient
 
 // --- Optimizers ---
 
 trait Optimizer:
-    /// Updates the model parameters based on the gradients.
     fn step(self, model: &mut Sequential, gradients: List<Tensor>);
 
 struct Adam:
     learning_rate: f64
     beta1: f64
     beta2: f64
-implements Optimizer for Adam { ... }
+    epsilon: f64
+    t: u64
+    m: List<Tensor>   // First moment estimates
+    v: List<Tensor>   // Second moment estimates
+
+implements Optimizer for Adam:
+    fn step(self, model: &mut Sequential, gradients: List<Tensor>):
+        self.t += 1;
+        for (i, grad) in gradients.iter().enumerate():
+            let param = &mut model.get_layer_mut(i).weights;
+            let bias = &mut model.get_layer_mut(i).biases;
+
+            // Initialize moments if not yet done
+            if self.m.len() <= i:
+                self.m.push(Tensor::with_capacity(param.len()));
+                self.v.push(Tensor::with_capacity(param.len()));
+                for _ in 0..param.len():
+                    self.m[i].push(0.0);
+                    self.v[i].push(0.0);
+
+            // Bias-corrected learning rate
+            let bc_lr = self.learning_rate * (1.0 - self.beta2.powi(self.t as i32)).sqrt()
+                / (1.0 - self.beta1.powi(self.t as i32));
+
+            for j in 0..param.len():
+                // Update biased first and second moment estimates
+                self.m[i][j] = self.beta1 * self.m[i][j] + (1.0 - self.beta1) * grad[j];
+                self.v[i][j] = self.beta2 * self.v[i][j] + (1.0 - self.beta2) * grad[j] * grad[j];
+
+                // Bias-corrected estimates
+                let m_hat = self.m[i][j];
+                let v_hat = self.v[i][j];
+
+                // Update parameters
+                param[j] -= bc_lr * m_hat / (v_hat.sqrt() + self.epsilon);
+                bias[j] -= bc_lr * m_hat / (v_hat.sqrt() + self.epsilon);
+
+// --- Loss Functions ---
+
+enum LossFunction:
+    MeanSquaredError
+    CrossEntropy
+
+fn compute_loss(predictions: &Tensor, targets: &Tensor, loss_fn: &LossFunction) -> f32:
+    match loss_fn:
+        LossFunction::MeanSquaredError => {
+            let n = predictions.len() as f32;
+            predictions.iter().zip(targets.iter())
+                .map(|(p, t)| (p - t).powi(2))
+                .sum::<f32>() / n
+        }
+        LossFunction::CrossEntropy => {
+            -predictions.iter().zip(targets.iter())
+                .map(|(p, t)| t * (p + 1e-7).ln())
+                .sum::<f32>()
+        }
+
+fn loss_gradient(predictions: &Tensor, targets: &Tensor, loss_fn: &LossFunction) -> Tensor:
+    match loss_fn:
+        LossFunction::MeanSquaredError => {
+            let n = predictions.len() as f32;
+            predictions.iter().zip(targets.iter())
+                .map(|(p, t)| 2.0 * (p - t) / n)
+                .collect()
+        }
+        LossFunction::CrossEntropy => {
+            predictions.iter().zip(targets.iter())
+                .map(|(p, t)| -t / (p + 1e-7))
+                .collect()
+        }
 
 // --- Model Structure ---
 
-/// Defines a linear stack of layers for a neural network.
 struct Sequential:
     layers: List<Layer>
     optimizer: Optimizer
@@ -64,12 +331,37 @@ struct Sequential:
         self.layers.push(layer)
         return self
 
-    // The main function that uses the GPU acceleration attribute
     @gpu_accelerated("cuda")
     fn train(self, data: Dataset, epochs: u32) -> Result<Sequential>:
-        // The Fusion compiler's LLVM backend ensures that the inner loops 
-        // (matrix multiplications in forward/backward) are mapped to 
-        // CUDA/OpenCL kernels based on the @gpu_accelerated attribute.
         println!("Training model on GPU using CUDA/OpenCL kernels...");
-        // Placeholder for training loop
+
+        for epoch in 0..epochs:
+            let mut epoch_loss = 0.0;
+            let mut batch_count = 0;
+
+            for (input, target) in data.iter():
+                // --- Forward pass through all layers ---
+                let mut current = input.clone();
+                let mut activations = List::new();
+                activations.push(current.clone());
+
+                for layer in self.layers.iter():
+                    current = layer.forward(&current);
+                    activations.push(current.clone());
+
+                // --- Compute loss ---
+                let loss = compute_loss(&current, target, &self.loss_fn);
+                epoch_loss += loss;
+                batch_count += 1;
+
+                // --- Backward pass (backpropagation) ---
+                let mut grad = loss_gradient(&current, target, &self.loss_fn);
+
+                for i in (0..self.layers.len()).rev():
+                    grad = self.layers[i].backward(&grad, self.optimizer.learning_rate as f32);
+
+            let avg_loss = epoch_loss / batch_count as f32;
+            if epoch % 10 == 0:
+                println!("Epoch {}/{} - Loss: {:.6}", epoch, epochs, avg_loss);
+
         return Ok(self)

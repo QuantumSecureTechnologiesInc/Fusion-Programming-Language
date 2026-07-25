@@ -1,9 +1,0 @@
-[package]
-name = "fusion_llm_attention_mask"
-version = "0.1.0"
-edition = "2021"
-description = "Utilities for generating attention masks (Sliding Window, Causal, Padding)"
-license = "MIT"
-
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" }

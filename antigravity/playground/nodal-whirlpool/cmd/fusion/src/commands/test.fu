@@ -1,8 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/cmd/fusion/src/commands/test.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-use fusion_tester;
-
-fn test(filter: Option<&str>, release: FBool, bench: FBool) -> Result<()> {
-    fusion_tester::test_project(filter, release, bench)
-}

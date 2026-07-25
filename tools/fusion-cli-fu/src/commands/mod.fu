@@ -1,0 +1,84 @@
+// commands/mod.fu — Command module declarations and dispatch.
+// Each command file is included and its handler is referenced here.
+
+mod init;
+mod build;
+mod run;
+mod test;
+mod fmt;
+mod lint;
+mod doc;
+mod clean;
+mod ai;
+mod pkg;
+mod quantum;
+mod crypto;
+mod deploy;
+mod neuralseal;
+mod providers;
+mod source;
+mod info;
+
+fn dispatch_command(args: CliArgs) -> void {
+    let cmd = args.command;
+
+    if str_eq(cmd, "") {
+        cli_help();
+        return;
+    }
+
+    if args.help_flag {
+        if str_eq(cmd, "--help") || str_eq(cmd, "-h") {
+            cli_help();
+        } else {
+            cli_help_command(cmd);
+        }
+        return;
+    }
+
+    if args.version_flag {
+        cli_version();
+        return;
+    }
+
+    if str_eq(cmd, "init") {
+        cmd_init(args);
+    } else if str_eq(cmd, "build") {
+        cmd_build(args);
+    } else if str_eq(cmd, "run") {
+        cmd_run(args);
+    } else if str_eq(cmd, "test") {
+        cmd_test(args);
+    } else if str_eq(cmd, "fmt") {
+        cmd_fmt(args);
+    } else if str_eq(cmd, "lint") {
+        cmd_lint(args);
+    } else if str_eq(cmd, "doc") {
+        cmd_doc(args);
+    } else if str_eq(cmd, "clean") {
+        cmd_clean(args);
+    } else if str_eq(cmd, "ai") {
+        cmd_ai(args);
+    } else if str_eq(cmd, "pkg") {
+        cmd_pkg(args);
+    } else if str_eq(cmd, "quantum") {
+        cmd_quantum(args);
+    } else if str_eq(cmd, "crypto") {
+        cmd_crypto(args);
+    } else if str_eq(cmd, "deploy") {
+        cmd_deploy(args);
+    } else if str_eq(cmd, "neuralseal") {
+        cmd_neuralseal(args);
+    } else if str_eq(cmd, "providers") {
+        cmd_providers(args);
+    } else if str_eq(cmd, "source") {
+        cmd_source(args);
+    } else if str_eq(cmd, "info") {
+        cmd_info(args);
+    } else {
+        print_error("Unknown command: ");
+        puts(cmd);
+        puts("Run 'fusion --help' for usage information.");
+        exit(1);
+    }
+}

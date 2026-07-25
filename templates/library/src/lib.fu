@@ -1,5 +1,0 @@
-// Fusion v2.0 Vortex - Project Template: Library
-// A reusable library module
-
-pub mod math;
-pub mod utils;

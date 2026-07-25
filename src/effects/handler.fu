@@ -1,0 +1,47 @@
+// Effect Handlers — Construction, Installation, and Management
+//
+// A handler associates effect operations with implementation functions.
+// Handlers are stacked: the most recently installed handler takes priority.
+// Each handler declares which operations it covers and the function that
+// implements them.
+
+/// A handler definition.
+/// `name`        — unique handler identifier
+/// `operations`  — list of effect operation names this handler covers
+/// `handler_fn`  — fully-qualified name of the implementing function
+struct Handler {
+    name: string,
+    operations: []string,
+    handler_fn: string,
+}
+
+/// Returned by handler functions after processing an effect.
+/// `value`           — the result value to resume the computation with
+/// `effects_handled` — which effect names were actually handled this call
+struct HandlerResult {
+    value: string,
+    effects_handled: []string,
+}
+
+// ---------------------------------------------------------------------------
+// Extern FFI — implemented by the Fusion runtime
+// ---------------------------------------------------------------------------
+
+/// Allocate a new handler with the given name and no operations yet.
+extern fn handler_new(name: string) -> Handler
+
+/// Add an operation name to a handler (returns updated handler).
+extern fn handler_add_operation(handler: Handler, operation: string) -> Handler
+
+/// Set the implementation function for a handler (returns updated handler).
+extern fn handler_set_handler(handler: Handler, fn_name: string) -> Handler
+
+/// Install a handler into the current handler stack.
+/// It will intercept any matching effects performed from this point forward.
+extern fn handler_install(handler: Handler) -> void
+
+/// Remove a previously installed handler by name.
+extern fn handler_remove(name: string) -> void
+
+/// Return all currently installed handlers.
+extern fn handler_list() -> []Handler

@@ -1,10 +1,11 @@
 // SOURCE: Source Files/Ecosystem/Epoch/Era 1 - The Kernel/fusion_core/Quantum Operations.rs
 // NOTE: Converted into FSN mirror under fsn/converted.
-/// Standard Quantum Gate Constructors and Helper Operations.
+/// Standard Quantum Gate Constructors, State-Vector Simulation, and Measurement.
 
-use crate::types::quantum::{QuantumGate, QuantumCircuit};
+use crate::types::quantum::{QuantumGate, QuantumCircuit, QuantumState};
 use crate::types::tensor::{Tensor, Matrix};
 use num_complex::Complex64;
+use rand::Rng;
 
 // --- Gate Constructors ---
 
@@ -16,12 +17,8 @@ fn hadamard() -> QuantumGate {
         Complex64::new(inv_sqrt2, 0.0), Complex64::new(-inv_sqrt2, 0.0)
     ];
     let matrix = Tensor::from_vec(data, [2, 2]);
-    
-    QuantumGate {
-        name: "H".to_string(),
-        matrix,
-        num_qubits: 1,
-    }
+
+    QuantumGate { name: "H".to_string(), matrix, num_qubits: 1 }
 }
 
 /// Pauli-X Gate (NOT) - Flips |0> to |1>.
@@ -31,12 +28,19 @@ fn pauli_x() -> QuantumGate {
         Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0)
     ];
     let matrix = Tensor::from_vec(data, [2, 2]);
-    
-    QuantumGate {
-        name: "X".to_string(),
-        matrix,
-        num_qubits: 1,
-    }
+
+    QuantumGate { name: "X".to_string(), matrix, num_qubits: 1 }
+}
+
+/// Pauli-Y Gate - Bit and phase flip.
+fn pauli_y() -> QuantumGate {
+    let data = vec![
+        Complex64::new(0.0, 0.0), Complex64::new(0.0, -1.0),
+        Complex64::new(0.0, 1.0),  Complex64::new(0.0, 0.0)
+    ];
+    let matrix = Tensor::from_vec(data, [2, 2]);
+
+    QuantumGate { name: "Y".to_string(), matrix, num_qubits: 1 }
 }
 
 /// Pauli-Z Gate - Phase flip.
@@ -46,20 +50,87 @@ fn pauli_z() -> QuantumGate {
         Complex64::new(0.0, 0.0), Complex64::new(-1.0, 0.0)
     ];
     let matrix = Tensor::from_vec(data, [2, 2]);
-    
-    QuantumGate {
-        name: "Z".to_string(),
-        matrix,
-        num_qubits: 1,
-    }
+
+    QuantumGate { name: "Z".to_string(), matrix, num_qubits: 1 }
+}
+
+/// Phase Gate (S) - Applies i to |1>.
+fn phase_s() -> QuantumGate {
+    let data = vec![
+        Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0),
+        Complex64::new(0.0, 0.0), Complex64::new(0.0, 1.0)
+    ];
+    let matrix = Tensor::from_vec(data, [2, 2]);
+
+    QuantumGate { name: "S".to_string(), matrix, num_qubits: 1 }
+}
+
+/// T Gate - Applies e^{i*pi/4} to |1>.
+fn t_gate() -> QuantumGate {
+    let phase = Complex64::new(0.0, std::f64::consts::FRAC_PI_4).exp();
+    let data = vec![
+        Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0),
+        Complex64::new(0.0, 0.0), phase
+    ];
+    let matrix = Tensor::from_vec(data, [2, 2]);
+
+    QuantumGate { name: "T".to_string(), matrix, num_qubits: 1 }
+}
+
+/// Rx(theta) - Rotation around X-axis.
+fn rx(theta: f64) -> QuantumGate {
+    let c = Complex64::new((theta / 2.0).cos(), 0.0);
+    let s = Complex64::new(0.0, -(theta / 2.0).sin());
+    let data = vec![c, s, s, c];
+    let matrix = Tensor::from_vec(data, [2, 2]);
+
+    QuantumGate { name: format!("Rx({:.2})", theta), matrix, num_qubits: 1 }
+}
+
+/// Ry(theta) - Rotation around Y-axis.
+fn ry(theta: f64) -> QuantumGate {
+    let c = Complex64::new((theta / 2.0).cos(), 0.0);
+    let s = Complex64::new((theta / 2.0).sin(), 0.0);
+    let data = vec![c, -s, s, c];
+    let matrix = Tensor::from_vec(data, [2, 2]);
+
+    QuantumGate { name: format!("Ry({:.2})", theta), matrix, num_qubits: 1 }
+}
+
+/// Rz(theta) - Rotation around Z-axis.
+fn rz(theta: f64) -> QuantumGate {
+    let phase_minus = Complex64::new(0.0, -theta / 2.0).exp();
+    let phase_plus = Complex64::new(0.0, theta / 2.0).exp();
+    let data = vec![
+        phase_minus, Complex64::new(0.0, 0.0),
+        Complex64::new(0.0, 0.0), phase_plus
+    ];
+    let matrix = Tensor::from_vec(data, [2, 2]);
+
+    QuantumGate { name: format!("Rz({:.2})", theta), matrix, num_qubits: 1 }
+}
+
+/// SWAP Gate - Swaps two qubits.
+fn swap() -> QuantumGate {
+    let zero = Complex64::new(0.0, 0.0);
+    let one = Complex64::new(1.0, 0.0);
+
+    let data = vec![
+        one, zero, zero, zero,
+        zero, zero, one, zero,
+        zero, one, zero, zero,
+        zero, zero, zero, one
+    ];
+    let matrix = Tensor::from_vec(data, [4, 4]);
+
+    QuantumGate { name: "SWAP".to_string(), matrix, num_qubits: 2 }
 }
 
 /// Controlled-NOT Gate (CNOT).
 fn cnot() -> QuantumGate {
-    // 4x4 Identity except bottom right 2x2 is Pauli-X
     let zero = Complex64::new(0.0, 0.0);
     let one = Complex64::new(1.0, 0.0);
-    
+
     let data = vec![
         one, zero, zero, zero,
         zero, one, zero, zero,
@@ -67,32 +138,207 @@ fn cnot() -> QuantumGate {
         zero, zero, one, zero
     ];
     let matrix = Tensor::from_vec(data, [4, 4]);
-    
-    QuantumGate {
-        name: "CNOT".to_string(),
-        matrix,
-        num_qubits: 2,
-    }
+
+    QuantumGate { name: "CNOT".to_string(), matrix, num_qubits: 2 }
 }
 
-// --- Simulation Helpers ---
+/// Toffoli Gate (CCNOT) - 3-qubit controlled-controlled-NOT.
+fn toffoli() -> QuantumGate {
+    let zero = Complex64::new(0.0, 0.0);
+    let one = Complex64::new(1.0, 0.0);
+    let mut data = Vec::with_capacity(64);
+
+    // 8x8 identity, then swap rows 6 and 7 (|110> <-> |111>)
+    for i in 0..8 {
+        for j in 0..8 {
+            if i == j {
+                data.push(one);
+            } else if (i == 6 && j == 7) || (i == 7 && j == 6) {
+                data.push(one);
+            } else {
+                data.push(zero);
+            }
+        }
+    }
+
+    let matrix = Tensor::from_vec(data, [8, 8]);
+
+    QuantumGate { name: "Toffoli".to_string(), matrix, num_qubits: 3 }
+}
+
+// --- State-Vector Simulation ---
 
 impl QuantumCircuit {
-    /// Classical simulation of the circuit.
-    /// Returns the final state vector.
-    fn simulate(&self) -> crate::types::quantum::QuantumState {
-        let mut state = crate::types::quantum::QuantumState::zeros(self.num_qubits);
-        
-        for (gate, targets) in &self.gates {
-            // In a full simulator, we would tensor product the gate to the full state size.
-            // For Phase 3 core demo, we acknowledge the gate application.
-            // (Full matrix application logic O(2^N) goes here in later phases).
-            
-            // Placeholder: Just verify unitarity
-            assert!(gate.matrix.shape[0] == gate.matrix.shape[1], "Gate must be square");
+    /// Build the full 2^N x 2^N unitary for a single-qubit gate on target qubit.
+    fn expand_single_gate(&self, gate: &QuantumGate, target: usize) -> Tensor {
+        let n = self.num_qubits as usize;
+        let dim = 1usize << n;
+        let mut full = Tensor::with_capacity(dim * dim);
+        for _ in 0..dim * dim {
+            full.push(Complex64::new(0.0, 0.0));
         }
-        
-        state
+
+        // Tensor product: I_0 x ... x G_target x ... x I_{n-1}
+        for row in 0..dim {
+            for col in 0..dim {
+                // Check if bits outside target match
+                let mut match_non_target = true;
+                for q in 0..n {
+                    if q != target {
+                        if (row >> q) & 1 != (col >> q) & 1 {
+                            match_non_target = false;
+                            break;
+                        }
+                    }
+                }
+                if !match_non_target {
+                    continue;
+                }
+
+                // Extract target qubit bits
+                let target_row = (row >> target) & 1;
+                let target_col = (col >> target) & 1;
+                full[row * dim + col] = gate.matrix[target_row * 2 + target_col];
+            }
+        }
+
+        full
+    }
+
+    /// Build the full unitary for a two-qubit gate on (qubit_a, qubit_b).
+    fn expand_two_qubit_gate(&self, gate: &QuantumGate, qubit_a: usize, qubit_b: usize) -> Tensor {
+        let n = self.num_qubits as usize;
+        let dim = 1usize << n;
+        let mut full = Tensor::with_capacity(dim * dim);
+        for _ in 0..dim * dim {
+            full.push(Complex64::new(0.0, 0.0));
+        }
+
+        for row in 0..dim {
+            for col in 0..dim {
+                let mut match_non_gate = true;
+                for q in 0..n {
+                    if q != qubit_a && q != qubit_b {
+                        if (row >> q) & 1 != (col >> q) & 1 {
+                            match_non_gate = false;
+                            break;
+                        }
+                    }
+                }
+                if !match_non_gate {
+                    continue;
+                }
+
+                let a_row = (row >> qubit_a) & 1;
+                let b_row = (row >> qubit_b) & 1;
+                let a_col = (col >> qubit_a) & 1;
+                let b_col = (col >> qubit_b) & 1;
+                let gate_row = a_row * 2 + b_row;
+                let gate_col = a_col * 2 + b_col;
+                full[row * dim + col] = gate.matrix[gate_row * 4 + gate_col];
+            }
+        }
+
+        full
+    }
+
+    /// Apply a matrix to a state vector: |out> = M * |in>.
+    fn apply_matrix(state: &Tensor, matrix: &Tensor, dim: usize) -> Tensor {
+        let mut result = Tensor::with_capacity(dim);
+        for i in 0..dim {
+            let mut sum = Complex64::new(0.0, 0.0);
+            for j in 0..dim {
+                sum += matrix[i * dim + j] * state[j];
+            }
+            result.push(sum);
+        }
+        result
+    }
+
+    /// Classical simulation of the circuit.
+    /// Returns the final state vector after applying all gates sequentially.
+    fn simulate(&self) -> QuantumState {
+        let n = self.num_qubits as usize;
+        let dim = 1usize << n;
+
+        // Initialize |000...0>
+        let mut state = Tensor::with_capacity(dim);
+        state.push(Complex64::new(1.0, 0.0));
+        for _ in 1..dim {
+            state.push(Complex64::new(0.0, 0.0));
+        }
+
+        // Apply each gate
+        for (gate, targets) in &self.gates {
+            assert!(gate.matrix.shape[0] == gate.matrix.shape[1], "Gate must be square");
+
+            let full_gate = match gate.num_qubits {
+                1 => self.expand_single_gate(gate, targets[0]),
+                2 => self.expand_two_qubit_gate(gate, targets[0], targets[1]),
+                _ => panic!("Unsupported gate size: {}", gate.num_qubits),
+            };
+
+            state = Self::apply_matrix(&state, &full_gate, dim);
+        }
+
+        QuantumState { amplitudes: state, num_qubits: self.num_qubits }
+    }
+
+    /// Measure all qubits, collapsing the state vector probabilistically.
+    /// Returns a bitstring representing the measurement outcome.
+    fn measure_all(&self, state: &QuantumState) -> Vec<bool> {
+        let dim = state.amplitudes.len();
+        let mut rng = rand::thread_rng();
+        let r: f64 = rng.gen();
+
+        let mut cumulative = 0.0;
+        for i in 0..dim {
+            let prob = state.amplitudes[i].norm_sqr();
+            cumulative += prob;
+            if r < cumulative {
+                // Decode index i into qubit bits
+                let n = state.num_qubits as usize;
+                let mut bits = Vec::with_capacity(n);
+                for q in 0..n {
+                    bits.push(((i >> q) & 1) == 1);
+                }
+                return bits;
+            }
+        }
+
+        // Fallback (should not happen with valid state)
+        let n = state.num_qubits as usize;
+        vec![false; n]
+    }
+
+    /// Measure a single qubit, collapsing only that qubit's subspace.
+    fn measure_qubit(&self, state: &mut QuantumState, qubit: usize) -> bool {
+        let dim = state.amplitudes.len();
+        let mut rng = rand::thread_rng();
+        let r: f64 = rng.gen();
+
+        // Compute probability of measuring |0> on target qubit
+        let mut prob_zero = 0.0;
+        for i in 0..dim {
+            if ((i >> qubit) & 1) == 0 {
+                prob_zero += state.amplitudes[i].norm_sqr();
+            }
+        }
+
+        let outcome_zero = r < prob_zero;
+        let norm = if outcome_zero { prob_zero.sqrt() } else { (1.0 - prob_zero).sqrt() };
+
+        // Collapse: zero out the non-measured branch and renormalize
+        for i in 0..dim {
+            let bit = (i >> qubit) & 1;
+            if (outcome_zero && bit == 1) || (!outcome_zero && bit == 0) {
+                state.amplitudes[i] = Complex64::new(0.0, 0.0);
+            } else {
+                state.amplitudes[i] /= norm;
+            }
+        }
+
+        outcome_zero
     }
 }
 
@@ -106,7 +352,7 @@ mod tests {
     fn test_no_cloning() {
         let q = Qubit::new();
         // The following line would cause a compile error if uncommented:
-        // let q2 = q.clone(); 
+        // let q2 = q.clone();
         // This proves the Type System enforces the No-Cloning Theorem.
     }
 
@@ -115,12 +361,44 @@ mod tests {
         let h = hadamard();
         assert_eq!(h.matrix.shape, [2, 2]);
         assert_eq!(h.num_qubits, 1);
-        
+
         let cx = cnot();
         assert_eq!(cx.matrix.shape, [4, 4]);
         assert_eq!(cx.num_qubits, 2);
+
+        let tf = toffoli();
+        assert_eq!(tf.matrix.shape, [8, 8]);
+        assert_eq!(tf.num_qubits, 3);
     }
-    
+
+    #[test]
+    fn test_hadamard_creates_superposition() {
+        let mut circuit = QuantumCircuit::new(1);
+        circuit.add_gate(hadamard(), vec![0]);
+        let state = circuit.simulate();
+        // After H|0>, both amplitudes should have magnitude ~1/sqrt(2)
+        let amp0 = state.amplitudes[0].norm_sqr();
+        let amp1 = state.amplitudes[1].norm_sqr();
+        assert!((amp0 - 0.5).abs() < 1e-10);
+        assert!((amp1 - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_bell_state() {
+        let mut circuit = QuantumCircuit::new(2);
+        circuit.add_gate(hadamard(), vec![0]);
+        circuit.add_gate(cnot(), vec![0, 1]);
+        let state = circuit.simulate();
+        // Bell state: (|00> + |11>) / sqrt(2)
+        let amp00 = state.amplitudes[0].norm_sqr();
+        let amp11 = state.amplitudes[3].norm_sqr();
+        assert!((amp00 - 0.5).abs() < 1e-10);
+        assert!((amp11 - 0.5).abs() < 1e-10);
+        // |01> and |10> should have zero amplitude
+        assert!(state.amplitudes[1].norm_sqr() < 1e-10);
+        assert!(state.amplitudes[2].norm_sqr() < 1e-10);
+    }
+
     #[test]
     fn test_measurement() {
         let q = Qubit::new();

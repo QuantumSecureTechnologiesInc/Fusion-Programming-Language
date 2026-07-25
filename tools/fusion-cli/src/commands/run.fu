@@ -1,0 +1,251 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+import fusion::cmd
+import fusion::path
+
+use crate::config::FusionConfig
+
+/// Supported language runtimes for polyglot execution
+fn detect_lang(file: String) -> Option<String> {
+    let ext = path::Path::new(file).extension()
+    if ext == "fu" || ext == "fusion" {
+        return Some("fusion")
+    } else if ext == "py" {
+        return Some("python")
+    } else if ext == "js" || ext == "mjs" {
+        return Some("javascript")
+    } else if ext == "ts" || ext == "mts" {
+        return Some("typescript")
+    } else if ext == "java" {
+        return Some("java")
+    } else if ext == "rs" {
+        return Some("rust")
+    } else if ext == "c" || ext == "cpp" || ext == "cxx" {
+        return Some("c")
+    }
+    return None
+}
+
+/// Run a Fusion file
+fn run_fusion(file: String, verbose: bool) -> Result {
+    let mut args = ["run", file]
+    if verbose {
+        args.push("--verbose")
+    }
+
+    let status = cmd::Command::new("fuc.exe")
+        .args(args)
+        .stdin(cmd::Stdio::inherit())
+        .stdout(cmd::Stdio::inherit())
+        .stderr(cmd::Stdio::inherit())
+        .status()
+
+    if !status.success() {
+        return Err("Process exited with code {status.code()}")
+    }
+    return Ok(())
+}
+
+/// Run a Python file
+fn run_python(file: String, verbose: bool) -> Result {
+    if verbose {
+        io::println(">> Running Python: {file}")
+    }
+    let status = cmd::Command::new("python")
+        .arg(file)
+        .stdin(cmd::Stdio::inherit())
+        .stdout(cmd::Stdio::inherit())
+        .stderr(cmd::Stdio::inherit())
+        .status()
+    if !status.success() {
+        return Err("Python process exited with code {status.code()}")
+    }
+    return Ok(())
+}
+
+/// Run a JavaScript file
+fn run_javascript(file: String, verbose: bool) -> Result {
+    if verbose {
+        io::println(">> Running JavaScript: {file}")
+    }
+    let program = if cmd::Command::new("node").arg("--version").output().is_ok() {
+        "node"
+    } else if cmd::Command::new("deno").arg("--version").output().is_ok() {
+        "deno"
+    } else {
+        return Err("No JavaScript runtime found. Install node or deno.")
+    }
+    let status = cmd::Command::new(program)
+        .arg(file)
+        .stdin(cmd::Stdio::inherit())
+        .stdout(cmd::Stdio::inherit())
+        .stderr(cmd::Stdio::inherit())
+        .status()
+    if !status.success() {
+        return Err("{program} process exited with code {status.code()}")
+    }
+    return Ok(())
+}
+
+/// Run a Java file
+fn run_java(file: String, verbose: bool) -> Result {
+    if verbose {
+        io::println(">> Running Java: {file}")
+    }
+    let path = path::Path::new(file)
+    let class_name = path.file_stem()
+
+    // Compile
+    let compile_status = cmd::Command::new("javac")
+        .arg(file)
+        .stdin(cmd::Stdio::inherit())
+        .stdout(cmd::Stdio::inherit())
+        .stderr(cmd::Stdio::inherit())
+        .status()
+    if !compile_status.success() {
+        return Err("Java compilation failed with code {compile_status.code()}")
+    }
+
+    // Run
+    let run_status = cmd::Command::new("java")
+        .arg(class_name)
+        .stdin(cmd::Stdio::inherit())
+        .stdout(cmd::Stdio::inherit())
+        .stderr(cmd::Stdio::inherit())
+        .status()
+    if !run_status.success() {
+        return Err("Java process exited with code {run_status.code()}")
+    }
+    return Ok(())
+}
+
+/// Read runtime configuration from Fusion.toml
+fn read_runtime_config(config: FusionConfig) -> Dict {
+    let runtime_config = {}
+
+    if let Some(runtime) = config["runtime"] {
+        if let Some(profile) = runtime["profile"] {
+            runtime_config["profile"] = profile
+        }
+        if let Some(target) = runtime["target"] {
+            runtime_config["target"] = target
+        }
+    }
+
+    return runtime_config
+}
+
+/// Read AI provider configuration from Fusion.toml [ai] section
+fn read_ai_config(config: FusionConfig) -> Dict {
+    let ai_config = {}
+
+    if let Some(ai) = config["ai"] {
+        if let Some(provider) = ai["provider"] {
+            ai_config["provider"] = provider
+        }
+        if let Some(device) = ai["default_device"] {
+            ai_config["default_device"] = device
+        }
+        // Read provider-specific configs
+        if let Some(ollama) = ai["ollama"] {
+            ai_config["ollama"] = ollama
+        }
+        if let Some(mistral) = ai["mistral"] {
+            ai_config["mistral"] = mistral
+        }
+        if let Some(deepseek) = ai["deepseek"] {
+            ai_config["deepseek"] = deepseek
+        }
+    }
+
+    return ai_config
+}
+
+/// Read quantum backend configuration from Fusion.toml [quantum] section
+fn read_quantum_config(config: FusionConfig) -> Dict {
+    let quantum_config = {}
+
+    if let Some(quantum) = config["quantum"] {
+        if let Some(backend) = quantum["default_backend"] {
+            quantum_config["default_backend"] = backend
+        }
+        if let Some(shots) = quantum["shots"] {
+            quantum_config["shots"] = shots
+        }
+        if let Some(max_qubits) = quantum["max_qubits"] {
+            quantum_config["max_qubits"] = max_qubits
+        }
+        // Read cloud backend configs
+        if let Some(aws) = quantum["aws_braket"] {
+            quantum_config["aws_braket"] = aws
+        }
+        if let Some(ibm) = quantum["ibm_quantum"] {
+            quantum_config["ibm_quantum"] = ibm
+        }
+    }
+
+    return quantum_config
+}
+
+/// Run the run command
+pub fn run(file: Option<String>, lang: Option<String>, polyglot: bool, verbose: bool) -> Result {
+    let resolved_file = match file {
+        Some(f) => f,
+        None => {
+            let config_path = FusionConfig::find_config_file()?
+            let root = config_path.parent()
+            let main_file = root.join("src").join("main.fu")
+            if fs::exists(main_file) {
+                main_file.display()
+            } else {
+                return Err("No file specified and no src/main.fu found. Run `fusion run <file>`.")
+            }
+        }
+    }
+
+    if !fs::exists(resolved_file) {
+        return Err("File not found: {resolved_file}")
+    }
+
+    // Load Fusion.toml for runtime context
+    let config = FusionConfig::load().unwrap_or_default()
+    let runtime_config = read_runtime_config(config)
+    let ai_config = read_ai_config(config)
+    let quantum_config = read_quantum_config(config)
+
+    if verbose {
+        io::println(">> Running {resolved_file}")
+        if runtime_config.len() > 0 {
+            io::println("  Runtime profile: {runtime_config.get(\"profile\", \"default\")}")
+        }
+    }
+
+    // Explicit --lang flag takes precedence
+    if let Some(lang_val) = lang {
+        return match lang_val {
+            "python" | "py" => run_python(resolved_file, verbose),
+            "javascript" | "js" | "node" => run_javascript(resolved_file, verbose),
+            "java" => run_java(resolved_file, verbose),
+            "fusion" | "fu" => run_fusion(resolved_file, verbose),
+            _ => Err("Unsupported language: {lang_val}. Supported: python, javascript, java, fusion"),
+        }
+    }
+
+    // --polyglot: auto-detect language from extension
+    if polyglot {
+        let detected = detect_lang(resolved_file).unwrap_or("fusion")
+        if verbose {
+            io::println(">> Detected language: {detected}")
+        }
+        return match detected {
+            "python" => run_python(resolved_file, verbose),
+            "javascript" | "typescript" => run_javascript(resolved_file, verbose),
+            "java" => run_java(resolved_file, verbose),
+            "fusion" | _ => run_fusion(resolved_file, verbose),
+        }
+    }
+
+    // Default: run as Fusion
+    run_fusion(resolved_file, verbose)
+}

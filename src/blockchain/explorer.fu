@@ -1,0 +1,176 @@
+// Fusion v2.0 Vortex — Blockchain Explorer
+// Query blocks, transactions, balances, and search the chain.
+
+use crate::blockchain::chain::{Blockchain, chain_length, chain_get_block, chain_get_latest}
+use crate::blockchain::block::{Block, block_to_json}
+use crate::blockchain::transaction::{Transaction, tx_to_json}
+use crate::blockchain::storage::BlockStorage
+
+struct Explorer {
+    chain: Blockchain,
+    storage: BlockStorage
+}
+
+/// Create a new explorer bound to a chain and its storage.
+fn explorer_new(chain: Blockchain, storage: BlockStorage) -> Explorer {
+    return Explorer {
+        chain,
+        storage
+    }
+}
+
+/// Get a block by index from the chain.
+fn explorer_get_block(explorer: Explorer, index: int) -> Block {
+    return chain_get_block(explorer.chain, index)
+}
+
+/// Find a transaction by its ID across all blocks.
+fn explorer_get_transaction(explorer: Explorer, tx_id: string) -> Transaction {
+    let mut i = 0
+    while i < chain_length(explorer.chain) {
+        let block = chain_get_block(explorer.chain, i)
+        let txs = block_transactions(block)
+        let mut j = 0
+        while j < txs.len() {
+            if txs[j].id == tx_id {
+                return txs[j]
+            }
+            j += 1
+        }
+        i += 1
+    }
+    // Return empty sentinel transaction if not found
+    return Transaction {
+        id: "",
+        from: "",
+        to: "",
+        amount: 0.0,
+        fee: 0.0,
+        timestamp: 0,
+        signature: "",
+        nonce: 0,
+        data: ""
+    }
+}
+
+/// Compute the balance for an address by scanning all transactions.
+fn explorer_get_balance(explorer: Explorer, address: string) -> float {
+    let balance = 0.0
+    let mut i = 0
+    while i < chain_length(explorer.chain) {
+        let block = chain_get_block(explorer.chain, i)
+        let txs = block_transactions(block)
+        let mut j = 0
+        while j < txs.len() {
+            let tx = txs[j]
+            if tx.to == address {
+                balance += tx.amount
+            }
+            if tx.from == address {
+                balance -= tx.amount + tx.fee
+            }
+            j += 1
+        }
+        i += 1
+    }
+    return balance
+}
+
+/// Get the full transaction history for an address (both sent and received).
+fn explorer_get_transaction_history(explorer: Explorer, address: string) -> []Transaction {
+    let history: []Transaction = []
+    let mut i = 0
+    while i < chain_length(explorer.chain) {
+        let block = chain_get_block(explorer.chain, i)
+        let txs = block_transactions(block)
+        let mut j = 0
+        while j < txs.len() {
+            let tx = txs[j]
+            if tx.from == address || tx.to == address {
+                history.push(tx)
+            }
+            j += 1
+        }
+        i += 1
+    }
+    return history
+}
+
+/// Find a block by its hash.
+fn explorer_get_block_by_hash(explorer: Explorer, hash: string) -> Block {
+    let mut i = 0
+    while i < chain_length(explorer.chain) {
+        let block = chain_get_block(explorer.chain, i)
+        if block.hash == hash {
+            return block
+        }
+        i += 1
+    }
+    // Return genesis block as sentinel if not found
+    return chain_get_block(explorer.chain, 0)
+}
+
+/// Search the chain for a query string (matches block data, tx IDs, addresses).
+fn explorer_search(explorer: Explorer, query: string) -> []string {
+    let results: []string = []
+    let mut i = 0
+    while i < chain_length(explorer.chain) {
+        let block = chain_get_block(explorer.chain, i)
+
+        // Match block hash
+        if string_contains(block.hash, query) {
+            results.push("block:" + block.hash)
+        }
+
+        // Match block data
+        if string_contains(block.data, query) {
+            results.push("block_data:" + block.index.to_string())
+        }
+
+        // Search transactions
+        let txs = block_transactions(block)
+        let mut j = 0
+        while j < txs.len() {
+            let tx = txs[j]
+            if string_contains(tx.id, query) {
+                results.push("tx:" + tx.id)
+            }
+            if tx.from == query || tx.to == query {
+                results.push("address:" + tx.from + "->" + tx.to)
+            }
+            j += 1
+        }
+
+        i += 1
+    }
+    return results
+}
+
+/// Return a summary of chain statistics as a JSON string.
+fn explorer_stats(explorer: Explorer) -> string {
+    let total_blocks = chain_length(explorer.chain)
+    let total_txs = 0
+    let total_addresses = 0
+
+    let mut i = 0
+    while i < total_blocks {
+        let block = chain_get_block(explorer.chain, i)
+        let txs = block_transactions(block)
+        total_txs += txs.len()
+        i += 1
+    }
+
+    let latest = chain_get_latest(explorer.chain)
+    return "{" +
+        "\"total_blocks\":" + total_blocks.to_string() + "," +
+        "\"total_transactions\":" + total_txs.to_string() + "," +
+        "\"latest_block_hash\":\"" + latest.hash + "\"," +
+        "\"latest_block_index\":" + latest.index.to_string() + "," +
+        "\"chain_valid\":" + chain_validate_str(explorer.chain) +
+        "}"
+}
+
+// Runtime helpers
+extern fn block_transactions(block: Block) -> []Transaction
+extern fn string_contains(haystack: string, needle: string) -> bool
+extern fn chain_validate_str(chain: Blockchain) -> string

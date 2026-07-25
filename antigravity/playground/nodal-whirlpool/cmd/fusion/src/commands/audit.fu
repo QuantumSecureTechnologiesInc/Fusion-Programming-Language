@@ -1,9 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/cmd/fusion/src/commands/audit.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-use fusion_audit;
-
-fn audit(report: FBool, _deny: FBool) -> Result<()> {
-    fusion_audit::audit(report)?;
-    Ok(())
-}

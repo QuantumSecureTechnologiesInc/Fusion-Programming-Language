@@ -1,6 +1,0 @@
-use anyhow::Result;
-
-pub fn start(target: Option<&str>) -> Result<()> {
-    println!("Starting debugger for target: {:?}", target);
-    Ok(())
-}

@@ -1,0 +1,20 @@
+struct VisualConfig {
+    intent_accuracy: float
+    scaffold_enabled: bool
+}
+
+struct IntentResult {
+    intent: string
+    confidence: float
+    suggestions: []string
+}
+
+extern fn vc_init(config: VisualConfig) -> void
+
+extern fn vc_parse_intent(description: string) -> IntentResult
+
+extern fn vc_generate_code(intent: IntentResult) -> string
+
+extern fn vc_scaffold_project(name: string, intent: string) -> string
+
+extern fn vc_suggest_architecture(description: string) -> string

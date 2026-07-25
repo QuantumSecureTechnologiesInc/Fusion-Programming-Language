@@ -1,8 +1,0 @@
-=== O-GA-KEM Integration Test ===
-[INFO] Alice Public Key generated (448 bytes)
-Bob Shared Secret: 94964BDE14E1518304EC3CA773927D80
-Alice Shared Secret: DA3748BA2B56C2BF0908D9AE3D0D0280
-[INFO] Shared Secrets MISMATCH (Expected due to Non-Associativity)
-This demonstrates the 'Twisted Basis' hardness. 
-In a full implementation, the Associator term would correct this.
-[PASS] Protocol Flow Complete

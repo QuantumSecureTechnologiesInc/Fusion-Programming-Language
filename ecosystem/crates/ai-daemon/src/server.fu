@@ -1,9 +1,0 @@
-use anyhow::Result;
-use tracing::info;
-async fn start(addr: &str) -> Result<()> {
-    info!("AI Daemon server starting on {}", addr);
-    println!("✓ AI Daemon ready");
-    tokio::signal::ctrl_c().await?;
-    info!("Shutting down...");
-    Ok(())
-}

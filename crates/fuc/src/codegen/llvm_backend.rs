@@ -1,6 +1,5 @@
-// LLVM Backend - requires inkwell crate (feature = "llvm")
+// LLVM Backend - requires inkwell crate
 #![cfg(feature = "llvm")]
-
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::builder::Builder;
@@ -162,22 +161,24 @@ impl<'ctx> LlvmBackend<'ctx> {
                             BinaryOp::Le => self.builder.build_int_compare(IntPredicate::SLE, l, r, "le"),
                             BinaryOp::Ge => self.builder.build_int_compare(IntPredicate::SGE, l, r, "ge"),
                             BinaryOp::And => {
-                                let l_bool = self.builder.build_int_compare(IntPredicate::NE, l, self.context.i64_type().const_int(0, false), "l_bool")
+                                let l_int_ty = l.get_type();
+                                let l_bool = self.builder.build_int_compare(IntPredicate::NE, l, l_int_ty.const_int(0, false), "l_bool")
                                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
-                                let r_bool = self.builder.build_int_compare(IntPredicate::NE, r, self.context.i64_type().const_int(0, false), "r_bool")
+                                let r_bool = self.builder.build_int_compare(IntPredicate::NE, r, r.get_type().const_int(0, false), "r_bool")
                                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
                                 let and_val = self.builder.build_and(l_bool, r_bool, "and")
                                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
-                                self.builder.build_int_z_extend(and_val, self.context.i64_type(), "and_ext")
+                                self.builder.build_int_z_extend(and_val, l_int_ty, "and_ext")
                             }
                             BinaryOp::Or => {
-                                let l_bool = self.builder.build_int_compare(IntPredicate::NE, l, self.context.i64_type().const_int(0, false), "l_bool")
+                                let l_int_ty = l.get_type();
+                                let l_bool = self.builder.build_int_compare(IntPredicate::NE, l, l_int_ty.const_int(0, false), "l_bool")
                                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
-                                let r_bool = self.builder.build_int_compare(IntPredicate::NE, r, self.context.i64_type().const_int(0, false), "r_bool")
+                                let r_bool = self.builder.build_int_compare(IntPredicate::NE, r, r.get_type().const_int(0, false), "r_bool")
                                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
                                 let or_val = self.builder.build_or(l_bool, r_bool, "or")
                                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
-                                self.builder.build_int_z_extend(or_val, self.context.i64_type(), "or_ext")
+                                self.builder.build_int_z_extend(or_val, l_int_ty, "or_ext")
                             }
                         };
                         val.map(BasicValueEnum::from).map_err(|e| CodegenError::LlvmError(e.to_string()))?
@@ -192,7 +193,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 .map_err(|e| CodegenError::LlvmError(e.to_string()))?.into(),
                             BinaryOp::Div => self.builder.build_float_div(l, r, "fdiv")
                                 .map_err(|e| CodegenError::LlvmError(e.to_string()))?.into(),
-                            BinaryOp::Mod => return Err(CodegenError::Unsupported("Float modulo not supported".to_string())),
+                            BinaryOp::Mod => self.builder.build_float_rem(l, r, "fmod")
+                                .map_err(|e| CodegenError::LlvmError(e.to_string()))?.into(),
                             BinaryOp::Eq => self.builder.build_float_compare(FloatPredicate::OEQ, l, r, "feq")
                                 .map_err(|e| CodegenError::LlvmError(e.to_string()))?.into(),
                             BinaryOp::Neq => self.builder.build_float_compare(FloatPredicate::ONE, l, r, "fne")
@@ -365,8 +367,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 Ok(ty.into_int_type().const_int(*n as u64, true).into())
             }
             Value::BoolConst(b) => {
-                let val = if *b { 1u64 } else { 0u64 };
-                Ok(self.context.i64_type().const_int(val, false).into())
+                Ok(self.context.bool_type().const_int(*b as u64, false).into())
             }
             Value::StringConst(s) => {
                 let global = self.module.add_global(

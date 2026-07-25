@@ -1,0 +1,27 @@
+//! Fusion v2.0 Vortex — Concurrency & Parallelism Module
+//!
+//! Provides OS-level threading, synchronization primitives, lock-free atomics,
+//! channel-based message passing, async/await, and a work-stealing executor.
+//!
+//! Designed as thin extern declarations over the C runtime; actual
+//! implementations live in `crates/fuc/src/concurrency/`.
+
+mod thread;
+mod mutex;
+mod atomic;
+mod channel;
+mod async_mod;
+mod executor;
+
+pub use thread::*;
+pub use mutex::*;
+pub use atomic::*;
+pub use channel::*;
+pub use async_mod::*;
+pub use executor::*;
+
+// Cross-references to related features
+pub use crate::actors::actor           // concurrency includes actors
+pub use crate::control::coroutine      // concurrency includes coroutines
+pub use crate::effects::effect         // concurrency can perform effects
+pub use crate::security::capability    // concurrency checks capabilities

@@ -80,7 +80,58 @@ impl RttiBuilder {
             Type::Int => 1,
             Type::Bool => 2,
             Type::String => 3,
-            _ => 99, // Dynamic
+            Type::Float => 4,
+            Type::Void => 0,
+            Type::Pointer(_) => 5,
+            Type::Slice(_) => 6,
+            Type::Optional(_) => 7,
+            Type::Array(inner, _) => self.get_or_create_type_id(inner),
+            _ => {
+                // For struct/enum/unknown types, use a hash of the type name as ID
+                let type_key = self.type_to_key(ty);
+                // Check if we already assigned an ID for this exact type
+                let existing = self.types.values().find(|m| m.name == type_key);
+                if let Some(meta) = existing {
+                    meta.type_id
+                } else {
+                    let new_id = self.next_type_id;
+                    // Store a placeholder so subsequent lookups find it
+                    self.types.insert(type_key.clone(), StructMeta {
+                        type_id: new_id,
+                        name: type_key,
+                        size: 0,
+                        fields: Vec::new(),
+                    });
+                    self.next_type_id += 1;
+                    new_id
+                }
+            }
+        }
+    }
+
+    fn type_to_key(&self, ty: &Type) -> FString {
+        match ty {
+            Type::Struct(name) => name.clone(),
+            Type::GenericInstance(name, args) => {
+                let arg_str: FString = args.iter()
+                    .map(|a| self.type_to_key(a))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("{}<{}>", name, arg_str)
+            }
+            Type::Pointer(inner) => format!("*{}", self.type_to_key(inner)),
+            Type::Array(inner, n) => format!("[{}; {}]", self.type_to_key(inner), n),
+            Type::Slice(inner) => format!("[{}]", self.type_to_key(inner)),
+            Type::Optional(inner) => format!("?{}", self.type_to_key(inner)),
+            Type::Closure(params, ret) => {
+                let p: FString = params.iter().map(|p| self.type_to_key(p)).collect::<Vec<_>>().join(",");
+                format!("({}) -> {}", p, self.type_to_key(ret))
+            }
+            Type::Union(variants) => {
+                let v: FString = variants.iter().map(|v| self.type_to_key(v)).collect::<Vec<_>>().join("|");
+                format!("U{}", v)
+            }
+            _ => format!("{:?}", ty),
         }
     }
 }

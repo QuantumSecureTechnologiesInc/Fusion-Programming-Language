@@ -1,0 +1,89 @@
+// Consensus mechanisms for Fusion v2.0 Vortex
+
+import Block from blockchain
+import Blockchain from blockchain
+
+struct ConsensusConfig {
+    mechanism: string,
+    difficulty: int,
+    block_time: int,
+    min_stake: float
+}
+
+struct ConsensusResult {
+    accepted: bool,
+    block: Block,
+    reason: string
+}
+
+fn consensus_new(mechanism: string) -> ConsensusConfig {
+    ConsensusConfig {
+        mechanism: mechanism,
+        difficulty: 4,
+        block_time: 10,
+        min_stake: 100.0
+    }
+}
+
+fn consensus_validate_block(config: ConsensusConfig, block: Block, chain: Blockchain) -> ConsensusResult {
+    if block.index != chain.height + 1 {
+        return ConsensusResult {
+            accepted: false,
+            block: block,
+            reason: "Invalid block index"
+        }
+    }
+
+    if block.previous_hash != chain.blocks[chain.height].hash {
+        return ConsensusResult {
+            accepted: false,
+            block: block,
+            reason: "Previous hash mismatch"
+        }
+    }
+
+    match config.mechanism {
+        "pow" => {
+            if !pow_validate(block, PowConfig { difficulty: config.difficulty, target: "", nonce_range: (0, 999999999) }) {
+                return ConsensusResult { accepted: false, block: block, reason: "PoW validation failed" }
+            }
+        }
+        "pos" => {
+            // PoS validation handled by validator selection
+        }
+        "dpos" => {
+            // DPoS validation handled by delegate selection
+        }
+        "pbft" => {
+            // PBFT validation handled by consensus rounds
+        }
+        _ => {
+            return ConsensusResult { accepted: false, block: block, reason: "Unknown consensus mechanism" }
+        }
+    }
+
+    ConsensusResult {
+        accepted: true,
+        block: block,
+        reason: "Block accepted"
+    }
+}
+
+fn consensus_select_validator(config: ConsensusConfig, validators: []Validator) -> Validator {
+    if validators.len() == 0 {
+        panic("No validators available")
+    }
+
+    match config.mechanism {
+        "pos" => pos_select_validator(StakingPool { validators: validators, total_stake: 0.0 })
+        "dpos" => {
+            // Select from active delegates
+            let active = validators.filter(|v| v.reputation > 0)
+            if active.len() == 0 {
+                panic("No active delegates")
+            }
+            active[0]
+        }
+        _ => validators[0]
+    }
+}

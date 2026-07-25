@@ -1,0 +1,59 @@
+// Unsafe Provenance Model
+// Provides proof-carrying unsafe code with audit trails and origin tracking
+
+struct UnsafeBlock {
+    id: int
+    code: string
+    proof: string
+    justification: string
+}
+
+struct ProvenanceProof {
+    theorem: string
+    evidence: []string
+    verified: bool
+}
+
+// Create a new unsafe block with code and proof
+extern fn unsafe_new(code: string, proof: string) -> UnsafeBlock
+
+// Verify that an unsafe block's proof is valid
+extern fn unsafe_verify(block: UnsafeBlock) -> bool
+
+// Register an unsafe block in the global audit registry
+extern fn unsafe_register(block: UnsafeBlock) -> void
+
+// Audit all registered unsafe blocks
+extern fn unsafe_audit() -> []UnsafeBlock
+
+// Create a new provenance proof
+extern fn proof_new(theorem: string, evidence: []string) -> ProvenanceProof
+
+// Check if a provenance proof is valid
+extern fn proof_check(proof: ProvenanceProof) -> bool
+
+// Register a provenance proof in the global registry
+extern fn proof_register(proof: ProvenanceProof) -> void
+
+// Check if code requires a proof before execution
+fn unsafe_requires_proof(code: string) -> bool {
+    let dangerous_patterns = ["*ptr", "as *", "transmute", "memcpy", "memset", "asm"]
+    var i = 0
+    while i < dangerous_patterns.length {
+        if code.contains(dangerous_patterns[i]) {
+            return true
+        }
+        i += 1
+    }
+    return false
+}
+
+// Track the origin of a value through the provenance chain
+fn provenance_track(value: string, origin: string) -> string {
+    return "{}:origin={}".format(value, origin)
+}
+
+// Verify that a value came from the expected origin
+fn provenance_verify(value: string, expected_origin: string) -> bool {
+    return value.contains("origin={}".format(expected_origin))
+}

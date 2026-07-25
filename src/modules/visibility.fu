@@ -1,0 +1,191 @@
+// src/modules/visibility.fu - Visibility control for Fusion modules
+//
+// Implements the three-tier visibility model:
+//   pub          - visible to all modules
+//   pub(crate)   - visible only within the current crate
+//   private      - visible only within the current module (default)
+
+// ============================================================
+// Visibility struct
+// ============================================================
+
+struct Visibility {
+    level: string,  // "pub", "pub(crate)", or "private"
+}
+
+// ============================================================
+// Visibility construction
+// ============================================================
+
+// Creates a public visibility (visible everywhere).
+fn vis_pub() -> Visibility {
+    return Visibility { level: "pub" };
+}
+
+// Creates a crate-internal visibility.
+fn vis_crate() -> Visibility {
+    return Visibility { level: "pub(crate)" };
+}
+
+// Creates a private visibility (default).
+fn vis_private() -> Visibility {
+    return Visibility { level: "private" };
+}
+
+// ============================================================
+// Visibility queries
+// ============================================================
+
+// Returns true if the item is public (visible to all modules).
+fn vis_is_public(v: Visibility) -> bool {
+    return v.level == "pub";
+}
+
+// Returns true if the item is crate-internal.
+fn vis_is_crate(v: Visibility) -> bool {
+    return v.level == "pub(crate)";
+}
+
+// Returns true if the item is private.
+fn vis_is_private(v: Visibility) -> bool {
+    return v.level == "private";
+}
+
+// ============================================================
+// Visibility checking
+// ============================================================
+
+// Determines whether an item with the given visibility is visible
+// from a specific calling module within the same crate.
+// Parameters:
+//   item_visibility - the visibility level of the item being accessed
+//   from_module     - the module attempting the access
+//   current_module  - the module where the item is defined
+fn is_visible(item_visibility: string, from_module: string, current_module: string) -> bool {
+    if item_visibility == "pub" {
+        // Public items are visible from anywhere
+        return true;
+    }
+    if item_visibility == "pub(crate)" {
+        // Crate-internal: visible only within the same crate.
+        // Modules in the same crate share a crate root prefix.
+        if crate_of(from_module) == crate_of(current_module) {
+            return true;
+        }
+        return false;
+    }
+    // Private: visible only within the defining module
+    if from_module == current_module {
+        return true;
+    }
+    return false;
+}
+
+// High-level check: is 'item' accessible to 'caller'?
+// 'item' is in the format "module::item_name".
+fn check_visibility(item: string, caller: string) -> bool {
+    // Extract module and item name from "module::item_name" format
+    var parts: []string = string_split(item, "::");
+    if array_length(parts) < 2 {
+        // Malformed item reference — deny access
+        return false;
+    }
+    var item_module: string = parts[0];
+    // In a real implementation, look up the item's declared visibility
+    // from the module registry, then call is_visible().
+    // Default to public for top-level items.
+    var item_vis: string = "pub";
+    return is_visible(item_vis, caller, item_module);
+}
+
+// ============================================================
+// Visibility parsing
+// ============================================================
+
+// Parses a declaration string like "pub fn foo" or "pub(crate) struct Bar"
+// and extracts the Visibility.
+fn parse_visibility(decl: string) -> Visibility {
+    if string_starts_with(decl, "pub(crate)") {
+        return vis_crate();
+    }
+    if string_starts_with(decl, "pub ") {
+        return vis_pub();
+    }
+    return vis_private();
+}
+
+// Returns the visibility modifier string prefix for a declaration.
+// Example: "pub(crate) fn foo" -> "pub(crate)"
+fn extract_vis_prefix(decl: string) -> string {
+    if string_starts_with(decl, "pub(crate)") {
+        return "pub(crate)";
+    }
+    if string_starts_with(decl, "pub ") {
+        return "pub";
+    }
+    return "";
+}
+
+// Strips the visibility modifier from a declaration, returning
+// the declaration without the prefix.
+fn strip_visibility(decl: string) -> string {
+    if string_starts_with(decl, "pub(crate)") {
+        return string_trim_left(decl, "pub(crate) ");
+    }
+    if string_starts_with(decl, "pub ") {
+        return string_trim_left(decl, "pub ");
+    }
+    return decl;
+}
+
+// ============================================================
+// Crate-level helpers
+// ============================================================
+
+// Returns the crate root for a given module path.
+// E.g., "std::collections::map" -> "std"
+fn crate_of(module_path: string) -> string {
+    var parts: []string = string_split(module_path, "::");
+    if array_length(parts) > 0 {
+        return parts[0];
+    }
+    return module_path;
+}
+
+// Returns true if two modules are in the same crate.
+fn same_crate(mod_a: string, mod_b: string) -> bool {
+    return crate_of(mod_a) == crate_of(mod_b);
+}
+
+// ============================================================
+// Default visibility
+// ============================================================
+
+// The default visibility for items in Fusion is private.
+// Use 'pub' or 'pub(crate)' to widen visibility.
+fn default_visibility() -> Visibility {
+    return vis_private();
+}
+
+// Combines two visibilities, returning the more permissive one.
+// Order: private < pub(crate) < pub
+fn vis_max(a: Visibility, b: Visibility) -> Visibility {
+    if a.level == "pub" || b.level == "pub" {
+        return vis_pub();
+    }
+    if a.level == "pub(crate)" || b.level == "pub(crate)" {
+        return vis_crate();
+    }
+    return vis_private();
+}
+
+// Combines two visibilities, returning the more restrictive one.
+fn vis_min(a: Visibility, b: Visibility) -> Visibility {
+    if a.level == "pub" && b.level == "pub" {
+        return vis_pub();
+    }
+    if a.level == "private" || b.level == "private" {
+        return vis_private();
+    }
+    return vis_crate();
+}

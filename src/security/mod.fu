@@ -1,9 +1,15 @@
+// src/security/mod.fu
+// Fusion Security Module
 #![allow(dead_code)]
-mod fips;
-mod fuzzing;
-mod reliability;
-mod verification;
-mod zkp;
+
+pub mod fips;
+pub mod fuzzing;
+pub mod reliability;
+pub mod verification;
+pub mod zkp;
+pub mod pqc_enforcement;
+pub mod capability;
+pub mod provenance;
 /// Security error types
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SecurityError {

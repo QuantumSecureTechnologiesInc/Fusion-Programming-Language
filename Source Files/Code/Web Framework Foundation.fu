@@ -7,43 +7,259 @@ use fusion::collections::List;
 use fusion::runtime::{Result, Error};
 use fusion::ui::Element; // Reusing the UI element concept for the DOM
 
-// --- Low-Level JavaScript Bridge (Compiler Intrinsics) ---
+// --- WASM Compilation Target Support ---
 
-// Compiler intrinsic to call a global JavaScript function.
-// The fusionc compiler knows to treat functions starting with 'js_' as FFI imports.
-fn js_get_element_by_id(id: FString) -> ElementPointer;
-fn js_set_inner_html(ptr: ElementPointer, html: FString);
-fn js_add_event_listener(ptr: ElementPointer, event: FString, callback: fn(Event) -> Task<()>);
-fn js_fetch_url(url: FString) -> Task<FString>;
+/// Compiler-level configuration that tells fusionc to emit WebAssembly instead of native code.
+/// Applied via `#[wasm(target = "wasm32-unknown-unknown")]` or CLI flag `--target wasm32`.
+struct WasmTarget {
+    /// Module name used as the WASM export namespace.
+    module_name: FString,
+    /// Whether to use Emscripten-style memory management (malloc/free) or
+    /// raw wasm-bindgen allocator.
+    memory_model: WasmMemoryModel,
+    /// Whether to enable wasm-bindgen-style JS interop.
+    use_bindgen: bool,
+    /// Desired WASM page size (64 KiB standard).
+    page_size: u32,
+}
 
-struct ElementPointer; // Opaque pointer to a DOM element
+enum WasmMemoryModel {
+    Emscripten,  // Uses emscripten's dlmalloc via __builtin_wasm_size / sbrk
+    Bindgen,     // Uses wasm-bindgen's Box allocator
+    Linear,      // Raw WebAssembly linear memory, manual allocation
+}
+
+/// Global WASM memory handle exported from the runtime.
+/// Provides grow/shrink access to the WebAssembly linear memory.
+struct WasmMemory {
+    base: *mut u8,
+    pages: u32,
+}
+
+impl WasmMemory {
+    /// Grows the linear memory by `additional_pages` (each 64 KiB).
+    /// Returns the previous page count, or None on failure.
+    fn grow(&mut self, additional_pages: u32) -> Option<u32> {
+        let prev = self.pages;
+        // WASM memory.grow instruction (intrinsic).
+        let result = __wasm_memory_grow(0, additional_pages);
+        if result == -1 {
+            None
+        } else {
+            self.pages = prev + additional_pages;
+            self.base = (result as u64 * 65536) as *mut u8;
+            Some(prev)
+        }
+    }
+
+    fn size_bytes(&self) -> u64 {
+        self.pages as u64 * 65536
+    }
+}
+
+/// WASM intrinsic: memory.grow (exported by the WebAssembly runtime).
+extern "C" { fn __wasm_memory_grow(mem_idx: u32, pages: u32) -> i32; }
+/// WASM intrinsic: memory.size.
+extern "C" { fn __wasm_memory_size(mem_idx: u32) -> i32; }
+
+// --- Low-Level JavaScript Bridge (WASM-bindgen / Emscripten FFI) ---
+
+// These are `extern "C"` functions that the WASM linker resolves to JavaScript
+// host functions.  The `#[wasm_import]` attribute causes fusionc to emit the
+// proper `(import "env" "fn_name" ...)` in the WASM module's import section.
+
+/// Acquire a DOM element pointer by its `id` attribute.
+#[wasm_import("env", "js_get_element_by_id")]
+extern "C" fn js_get_element_by_id(id_ptr: *const u8, id_len: u32) -> ElementPointer;
+
+/// Set the innerHTML of a DOM element.
+#[wasm_import("env", "js_set_inner_html")]
+extern "C" fn js_set_inner_html(
+    ptr: ElementPointer,
+    html_ptr: *const u8,
+    html_len: u32,
+);
+
+/// Register a DOM event listener.  `callback_idx` is an index into the
+/// host-managed callback table (the Fusion async runtime stores the Task
+/// closure at this index; JS calls back into WASM via `__wasm_callback_invoke`).
+#[wasm_import("env", "js_add_event_listener")]
+extern "C" fn js_add_event_listener(
+    ptr: ElementPointer,
+    event_ptr: *const u8,
+    event_len: u32,
+    callback_idx: u32,
+);
+
+/// Initiate an asynchronous HTTP fetch.  Returns a fetch-ID that the
+/// event loop will resolve when the response arrives.
+#[wasm_import("env", "js_fetch_url")]
+extern "C" fn js_fetch_url(url_ptr: *const u8, url_len: u32) -> u32;
+
+/// Called by JS when a fetch completes to deliver the response body into WASM memory.
+#[wasm_import("env", "js_fetch_resolve")]
+extern "C" fn js_fetch_resolve(fetch_id: u32, data_ptr: *const u8, data_len: u32);
+
+/// Called by JS when a fetch fails.
+#[wasm_import("env", "js_fetch_reject")]
+extern "C" fn js_fetch_reject(fetch_id: u32, error_ptr: *const u8, error_len: u32);
+
+/// Invoke a WASM-side callback by index (used by the event loop to dispatch
+/// async task continuations back into Fusion code).
+#[no_mangle]
+extern "C" fn __wasm_callback_invoke(callback_idx: u32, payload_ptr: *const u8, payload_len: u32) {
+    let payload = unsafe {
+        core::slice::from_raw_parts(payload_ptr, payload_len as usize)
+    };
+    crate::runtime::callback_table().invoke(callback_idx, payload);
+}
+
+/// RequestAnimationFrame intrinsic — schedules the next frame tick.
+#[wasm_import("env", "js_request_animation_frame")]
+extern "C" fn js_request_animation_frame(callback_idx: u32) -> u32;
+
+struct ElementPointer(u32); // Opaque handle to a JS-side DOM element
 struct Event; // Opaque event object
+
+// --- DOM Event Loop Integration ---
+
+/// The WASM event loop manages asynchronous task scheduling and drives
+/// the browser's event loop via `setTimeout(0)` or `requestAnimationFrame`.
+struct WasmEventLoop {
+    /// Queue of tasks ready to run on the next microtask / macrotask tick.
+    ready_queue: List<PendingTask>,
+    /// Map from fetch-ID to the Task that is awaiting the response.
+    pending_fetches: FMap<u32, Task<Result<FString>>>,
+    /// Counter for assigning unique callback indices.
+    next_callback_id: u32,
+}
+
+struct PendingTask {
+    callback_idx: u32,
+    payload: Option<FVec<u8>>,
+}
+
+impl WasmEventLoop {
+    fn new() -> Self {
+        WasmEventLoop {
+            ready_queue: List::new(),
+            pending_fetches: HashMap::new(),
+            next_callback_id: 0,
+        }
+    }
+
+    /// Register a new async callback and return its index.
+    fn register_callback(&mut self) -> u32 {
+        let idx = self.next_callback_id;
+        self.next_callback_id += 1;
+        idx
+    }
+
+    /// Enqueue a task to be executed on the next event loop tick.
+    fn enqueue(&mut self, task: PendingTask) {
+        self.ready_queue.push_back(task);
+    }
+
+    /// Drive one iteration of the event loop: drain the ready queue, then
+    /// yield back to the browser via `setTimeout(0)`.
+    fn tick(&mut self) {
+        while let Some(task) = self.ready_queue.pop_front() {
+            let payload = task.payload.unwrap_or_default();
+            __wasm_callback_invoke(
+                task.callback_idx,
+                payload.as_ptr(),
+                payload.len() as u32,
+            );
+        }
+        // Schedule the next tick so the browser can process I/O events.
+        let tick_idx = self.register_callback();
+        self.enqueue(PendingTask { callback_idx: tick_idx, payload: None });
+        js_request_animation_frame(tick_idx);
+    }
+}
 
 // --- High-Level DOM Manipulation ---
 
 /// Represents a managed DOM element.
 struct DomElement:
     ptr: ElementPointer
-    
+
     static fn select_by_id(id: FString) -> Result<DomElement>:
-        let ptr = js_get_element_by_id(id);
-        if ptr.is_null():
+        // Encode the string as UTF-8 into WASM linear memory.
+        let bytes = id.as_bytes();
+        let ptr = bytes.as_ptr();
+        let raw = js_get_element_by_id(ptr, bytes.len() as u32);
+        if raw.0 == 0:
             return Err(Error::new("DomElementNotFound", format!("ID '{}' not found.", id)))
-        return Ok(DomElement { ptr: ptr })
-        
+        return Ok(DomElement { ptr: raw })
+
     fn set_content(self, content: FString):
-        js_set_inner_html(self.ptr, content)
+        let bytes = content.as_bytes();
+        js_set_inner_html(self.ptr, bytes.as_ptr(), bytes.len() as u32)
 
     /// Registers an asynchronous event handler.
+    /// The handler closure is stored in the runtime callback table and its
+    /// index is passed to the JS host for the event listener registration.
     fn on_click(self, handler: fn(Event) -> Task<()>):
-        js_add_event_listener(self.ptr, "click", handler)
+        let mut loop_ref = crate::runtime::event_loop().borrow_mut();
+        let idx = loop_ref.register_callback();
+        // Store the handler in the callback table so __wasm_callback_invoke
+        // can find it when the JS click event fires.
+        crate::runtime::callback_table().store(idx, handler);
+        js_add_event_listener(self.ptr, "click".as_ptr(), "click".len() as u32, idx);
+
+    fn on_input(self, handler: fn(Event) -> Task<()>):
+        let mut loop_ref = crate::runtime::event_loop().borrow_mut();
+        let idx = loop_ref.register_callback();
+        crate::runtime::callback_table().store(idx, handler);
+        js_add_event_listener(self.ptr, "input".as_ptr(), "input".len() as u32, idx);
+
+    fn on_keydown(self, handler: fn(Event) -> Task<()>):
+        let mut loop_ref = crate::runtime::event_loop().borrow_mut();
+        let idx = loop_ref.register_callback();
+        crate::runtime::callback_table().store(idx, handler);
+        js_add_event_listener(self.ptr, "keydown".as_ptr(), "keydown".len() as u32, idx);
 
 // --- Web Networking ---
 
-/// Wrapper for asynchronous network requests.
+/// Wrapper for asynchronous network requests that integrates with the WASM event loop.
 async fn fetch(url: FString) -> Result<FString>:
-    // Delegates to the JS host's native fetch API for efficiency.
-    return js_fetch_url(url).await.map_err(|e| Error::new("NetworkError", e))
+    let url_bytes = url.as_bytes();
+    let fetch_id = js_fetch_url(url_bytes.as_ptr(), url_bytes.len() as u32);
+
+    // Register a pending fetch in the event loop so the JS callback
+    // js_fetch_resolve / js_fetch_reject can wake the correct task.
+    let mut loop_ref = crate::runtime::event_loop().borrow_mut();
+    let (tx, rx) = crate::async::oneshot();
+    loop_ref.pending_fetches.insert(fetch_id, tx);
+
+    // Await the response via the event loop's async machinery.
+    drop(loop_ref); // release borrow before await
+    rx.await.map_err(|e| Error::new("NetworkError", e))
+
+// --- WASM Entry Point ---
+
+/// The main entry point invoked by the WASM runtime after instantiation.
+/// This sets up the event loop and begins executing Fusion async tasks.
+#[no_mangle]
+extern "C" fn __wasm_start() {
+    // 1. Initialize the linear memory allocator.
+    crate::runtime::init_memory(WasmMemory {
+        base: unsafe { __wasm_memory_size(0) as *mut u8 },
+        pages: 16, // initial 1 MiB
+    });
+
+    // 2. Initialize the WASM event loop.
+    let loop_ref = WasmEventLoop::new();
+    crate::runtime::set_event_loop(loop_ref);
+
+    // 3. Run the application's main async task.
+    let app_task = main_wasm_app();
+    crate::runtime::spawn(app_task);
+
+    // 4. Begin the event loop.
+    crate::runtime::event_loop().borrow_mut().tick();
+}
 
 // --- Example Usage (Browser-side) ---
 
@@ -71,22 +287,22 @@ fn main_wasm_app() -> Task<()> {
                 update_dom_content("data_output", format!("Fetch failed: {}", e.message)).await;
         }
     };
-    
+
     // 3. Define event handler that performs a secure operation
     let button = DomElement::select_by_id("sign_button").expect("Button not found");
     button.on_click(|_event| async {
         // Example: Use the hybrid crypto module compiled to WASM
         use fusion::crypto::{hybrid_sign, HybridKeypair};
-        
+
         let keys = HybridKeypair::generate().expect("Key gen failed");
         let message = "Secure transaction hash".as_bytes();
-        
+
         let signature = hybrid_sign(
-            message, 
-            &keys.classical_sig.private_key, 
+            message,
+            &keys.classical_sig.private_key,
             &keys.pqc_sig.private_key
         ).expect("Signing failed");
-        
+
         update_dom_content("status", format!("Hybrid Signed (PQC+Classical). Sig length: {}", signature.classical_sig.len + signature.pqc_sig.len)).await;
     });
 

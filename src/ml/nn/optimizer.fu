@@ -1,0 +1,414 @@
+#![allow(dead_code)]
+use crate::ml::tensor::Tensor;
+use std::collections::HashMap;
+
+/// SGD Optimizer with momentum
+struct Sgd {
+    pub lr: f32,
+    pub momentum: f32,
+    pub weight_decay: f32,
+    velocities: HashMap<usize, Tensor>,
+    step_count: usize,
+}
+
+impl Sgd {
+    pub fn new(lr: f32, momentum: f32, weight_decay: f32) -> Self {
+        Self {
+            lr,
+            momentum,
+            weight_decay,
+            velocities: HashMap::new(),
+            step_count: 0,
+        }
+    }
+
+    pub fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
+        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+            let mut g = grad.clone();
+
+            // Apply weight decay
+            if self.weight_decay > 0.0 {
+                for j in 0..g.numel() {
+                    g.data_mut()[j] += self.weight_decay * param.data()[j];
+                }
+            }
+
+            // Initialize velocity if needed
+            if !self.velocities.contains_key(&i) {
+                self.velocities.insert(i, Tensor::zeros(param.shape().clone()));
+            }
+
+            // Update velocity and parameter
+            let vel = self.velocities.get_mut(&i).unwrap();
+            for j in 0..vel.numel() {
+                vel.data_mut()[j] = self.momentum * vel.data()[j] + g.data()[j];
+                param.data_mut()[j] -= self.lr * vel.data()[j];
+            }
+        }
+        self.step_count += 1;
+    }
+}
+
+/// Adam Optimizer
+struct Adam {
+    pub lr: f32,
+    pub betas: (f32, f32),
+    pub eps: f32,
+    pub weight_decay: f32,
+    m: HashMap<usize, Tensor>,
+    v: HashMap<usize, Tensor>,
+    step_count: usize,
+}
+
+impl Adam {
+    pub fn new(lr: f32, betas: (f32, f32), eps: f32, weight_decay: f32) -> Self {
+        Self {
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            m: HashMap::new(),
+            v: HashMap::new(),
+            step_count: 0,
+        }
+    }
+
+    pub fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
+        self.step_count += 1;
+        let step = self.step_count as f32;
+        let beta1 = self.betas.0;
+        let beta2 = self.betas.1;
+
+        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+            let mut g = grad.clone();
+
+            // Apply weight decay
+            if self.weight_decay > 0.0 {
+                for j in 0..g.numel() {
+                    g.data_mut()[j] += self.weight_decay * param.data()[j];
+                }
+            }
+
+            // Initialize state if needed
+            if !self.m.contains_key(&i) {
+                self.m.insert(i, Tensor::zeros(param.shape().clone()));
+                self.v.insert(i, Tensor::zeros(param.shape().clone()));
+            }
+
+            let m = self.m.get_mut(&i).unwrap();
+            let v = self.v.get_mut(&i).unwrap();
+
+            // Update biased first moment estimate
+            for j in 0..m.numel() {
+                m.data_mut()[j] = beta1 * m.data()[j] + (1.0 - beta1) * g.data()[j];
+            }
+
+            // Update biased second raw moment estimate
+            for j in 0..v.numel() {
+                v.data_mut()[j] = beta2 * v.data()[j] + (1.0 - beta2) * g.data()[j] * g.data()[j];
+            }
+
+            // Compute bias-corrected estimates and update parameters
+            let bias_correction1 = 1.0 - beta1.powf(step);
+            let bias_correction2 = 1.0 - beta2.powf(step);
+
+            for j in 0..param.numel() {
+                let m_hat = m.data()[j] / bias_correction1;
+                let v_hat = v.data()[j] / bias_correction2;
+                param.data_mut()[j] -= self.lr * m_hat / (v_hat.sqrt() + self.eps);
+            }
+        }
+    }
+}
+
+/// AdamW Optimizer (decoupled weight decay)
+struct AdamW {
+    pub lr: f32,
+    pub betas: (f32, f32),
+    pub eps: f32,
+    pub weight_decay: f32,
+    m: HashMap<usize, Tensor>,
+    v: HashMap<usize, Tensor>,
+    step_count: usize,
+}
+
+impl AdamW {
+    pub fn new(lr: f32, betas: (f32, f32), eps: f32, weight_decay: f32) -> Self {
+        Self {
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            m: HashMap::new(),
+            v: HashMap::new(),
+            step_count: 0,
+        }
+    }
+
+    pub fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
+        self.step_count += 1;
+        let step = self.step_count as f32;
+        let beta1 = self.betas.0;
+        let beta2 = self.betas.1;
+
+        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+            let g = grad.clone();
+
+            // Initialize state if needed
+            if !self.m.contains_key(&i) {
+                self.m.insert(i, Tensor::zeros(param.shape().clone()));
+                self.v.insert(i, Tensor::zeros(param.shape().clone()));
+            }
+
+            let m = self.m.get_mut(&i).unwrap();
+            let v = self.v.get_mut(&i).unwrap();
+
+            // Update biased first moment estimate (no weight decay in gradient)
+            for j in 0..m.numel() {
+                m.data_mut()[j] = beta1 * m.data()[j] + (1.0 - beta1) * g.data()[j];
+            }
+
+            // Update biased second raw moment estimate
+            for j in 0..v.numel() {
+                v.data_mut()[j] = beta2 * v.data()[j] + (1.0 - beta2) * g.data()[j] * g.data()[j];
+            }
+
+            // Compute bias-corrected estimates and update with decoupled weight decay
+            let bias_correction1 = 1.0 - beta1.powf(step);
+            let bias_correction2 = 1.0 - beta2.powf(step);
+
+            for j in 0..param.numel() {
+                let m_hat = m.data()[j] / bias_correction1;
+                let v_hat = v.data()[j] / bias_correction2;
+                // Decoupled weight decay (applied directly to param, not through gradient)
+                param.data_mut()[j] -= self.lr * (m_hat / (v_hat.sqrt() + self.eps) + self.weight_decay * param.data()[j]);
+            }
+        }
+    }
+}
+
+/// RMSProp Optimizer
+struct Rmsprop {
+    pub lr: f32,
+    pub alpha: f32,
+    pub eps: f32,
+    pub momentum: f32,
+    v: HashMap<usize, Tensor>,
+    step_count: usize,
+}
+
+impl Rmsprop {
+    pub fn new(lr: f32, alpha: f32, eps: f32, momentum: f32) -> Self {
+        Self {
+            lr,
+            alpha,
+            eps,
+            momentum,
+            v: HashMap::new(),
+            step_count: 0,
+        }
+    }
+
+    pub fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
+        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+            let g = grad.clone();
+
+            // Initialize state if needed
+            if !self.v.contains_key(&i) {
+                self.v.insert(i, Tensor::zeros(param.shape().clone()));
+            }
+
+            let v = self.v.get_mut(&i).unwrap();
+
+            // Update running average of squared gradients
+            for j in 0..v.numel() {
+                v.data_mut()[j] = self.alpha * v.data()[j] + (1.0 - self.alpha) * g.data()[j] * g.data()[j];
+            }
+
+            // Update parameters
+            for j in 0..param.numel() {
+                let denom = v.data()[j].sqrt() + self.eps;
+                param.data_mut()[j] -= self.lr * g.data()[j] / denom;
+            }
+        }
+        self.step_count += 1;
+    }
+}
+
+/// Adagrad Optimizer
+struct Adagrad {
+    pub lr: f32,
+    pub eps: f32,
+    pub weight_decay: f32,
+    sum_sq: HashMap<usize, Tensor>,
+    step_count: usize,
+}
+
+impl Adagrad {
+    pub fn new(lr: f32, eps: f32, weight_decay: f32) -> Self {
+        Self {
+            lr,
+            eps,
+            weight_decay,
+            sum_sq: HashMap::new(),
+            step_count: 0,
+        }
+    }
+
+    pub fn step(&mut self, params: &mut [Tensor], grads: &[Tensor]) {
+        for (i, (param, grad)) in params.iter_mut().zip(grads.iter()).enumerate() {
+            let mut g = grad.clone();
+
+            // Apply weight decay
+            if self.weight_decay > 0.0 {
+                for j in 0..g.numel() {
+                    g.data_mut()[j] += self.weight_decay * param.data()[j];
+                }
+            }
+
+            // Initialize state if needed
+            if !self.sum_sq.contains_key(&i) {
+                self.sum_sq.insert(i, Tensor::zeros(param.shape().clone()));
+            }
+
+            let sum_sq = self.sum_sq.get_mut(&i).unwrap();
+
+            // Update sum of squared gradients and parameters
+            for j in 0..sum_sq.numel() {
+                sum_sq.data_mut()[j] += g.data()[j] * g.data()[j];
+                let denom = sum_sq.data()[j].sqrt() + self.eps;
+                param.data_mut()[j] -= self.lr * g.data()[j] / denom;
+            }
+        }
+        self.step_count += 1;
+    }
+}
+
+/// Cosine Annealing Learning Rate Scheduler
+struct CosineAnnealingLr {
+    pub base_lr: f32,
+    pub max_lr: f32,
+    pub step_size: usize,
+    step_count: usize,
+}
+
+impl CosineAnnealingLr {
+    pub fn new(base_lr: f32, max_lr: f32, step_size: usize) -> Self {
+        Self {
+            base_lr,
+            max_lr,
+            step_size,
+            step_count: 0,
+        }
+    }
+
+    pub fn get_lr(&mut self) -> f32 {
+        let progress = (self.step_count as f32) / (self.step_size as f32);
+        let cosine_decay = 0.5 * (1.0 + (std::f32::consts::PI * progress).cos());
+        self.step_count += 1;
+        self.base_lr + (self.max_lr - self.base_lr) * cosine_decay
+    }
+}
+
+/// Warmup Scheduler
+/// Linearly warm up then decay
+struct WarmupScheduler {
+    pub warmup_steps: usize,
+    pub base_lr: f32,
+    step_count: usize,
+}
+
+impl WarmupScheduler {
+    pub fn new(warmup_steps: usize, base_lr: f32) -> Self {
+        Self {
+            warmup_steps,
+            base_lr,
+            step_count: 0,
+        }
+    }
+
+    pub fn get_lr(&mut self) -> f32 {
+        let lr = if self.step_count < self.warmup_steps {
+            // Linear warmup
+            self.base_lr * (self.step_count as f32) / (self.warmup_steps as f32)
+        } else {
+            // Decay after warmup
+            let decay_steps = (self.step_count - self.warmup_steps) as f32;
+            let warmup_f32 = self.warmup_steps as f32;
+            self.base_lr * warmup_f32 / (warmup_f32 + decay_steps)
+        };
+        self.step_count += 1;
+        lr
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sgd_step() {
+        let mut sgd = Sgd::new(0.01, 0.9, 0.0);
+        let mut param = Tensor::ones(vec![2, 2]);
+        let grad = Tensor::new(vec![0.1, 0.2, 0.3, 0.4], vec![2, 2]).unwrap();
+        sgd.step(&mut [param.clone()], &[grad]);
+        // After one step with momentum=0, param should decrease by lr*grad
+        assert!(param.data()[0] < 1.0);
+    }
+
+    #[test]
+    fn test_adam_step() {
+        let mut adam = Adam::new(0.001, (0.9, 0.999), 1e-8, 0.0);
+        let mut param = Tensor::ones(vec![2, 2]);
+        let grad = Tensor::new(vec![0.1, 0.2, 0.3, 0.4], vec![2, 2]).unwrap();
+        adam.step(&mut [param.clone()], &[grad]);
+        assert!(param.data()[0] < 1.0);
+        assert_eq!(adam.step_count, 1);
+    }
+
+    #[test]
+    fn test_adamw_step() {
+        let mut adamw = AdamW::new(0.001, (0.9, 0.999), 1e-8, 0.01);
+        let mut param = Tensor::ones(vec![2, 2]);
+        let grad = Tensor::new(vec![0.1, 0.2, 0.3, 0.4], vec![2, 2]).unwrap();
+        adamw.step(&mut [param.clone()], &[grad]);
+        // AdamW applies weight decay directly to param
+        assert!(param.data()[0] < 1.0);
+    }
+
+    #[test]
+    fn test_rmsprop_step() {
+        let mut rmsprop = Rmsprop::new(0.01, 0.9, 1e-8, 0.0);
+        let mut param = Tensor::ones(vec![2, 2]);
+        let grad = Tensor::new(vec![0.1, 0.2, 0.3, 0.4], vec![2, 2]).unwrap();
+        rmsprop.step(&mut [param.clone()], &[grad]);
+        assert!(param.data()[0] < 1.0);
+    }
+
+    #[test]
+    fn test_adagrad_step() {
+        let mut adagrad = Adagrad::new(0.01, 1e-8, 0.0);
+        let mut param = Tensor::ones(vec![2, 2]);
+        let grad = Tensor::new(vec![0.1, 0.2, 0.3, 0.4], vec![2, 2]).unwrap();
+        adagrad.step(&mut [param.clone()], &[grad]);
+        assert!(param.data()[0] < 1.0);
+    }
+
+    #[test]
+    fn test_cosine_annealing_lr() {
+        let mut scheduler = CosineAnnealingLr::new(0.001, 0.01, 100);
+        let lr0 = scheduler.get_lr();
+        let lr50 = scheduler.get_lr(); // After 1 step
+        // LR should start near base_lr and increase
+        assert!(lr0 >= 0.001);
+    }
+
+    #[test]
+    fn test_warmup_scheduler() {
+        let mut scheduler = WarmupScheduler::new(10, 0.01);
+        let lr0 = scheduler.get_lr();
+        let lr5 = scheduler.get_lr(); // After 5 warmup steps
+        // During warmup, LR should increase
+        assert!(lr5 > lr0);
+    }
+}

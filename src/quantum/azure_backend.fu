@@ -1,0 +1,65 @@
+// src/quantum/azure_backend.fu
+// Azure Quantum Backend Interface
+// Wraps the Azure Quantum Rust crate with Fusion-native API
+
+class AzureConfig {
+    subscription: string;
+    resource_group: string;
+    workspace: string;
+}
+
+impl AzureConfig {
+    fn new(subscription: string, resource_group: string, workspace: string) -> AzureConfig {
+        return AzureConfig {
+            subscription: subscription,
+            resource_group: resource_group,
+            workspace: workspace
+        };
+    }
+}
+
+// External FFI bindings to azure-quantum-runtime crate
+extern fn azure_quantum_connect(config: AzureConfig) -> int;
+extern fn azure_quantum_submit(handle: int, circuit: string, provider: string) -> int;
+extern fn azure_quantum_status(handle: int, job_id: int) -> string;
+extern fn azure_quantum_estimate_resources(circuit: string) -> string;
+
+// High-level wrapper: submit and poll for Azure Quantum job
+fn azure_quantum_run(config: AzureConfig, circuit: string, provider: string) -> string {
+    let handle = azure_quantum_connect(config);
+
+    if handle == 0 {
+        return "{\"error\": \"Failed to connect to Azure Quantum\"}";
+    }
+
+    let job_id = azure_quantum_submit(handle, circuit, provider);
+
+    if job_id == 0 {
+        return "{\"error\": \"Failed to submit job to Azure Quantum\"}";
+    }
+
+    let mut attempts = 0;
+    let max_attempts = 90;
+
+    while attempts < max_attempts {
+        let status = azure_quantum_status(handle, job_id);
+
+        if status != "Waiting" && status != "Executing" && status != "Scheduling" {
+            return status;
+        }
+
+        let mut delay = 0;
+        while delay < 1000000 {
+            delay = delay + 1;
+        }
+
+        attempts = attempts + 1;
+    }
+
+    return "{\"error\": \"Azure Quantum job timed out\"}";
+}
+
+// Estimate resource requirements without submitting
+fn azure_estimate(circuit: string) -> string {
+    return azure_quantum_estimate_resources(circuit);
+}

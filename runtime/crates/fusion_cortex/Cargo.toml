@@ -9,7 +9,6 @@ description = "AI-powered Cortex Engine scheduler for the Fusion Runtime"
 
 [dependencies]
 # Core dependencies
-fusion_core = { path = "../fusion_core" }
 ndarray = "0.15"
 tracing = { workspace = true }
 thiserror = { workspace = true }

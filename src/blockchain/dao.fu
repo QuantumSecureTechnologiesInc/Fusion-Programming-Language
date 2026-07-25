@@ -1,0 +1,121 @@
+// Fusion v2.0 Vortex — Decentralized Autonomous Organization
+
+struct DAO {
+    name: string
+    treasury: float
+    members: []string
+    proposals: []Proposal
+    config: GovernanceConfig
+}
+
+fn dao_new(name: string, config: GovernanceConfig) -> DAO {
+    assert(len(name) > 0, "DAO name must not be empty")
+    DAO {
+        name: name,
+        treasury: 0.0,
+        members: [],
+        proposals: [],
+        config: config
+    }
+}
+
+fn dao_add_member(dao: DAO, member: string) -> DAO {
+    assert(len(member) > 0, "Member address must not be empty")
+
+    for m in dao.members {
+        if m == member {
+            return dao
+        }
+    }
+
+    DAO { ...dao, members: append(dao.members, member) }
+}
+
+fn dao_remove_member(dao: DAO, member: string) -> DAO {
+    assert(len(dao.members) > 1, "Cannot remove last member")
+
+    let new_members: []string = []
+    for m in dao.members {
+        if m != member {
+            new_members = append(new_members, m)
+        }
+    }
+
+    DAO { ...dao, members: new_members }
+}
+
+fn dao_create_proposal(dao: DAO, title: string, description: string, proposer: string) -> DAO {
+    let is_member = false
+    for m in dao.members {
+        if m == proposer {
+            is_member = true
+        }
+    }
+    assert(is_member, "Proposer must be a DAO member")
+
+    let now = current_timestamp()
+    let p = Proposal {
+        id: len(dao.proposals),
+        title: title,
+        description: description,
+        proposer: proposer,
+        votes_for: 0,
+        votes_against: 0,
+        status: "pending",
+        created_at: now,
+        expires_at: now + dao.config.voting_period
+    }
+
+    DAO { ...dao, proposals: append(dao.proposals, p) }
+}
+
+fn dao_vote(dao: DAO, proposal_id: int, voter: string, vote: string) -> DAO {
+    assert(proposal_id >= 0 && proposal_id < len(dao.proposals),
+           "Invalid proposal ID")
+
+    let is_member = false
+    for m in dao.members {
+        if m == voter {
+            is_member = true
+        }
+    }
+    assert(is_member, "Voter must be a DAO member")
+
+    let proposal = dao.proposals[proposal_id]
+    let weight = 1.0
+    let (updated_proposal, _v) = proposal_vote(proposal, voter, vote, weight)
+
+    let new_proposals = clone(dao.proposals)
+    new_proposals[proposal_id] = updated_proposal
+    DAO { ...dao, proposals: new_proposals }
+}
+
+fn dao_execute(dao: DAO, proposal_id: int) -> DAO {
+    assert(proposal_id >= 0 && proposal_id < len(dao.proposals),
+           "Invalid proposal ID")
+
+    let proposal = dao.proposals[proposal_id]
+    let executed = proposal_execute(proposal, dao.config)
+
+    let new_proposals = clone(dao.proposals)
+    new_proposals[proposal_id] = executed
+    DAO { ...dao, proposals: new_proposals }
+}
+
+fn dao_treasury(dao: DAO) -> float {
+    dao.treasury
+}
+
+fn dao_member_count(dao: DAO) -> int {
+    len(dao.members)
+}
+
+fn dao_active_proposals(dao: DAO) -> []Proposal {
+    let active: []Proposal = []
+    for p in dao.proposals {
+        if p.status == "pending" || p.status == "active" {
+            active = append(active, p)
+        }
+    }
+    active
+}

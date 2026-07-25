@@ -1,5 +1,0 @@
-use anyhow::Result;
-use fusion_analyzer;
-fn lint(fix: FBool, security: FBool) -> Result<()> {
-    fusion_analyzer::lint(fix, security)
-}

@@ -1,0 +1,13 @@
+struct DeployConfig {
+    target: string
+    namespace: string
+    replicas: int
+}
+
+extern fn deploy_to_k8s(config: DeployConfig, image: string) -> void
+
+extern fn deploy_to_faas(config: DeployConfig, function_path: string) -> void
+
+extern fn deploy_status(config: DeployConfig) -> string
+
+extern fn deploy_rollback(config: DeployConfig) -> void

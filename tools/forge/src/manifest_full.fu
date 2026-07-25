@@ -1,0 +1,1452 @@
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+type FMap<K, V> = HashMap<K, V>;
+type FString = String;
+type FVec<T> = Vec<T>;
+
+// =============================================================================
+// TOP-LEVEL MANIFEST
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Manifest {
+    #[serde(default)]
+    pub package: Package,
+
+    #[serde(default)]
+    pub dependencies: FMap<FString, Dependency>,
+
+    #[serde(default)]
+    pub dev_dependencies: FMap<FString, Dependency>,
+
+    #[serde(default)]
+    pub build_dependencies: FMap<FString, Dependency>,
+
+    #[serde(default)]
+    pub workspace: Option<Workspace>,
+
+    #[serde(default)]
+    pub languages: Languages,
+
+    #[serde(default)]
+    pub lints: Lints,
+
+    #[serde(default)]
+    pub runtime: Runtime,
+
+    #[serde(default)]
+    pub build: BuildConfig,
+
+    #[serde(default)]
+    pub monolith: Monolith,
+
+    #[serde(default)]
+    pub haft: Haft,
+
+    #[serde(default)]
+    pub sentinel: Sentinel,
+
+    #[serde(default)]
+    pub cortex: Cortex,
+
+    #[serde(default)]
+    pub quantum: Quantum,
+
+    #[serde(default)]
+    pub ai: AiConfig,
+
+    #[serde(default)]
+    pub web: WebServer,
+
+    #[serde(default)]
+    pub database: Database,
+
+    #[serde(default)]
+    pub logging: Logging,
+
+    #[serde(default)]
+    pub telemetry: Telemetry,
+
+    #[serde(default)]
+    pub test: TestConfig,
+
+    #[serde(default)]
+    pub bench: BenchConfig,
+
+    #[serde(default)]
+    pub features: FeatureFlags,
+
+    #[serde(default)]
+    pub docs: DocsConfig,
+
+    #[serde(default)]
+    pub deploy: DeployConfig,
+
+    #[serde(default)]
+    pub security: SecurityConfig,
+
+    #[serde(default)]
+    pub scripts: Scripts,
+
+    /// Catch-all for any unrecognized top-level sections.
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// PACKAGE
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Package {
+    #[serde(default)]
+    pub name: FString,
+
+    #[serde(default)]
+    pub version: FString,
+
+    #[serde(default = "default_edition")]
+    pub edition: FString,
+
+    #[serde(default)]
+    pub authors: FVec<FString>,
+
+    #[serde(default)]
+    pub description: FString,
+
+    #[serde(default = "default_pkg_type")]
+    pub pkg_type: FString,
+
+    #[serde(default)]
+    pub license: FString,
+
+    #[serde(default)]
+    pub repository: FString,
+
+    #[serde(default)]
+    pub homepage: FString,
+
+    #[serde(default)]
+    pub rust_version: FString,
+
+    /// Catch-all for unexpected package fields.
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+fn default_edition() -> FString {
+    "2021".to_string()
+}
+fn default_pkg_type() -> FString {
+    "library".to_string()
+}
+
+// =============================================================================
+// DEPENDENCIES
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum Dependency {
+    Version(FString),
+    Detailed(DependencyDetail),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DependencyDetail {
+    #[serde(default)]
+    pub version: Option<FString>,
+
+    #[serde(default)]
+    pub path: Option<FString>,
+
+    #[serde(default)]
+    pub git: Option<FString>,
+
+    #[serde(default)]
+    pub branch: Option<FString>,
+
+    #[serde(default)]
+    pub rev: Option<FString>,
+
+    #[serde(default)]
+    pub tag: Option<FString>,
+
+    #[serde(default)]
+    pub features: Option<FVec<FString>>,
+
+    #[serde(default)]
+    pub default_features: Option<bool>,
+
+    #[serde(default)]
+    pub workspace: Option<bool>,
+
+    #[serde(default)]
+    pub optional: Option<bool>,
+
+    /// Catch-all for extra fields.
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+impl Dependency {
+    pub fn is_workspace(&self) -> bool {
+        match self {
+            Dependency::Detailed(d) => d.workspace.unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    pub fn is_path(&self) -> bool {
+        match self {
+            Dependency::Detailed(d) => d.path.is_some(),
+            _ => false,
+        }
+    }
+
+    pub fn is_git(&self) -> bool {
+        match self {
+            Dependency::Detailed(d) => d.git.is_some(),
+            _ => false,
+        }
+    }
+
+    pub fn version_str(&self) -> Option<&str> {
+        match self {
+            Dependency::Version(v) => Some(v),
+            Dependency::Detailed(d) => d.version.as_deref(),
+        }
+    }
+
+    pub fn path_str(&self) -> Option<&str> {
+        match self {
+            Dependency::Detailed(d) => d.path.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+// =============================================================================
+// WORKSPACE
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Workspace {
+    #[serde(default)]
+    pub resolver: FString,
+
+    #[serde(default)]
+    pub members: FVec<FString>,
+
+    #[serde(default)]
+    pub exclude: FVec<FString>,
+
+    #[serde(default)]
+    pub package: WorkspacePackage,
+
+    #[serde(default)]
+    pub dependencies: FMap<FString, Dependency>,
+
+    #[serde(default)]
+    pub lints: WorkspaceLints,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct WorkspacePackage {
+    #[serde(default)]
+    pub version: FString,
+
+    #[serde(default)]
+    pub edition: FString,
+
+    #[serde(default)]
+    pub authors: FVec<FString>,
+
+    #[serde(default)]
+    pub license: FString,
+
+    #[serde(default)]
+    pub repository: FString,
+
+    #[serde(default)]
+    pub homepage: FString,
+
+    #[serde(default)]
+    pub rust_version: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct WorkspaceLints {
+    #[serde(default)]
+    pub rust: FMap<FString, FString>,
+
+    #[serde(default)]
+    pub clippy: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// LINTS
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Lints {
+    #[serde(default)]
+    pub fusion: FMap<FString, FString>,
+
+    #[serde(default)]
+    pub rust: FMap<FString, FString>,
+
+    #[serde(default)]
+    pub clippy: FMap<FString, toml::Value>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// LANGUAGE CONFIGURATIONS
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Languages {
+    #[serde(default)]
+    pub cpp: Option<CppConfig>,
+
+    #[serde(default)]
+    pub python: Option<PythonConfig>,
+
+    #[serde(default)]
+    pub javascript: Option<JavascriptConfig>,
+
+    #[serde(default)]
+    pub typescript: Option<TypescriptConfig>,
+
+    #[serde(default)]
+    pub rust: Option<RustLangConfig>,
+
+    #[serde(default)]
+    pub java: Option<JavaConfig>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CppConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub standard: FString,
+
+    #[serde(default)]
+    pub compiler: FString,
+
+    #[serde(default)]
+    pub sources: FVec<FString>,
+
+    #[serde(default)]
+    pub include_dirs: FVec<FString>,
+
+    #[serde(default)]
+    pub libraries: FVec<FString>,
+
+    #[serde(default)]
+    pub compile_flags: FVec<FString>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PythonConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub version: FString,
+
+    #[serde(default)]
+    pub requirements: FVec<FString>,
+
+    #[serde(default)]
+    pub entry_point: FString,
+
+    #[serde(default)]
+    pub virtual_env: FString,
+
+    #[serde(default)]
+    pub package_manager: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct JavascriptConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub manager: FString,
+
+    #[serde(default)]
+    pub packages: FMap<FString, FString>,
+
+    #[serde(default)]
+    pub entry_point: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct TypescriptConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub manager: FString,
+
+    #[serde(default)]
+    pub packages: FMap<FString, FString>,
+
+    #[serde(default)]
+    pub entry_point: FString,
+
+    #[serde(default)]
+    pub config_file: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct RustLangConfig {
+    #[serde(default)]
+    pub edition: FString,
+
+    #[serde(default)]
+    pub crates: FMap<FString, FString>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct JavaConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub version: FString,
+
+    #[serde(default)]
+    pub source_dir: FString,
+
+    #[serde(default)]
+    pub classpath: FVec<FString>,
+}
+
+// =============================================================================
+// RUNTIME CONFIGURATION
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Runtime {
+    #[serde(default)]
+    pub profile: FString,
+
+    #[serde(default)]
+    pub target: FString,
+
+    #[serde(default)]
+    pub supernova: Option<SupernovaConfig>,
+
+    #[serde(default)]
+    pub thread_pool: Option<ThreadPoolConfig>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SupernovaConfig {
+    #[serde(default)]
+    pub heterogeneous_execution: bool,
+
+    #[serde(default)]
+    pub gpu_backends: FVec<FString>,
+
+    #[serde(default)]
+    pub quantum_backends: FVec<FString>,
+
+    #[serde(default)]
+    pub max_threads: FString,
+
+    #[serde(default)]
+    pub memory_pool_size: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ThreadPoolConfig {
+    #[serde(default)]
+    pub worker_threads: FString,
+
+    #[serde(default)]
+    pub stack_size: FString,
+
+    #[serde(default)]
+    pub work_stealing: bool,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// BUILD CONFIGURATION
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct BuildConfig {
+    #[serde(default)]
+    pub optimization_level: i32,
+
+    #[serde(default)]
+    pub debug_info: bool,
+
+    #[serde(default)]
+    pub incremental: bool,
+
+    #[serde(default)]
+    pub parallel: bool,
+
+    #[serde(default)]
+    pub lto: bool,
+
+    #[serde(default)]
+    pub codegen_units: i32,
+
+    #[serde(default)]
+    pub target: FMap<FString, BuildTarget>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct BuildTarget {
+    #[serde(default)]
+    pub linker: FString,
+
+    #[serde(default)]
+    pub rustflags: FVec<FString>,
+
+    #[serde(default)]
+    pub opt_level: toml::Value,
+
+    #[serde(default)]
+    pub strip: bool,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// MONOLITH (INCREMENTAL COMPILATION ENGINE)
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Monolith {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub persistence_path: FString,
+
+    #[serde(default)]
+    pub max_cache_size: FString,
+
+    #[serde(default)]
+    pub daemon_timeout: FString,
+
+    #[serde(default)]
+    pub incremental_threshold: f64,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// HAFT (HYPER-ADAPTIVE FLUX TENSOR)
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Haft {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub gpu_memory_limit: FString,
+
+    #[serde(default)]
+    pub ram_memory_limit: FString,
+
+    #[serde(default)]
+    pub ssd_cache_path: FString,
+
+    #[serde(default)]
+    pub tiering_strategy: FString,
+
+    #[serde(default)]
+    pub agents: Option<HaftAgents>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct HaftAgents {
+    #[serde(default)]
+    pub researcher_interval: FString,
+
+    #[serde(default)]
+    pub builder_threshold: f64,
+
+    #[serde(default)]
+    pub optimizer_prefetch: bool,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// SENTINEL TRIBRID (SECURITY)
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Sentinel {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub mode: FString,
+
+    #[serde(default)]
+    pub crypto: Option<SentinelCrypto>,
+
+    #[serde(default)]
+    pub chaos: Option<SentinelChaos>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SentinelCrypto {
+    #[serde(default)]
+    pub key_exchange: FString,
+
+    #[serde(default)]
+    pub signatures: FString,
+
+    #[serde(default)]
+    pub encryption: FString,
+
+    #[serde(default)]
+    pub pq_security_level: i32,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SentinelChaos {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub initial_state: FString,
+
+    #[serde(default)]
+    pub rotation_interval: FString,
+
+    #[serde(default)]
+    pub entropy_threshold: f64,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// CORTEX AI SCHEDULER
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Cortex {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub learning_mode: FString,
+
+    #[serde(default)]
+    pub profiling_interval: FString,
+
+    #[serde(default)]
+    pub optimization_threshold: f64,
+
+    #[serde(default)]
+    pub gpu: Option<CortexGpu>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CortexGpu {
+    #[serde(default)]
+    pub auto_dispatch: bool,
+
+    #[serde(default)]
+    pub batch_size_optimization: bool,
+
+    #[serde(default)]
+    pub kernel_fusion: bool,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// QUANTUM COMPUTING
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Quantum {
+    #[serde(default)]
+    pub default_backend: FString,
+
+    #[serde(default)]
+    pub max_qubits: i32,
+
+    #[serde(default)]
+    pub shots: i32,
+
+    #[serde(default)]
+    pub aws_braket: Option<QuantumAwsBraket>,
+
+    #[serde(default)]
+    pub ibm_quantum: Option<QuantumIbm>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct QuantumAwsBraket {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub region: FString,
+
+    #[serde(default)]
+    pub device: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct QuantumIbm {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub api_token: FString,
+
+    #[serde(default)]
+    pub hub: FString,
+
+    #[serde(default)]
+    pub group: FString,
+
+    #[serde(default)]
+    pub project: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// AI/ML CONFIGURATION
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiConfig {
+    #[serde(default)]
+    pub default_device: FString,
+
+    #[serde(default)]
+    pub mixed_precision: bool,
+
+    #[serde(default)]
+    pub gradient_checkpointing: bool,
+
+    #[serde(default)]
+    pub provider: FString,
+
+    #[serde(default)]
+    pub serving: Option<AiServing>,
+
+    #[serde(default)]
+    pub distributed: Option<AiDistributed>,
+
+    #[serde(default)]
+    pub ollama: Option<AiOllama>,
+
+    #[serde(default)]
+    pub mistral: Option<AiMistral>,
+
+    #[serde(default)]
+    pub deepseek: Option<AiDeepseek>,
+
+    #[serde(default)]
+    pub phi: Option<AiPhi>,
+
+    #[serde(default)]
+    pub gemma: Option<AiGemma>,
+
+    #[serde(default)]
+    pub qwen: Option<AiQwen>,
+
+    #[serde(default)]
+    pub gpt_oss: Option<AiGptOss>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiServing {
+    #[serde(default)]
+    pub batch_size: i32,
+
+    #[serde(default)]
+    pub timeout: FString,
+
+    #[serde(default)]
+    pub quantization: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiDistributed {
+    #[serde(default)]
+    pub backend: FString,
+
+    #[serde(default)]
+    pub world_size: i32,
+
+    #[serde(default)]
+    pub rank: i32,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiOllama {
+    #[serde(default)]
+    pub base_url: FString,
+
+    #[serde(default)]
+    pub model: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiMistral {
+    #[serde(default)]
+    pub api_key: FString,
+
+    #[serde(default)]
+    pub base_url: FString,
+
+    #[serde(default)]
+    pub model: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiDeepseek {
+    #[serde(default)]
+    pub api_key: FString,
+
+    #[serde(default)]
+    pub base_url: FString,
+
+    #[serde(default)]
+    pub model: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiPhi {
+    #[serde(default)]
+    pub base_url: FString,
+
+    #[serde(default)]
+    pub model: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiGemma {
+    #[serde(default)]
+    pub base_url: FString,
+
+    #[serde(default)]
+    pub model: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiQwen {
+    #[serde(default)]
+    pub api_key: FString,
+
+    #[serde(default)]
+    pub base_url: FString,
+
+    #[serde(default)]
+    pub model: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AiGptOss {
+    #[serde(default)]
+    pub base_url: FString,
+
+    #[serde(default)]
+    pub model: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// WEB SERVER
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct WebServer {
+    #[serde(default)]
+    pub host: FString,
+
+    #[serde(default)]
+    pub port: i32,
+
+    #[serde(default)]
+    pub workers: FString,
+
+    #[serde(default)]
+    pub max_connections: i32,
+
+    #[serde(default)]
+    pub request_timeout: FString,
+
+    #[serde(default)]
+    pub keep_alive: FString,
+
+    #[serde(default)]
+    pub tls: Option<WebTls>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct WebTls {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub cert_path: FString,
+
+    #[serde(default)]
+    pub key_path: FString,
+
+    #[serde(default)]
+    pub pq_cipher_suites: FVec<FString>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// DATABASE
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Database {
+    #[serde(default)]
+    pub url: FString,
+
+    #[serde(default)]
+    pub max_connections: i32,
+
+    #[serde(default)]
+    pub min_connections: i32,
+
+    #[serde(default)]
+    pub connection_timeout: FString,
+
+    #[serde(default)]
+    pub idle_timeout: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// LOGGING
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Logging {
+    #[serde(default)]
+    pub level: FString,
+
+    #[serde(default)]
+    pub format: FString,
+
+    #[serde(default)]
+    pub output: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// TELEMETRY
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Telemetry {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub endpoint: FString,
+
+    #[serde(default)]
+    pub sample_rate: f64,
+
+    #[serde(default)]
+    pub metrics: FVec<FString>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// TEST CONFIGURATION
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct TestConfig {
+    #[serde(default)]
+    pub parallel: bool,
+
+    #[serde(default)]
+    pub timeout: FString,
+
+    #[serde(default)]
+    pub coverage: bool,
+
+    #[serde(default)]
+    pub coverage_threshold: i32,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// BENCHMARK CONFIGURATION
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct BenchConfig {
+    #[serde(default)]
+    pub warmup_time: FString,
+
+    #[serde(default)]
+    pub measurement_time: FString,
+
+    #[serde(default)]
+    pub sample_size: i32,
+
+    #[serde(default)]
+    pub confidence_level: f64,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// FEATURE FLAGS
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct FeatureFlags {
+    #[serde(default)]
+    pub default: FVec<FString>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, FVec<FString>>,
+}
+
+// =============================================================================
+// DOCUMENTATION CONFIGURATION
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DocsConfig {
+    #[serde(default)]
+    pub generate: bool,
+
+    #[serde(default)]
+    pub output_dir: FString,
+
+    #[serde(default)]
+    pub private_items: bool,
+
+    #[serde(default)]
+    pub examples: bool,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// DEPLOYMENT CONFIGURATION
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DeployConfig {
+    #[serde(default)]
+    pub target: FString,
+
+    #[serde(default)]
+    pub registry: FString,
+
+    #[serde(default)]
+    pub kubernetes: Option<DeployKubernetes>,
+
+    #[serde(default)]
+    pub docker: Option<DeployDocker>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DeployKubernetes {
+    #[serde(default)]
+    pub namespace: FString,
+
+    #[serde(default)]
+    pub replicas: i32,
+
+    #[serde(default)]
+    pub resources: FMap<FString, FString>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DeployDocker {
+    #[serde(default)]
+    pub base_image: FString,
+
+    #[serde(default)]
+    pub expose_ports: FVec<i32>,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// SECURITY POLICIES
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SecurityConfig {
+    #[serde(default)]
+    pub audit_mode: FString,
+
+    #[serde(default)]
+    pub secrets_detection: bool,
+
+    #[serde(default)]
+    pub dependency_scanning: bool,
+
+    #[serde(default)]
+    pub sbom_generation: bool,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, toml::Value>,
+}
+
+// =============================================================================
+// CUSTOM SCRIPTS
+// =============================================================================
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Scripts {
+    #[serde(default)]
+    pub pretest: FString,
+
+    #[serde(default)]
+    pub postbuild: FString,
+
+    #[serde(default)]
+    pub deploy: FString,
+
+    #[serde(flatten)]
+    pub extra: FMap<FString, FString>,
+}
+
+// =============================================================================
+// MANIFEST IMPL
+// =============================================================================
+impl Manifest {
+    /// Load and parse a full Fusion.toml from disk.
+    pub fn load(path: &Path) -> Result<Self> {
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("Could not read Fusion.toml at {}", path.display()))?;
+        let manifest: Manifest =
+            toml::from_str(&content).context("Failed to parse Fusion.toml")?;
+        Ok(manifest)
+    }
+
+    /// Validate required fields (package name and version).
+    pub fn validate(&self) -> Result<()> {
+        if self.package.name.is_empty() {
+            anyhow::bail!("Missing required field: package.name");
+        }
+        if self.package.version.is_empty() {
+            anyhow::bail!("Missing required field: package.version");
+        }
+        Ok(())
+    }
+
+    /// Get any section by dotted name (e.g. "runtime.supernova" or "ai.ollama").
+    /// Returns a `toml::Value` representing the section, or None if not found.
+    pub fn get_section(&self, name: &str) -> Option<toml::Value> {
+        let serialized = toml::to_string(self).ok()?;
+        let full: toml::Value = toml::from_str(&serialized).ok()?;
+        let parts: Vec<&str> = name.split('.').collect();
+        let mut current = &full;
+        for part in parts {
+            current = current.get(part)?;
+        }
+        Some(current.clone())
+    }
+
+    pub fn get_runtime_config(&self) -> &Runtime {
+        &self.runtime
+    }
+
+    pub fn get_ai_config(&self) -> &AiConfig {
+        &self.ai
+    }
+
+    pub fn get_deploy_config(&self) -> &DeployConfig {
+        &self.deploy
+    }
+
+    pub fn get_build_config(&self) -> &BuildConfig {
+        &self.build
+    }
+
+    pub fn get_sentinel_config(&self) -> &Sentinel {
+        &self.sentinel
+    }
+
+    pub fn get_cortex_config(&self) -> &Cortex {
+        &self.cortex
+    }
+
+    pub fn get_quantum_config(&self) -> &Quantum {
+        &self.quantum
+    }
+
+    pub fn get_web_config(&self) -> &WebServer {
+        &self.web
+    }
+
+    pub fn get_database_config(&self) -> &Database {
+        &self.database
+    }
+
+    pub fn get_monolith_config(&self) -> &Monolith {
+        &self.monolith
+    }
+
+    pub fn get_haft_config(&self) -> &Haft {
+        &self.haft
+    }
+
+    pub fn get_security_config(&self) -> &SecurityConfig {
+        &self.security
+    }
+
+    pub fn get_features(&self) -> &FeatureFlags {
+        &self.features
+    }
+
+    pub fn is_feature_enabled(&self, feature: &str) -> bool {
+        self.features.default.contains(&feature.to_string())
+            || self.features.extra.contains_key(feature)
+    }
+
+    /// Serialize the manifest back to TOML string.
+    pub fn to_string(&self) -> Result<String> {
+        toml::to_string_pretty(self).context("Failed to serialize Manifest to TOML")
+    }
+
+    /// List all dependency names.
+    pub fn dependency_names(&self) -> Vec<&str> {
+        self.dependencies.keys().map(|s| s.as_str()).collect()
+    }
+
+    /// Check if a specific dependency exists.
+    pub fn has_dependency(&self, name: &str) -> bool {
+        self.dependencies.contains_key(name)
+    }
+
+    /// Get a dependency by name.
+    pub fn get_dependency(&self, name: &str) -> Option<&Dependency> {
+        self.dependencies.get(name)
+    }
+
+    /// List enabled languages.
+    pub fn enabled_languages(&self) -> Vec<FString> {
+        let mut langs = Vec::new();
+        if let Some(ref cpp) = self.languages.cpp {
+            if cpp.enabled {
+                langs.push("cpp".to_string());
+            }
+        }
+        if let Some(ref py) = self.languages.python {
+            if py.enabled {
+                langs.push("python".to_string());
+            }
+        }
+        if let Some(ref js) = self.languages.javascript {
+            if js.enabled {
+                langs.push("javascript".to_string());
+            }
+        }
+        if let Some(ref ts) = self.languages.typescript {
+            if ts.enabled {
+                langs.push("typescript".to_string());
+            }
+        }
+        langs
+    }
+
+    /// Get the Supernova GPU backends.
+    pub fn gpu_backends(&self) -> Vec<&str> {
+        self.runtime
+            .supernova
+            .as_ref()
+            .map(|s| s.gpu_backends.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Get all quantum backends.
+    pub fn quantum_backends(&self) -> Vec<&str> {
+        self.runtime
+            .supernova
+            .as_ref()
+            .map(|s| s.quantum_backends.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Get AI provider name and config.
+    pub fn active_ai_provider(&self) -> Option<(&str, FString)> {
+        let provider = self.ai.provider.as_str();
+        let model = match provider {
+            "ollama" => self.ai.ollama.as_ref().map(|o| o.model.clone()),
+            "mistral" => self.ai.mistral.as_ref().map(|o| o.model.clone()),
+            "deepseek" => self.ai.deepseek.as_ref().map(|o| o.model.clone()),
+            "phi" => self.ai.phi.as_ref().map(|o| o.model.clone()),
+            "gemma" => self.ai.gemma.as_ref().map(|o| o.model.clone()),
+            "qwen" => self.ai.qwen.as_ref().map(|o| o.model.clone()),
+            "gpt-oss" => self.ai.gpt_oss.as_ref().map(|o| o.model.clone()),
+            _ => None,
+        };
+        model.map(|m| (provider, m))
+    }
+
+    /// Get deploy target type (kubernetes, docker, etc.).
+    pub fn deploy_target_type(&self) -> &str {
+        &self.deploy.target
+    }
+
+    /// Get database connection string.
+    pub fn database_url(&self) -> &str {
+        &self.database.url
+    }
+
+    /// Check if TLS is enabled for the web server.
+    pub fn tls_enabled(&self) -> bool {
+        self.web
+            .tls
+            .as_ref()
+            .map(|t| t.enabled)
+            .unwrap_or(false)
+    }
+
+    /// Get post-quantum cipher suites.
+    pub fn pq_cipher_suites(&self) -> Vec<&str> {
+        self.web
+            .tls
+            .as_ref()
+            .map(|t| t.pq_cipher_suites.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Get sentinel crypto configuration summary.
+    pub fn sentinel_crypto_summary(&self) -> Option<(String, String, String, i32)> {
+        self.sentinel.crypto.as_ref().map(|c| {
+            (
+                c.key_exchange.clone(),
+                c.signatures.clone(),
+                c.encryption.clone(),
+                c.pq_security_level,
+            )
+        })
+    }
+
+    /// Serialize to a minimal TOML string (for quick debug).
+    pub fn summary(&self) -> String {
+        format!(
+            "Package: {} v{}\nEdition: {}\nRuntime: {}\nBuild opt: {}\nSentinel: {}\nAI provider: {}\nDeploy: {}",
+            self.package.name,
+            self.package.version,
+            self.package.edition,
+            self.runtime.profile,
+            self.build.optimization_level,
+            self.sentinel.enabled,
+            self.ai.provider,
+            self.deploy.target,
+        )
+    }
+}
+
+use std::fs;

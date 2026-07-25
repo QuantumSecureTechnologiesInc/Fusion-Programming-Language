@@ -1,0 +1,236 @@
+// src/modules/resolution.fu - Module path resolution for Fusion
+//
+// Handles finding, loading, and caching modules from the filesystem.
+// Supports relative paths, absolute paths, and search-path-based
+// resolution with a module cache for avoiding redundant loads.
+
+// ============================================================
+// Module resolution
+// ============================================================
+
+// Resolves a relative module path against a base directory.
+// Example: resolve_path("src/foo", "bar") -> "src/foo/bar"
+extern fn resolve_path(base: string, relative: string) -> string;
+
+// Searches the given search paths for a module by name, returning
+// the first matching absolute path.
+extern fn find_module(name: string, search_paths: []string) -> string;
+
+// Loads and parses a module from the given filesystem path.
+// Returns a fully populated Module struct.
+extern fn load_module(path: string) -> Module;
+
+// ============================================================
+// Module cache
+// ============================================================
+
+// Retrieves a previously loaded module from the cache by path.
+// Returns a sentinel Module with empty fields if not cached.
+extern fn module_cache_get(path: string) -> Module;
+
+// Stores a loaded module in the cache for future lookups.
+extern fn module_cache_put(path: string, module: Module) -> void;
+
+// Returns true if the given path is already in the module cache.
+fn module_cache_has(path: string) -> bool {
+    var cached: Module = module_cache_get(path);
+    // A cache miss returns a Module with empty name
+    if cached.name == "" {
+        return false;
+    }
+    return true;
+}
+
+// Removes a module from the cache by path.
+fn module_cache_remove(path: string) -> void {
+    _ = path;
+    // In practice: remove from the internal cache map.
+}
+
+// Clears the entire module cache.
+fn module_cache_clear() -> void {
+    // In practice: reset the internal cache map.
+}
+
+// Returns the number of modules currently in the cache.
+fn module_cache_size() -> int {
+    return 0;
+    // In practice: return the cache map's length.
+}
+
+// ============================================================
+// Search path management
+// ============================================================
+
+// The default search paths for module resolution.
+var global_search_paths: []string = [
+    ".",
+    "lib",
+    "src",
+    "stdlib",
+];
+
+// Adds a directory to the global search path list.
+fn add_search_path(path: string) -> void {
+    global_search_paths = array_push(global_search_paths, path);
+}
+
+// Returns a copy of the current global search paths.
+fn get_search_paths() -> []string {
+    return global_search_paths;
+}
+
+// ============================================================
+// Path normalization
+// ============================================================
+
+// Normalizes a module path by resolving "." and ".." components,
+// collapsing consecutive separators, and converting to a canonical form.
+fn normalize_path(path: string) -> string {
+    var parts: []string = string_split(path, "/");
+    var result: []string = [];
+
+    for i in range(0, array_length(parts)) {
+        if parts[i] == "." {
+            // Skip current directory references
+            continue;
+        }
+        if parts[i] == ".." {
+            // Go up one level if possible
+            if array_length(result) > 0 {
+                result = array_pop(result);
+            }
+            continue;
+        }
+        if parts[i] != "" {
+            result = array_push(result, parts[i]);
+        }
+    }
+
+    return string_join(result, "/");
+}
+
+// Converts a filesystem path to a module path (replaces "/" with "::"
+// and removes the file extension).
+fn path_to_module(path: string) -> string {
+    // Remove file extension
+    var without_ext: string = string_replace(path, ".fu", "");
+    // Convert path separators to module separators
+    var mod_path: string = string_replace(without_ext, "/", "::");
+    mod_path = string_replace(mod_path, "\\", "::");
+    return mod_path;
+}
+
+// Converts a module path to a filesystem path (replaces "::" with "/"
+// and appends ".fu").
+fn module_to_path(mod_path: string) -> string {
+    var fs_path: string = string_replace(mod_path, "::", "/");
+    return fs_path + ".fu";
+}
+
+// ============================================================
+// Module loading with caching
+// ============================================================
+
+// Loads a module, using the cache if available. This is the primary
+// entry point for module loading.
+fn load_module_cached(path: string) -> Module {
+    var cached: Module = module_cache_get(path);
+    if cached.name != "" {
+        return cached;
+    }
+
+    var module: Module = load_module(path);
+    module_cache_put(path, module);
+    return module;
+}
+
+// Loads a module by name, searching through the search path list.
+fn load_module_by_name(name: string) -> Module {
+    var found: string = find_module(name, global_search_paths);
+    if found == "" {
+        // Module not found — return empty sentinel
+        return Module { name: "", path: "", exports: [], dependencies: [] };
+    }
+    return load_module_cached(found);
+}
+
+// ============================================================
+// Dependency resolution
+// ============================================================
+
+// Resolves all dependencies of a module, loading each one.
+// Returns an array of loaded dependency modules.
+fn resolve_dependencies(module: Module) -> []Module {
+    var result: []Module = [];
+    var deps: []string = module.dependencies;
+
+    for i in range(0, array_length(deps)) {
+        var dep: Module = load_module_by_name(deps[i]);
+        if dep.name != "" {
+            result = array_push(result, dep);
+        }
+    }
+    return result;
+}
+
+// Checks if resolving a module's dependencies would create a cycle.
+fn would_create_cycle(module_name: string, dep_name: string) -> bool {
+    // If dep depends on module_name (directly or transitively), adding
+    // module_name -> dep would create a cycle.
+    return mod_depends_on(dep_name, module_name);
+}
+
+// ============================================================
+// Validation
+// ============================================================
+
+// Validates that a module path is well-formed.
+// Returns true if the path is valid, false otherwise.
+fn validate_module_path(path: string) -> bool {
+    if path == "" {
+        return false;
+    }
+    // Path must end with .fu
+    if !string_ends_with(path, ".fu") {
+        return false;
+    }
+    // Path must not contain ".." after normalization
+    var normalized: string = normalize_path(path);
+    if string_contains(normalized, "..") {
+        return false;
+    }
+    return true;
+}
+
+// Validates that a module name is well-formed.
+// Module names must start with a letter and contain only
+// alphanumeric characters and underscores.
+fn validate_module_name(name: string) -> bool {
+    if name == "" {
+        return false;
+    }
+    var first: string = string_char_at(name, 0);
+    if !is_alpha(first) {
+        return false;
+    }
+    for i in range(1, string_length(name)) {
+        var ch: string = string_char_at(name, i);
+        if !is_alphanumeric(ch) && ch != "_" {
+            return false;
+        }
+    }
+    return true;
+}
+
+// ============================================================
+// Utility helpers
+// ============================================================
+
+fn is_alpha(ch: string) -> bool {
+    return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch == "_";
+}
+
+fn is_alphanumeric(ch: string) -> bool {
+    return is_alpha(ch) || (ch >= "0" && ch <= "9");
+}

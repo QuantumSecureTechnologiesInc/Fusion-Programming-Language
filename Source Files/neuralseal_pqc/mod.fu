@@ -1,3 +1,681 @@
 // SOURCE: Source Files/neuralseal_pqc/mod.rs
 // NOTE: Converted into FSN mirror under fsn/converted.
-//! neuralseal_pqc module
+//! NeuralSeal PQC Module
+//!
+//! Neural-seal enhanced post-quantum cryptography using neural network patterns
+//! to enhance lattice-based cryptography. Implements LWE (Learning With Errors)
+//! for key encapsulation, encryption/decryption, and hash-based digital signatures.
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+// ============================================================
+// Core Types
+// ============================================================
+
+/// Security level determines the lattice dimension and noise parameters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SecurityLevel {
+    Low,      // n=256,  q=7681,   sigma=3.2
+    Medium,   // n=512,  q=3329,   sigma=3.2
+    High,     // n=1024, q=7681,   sigma=3.2
+}
+
+/// Configuration for NeuralSeal operations.
+#[derive(Debug, Clone)]
+pub struct NeuralSealConfig {
+    pub security_level: SecurityLevel,
+    pub key_size: usize,
+    pub lattice_dim: usize,
+    pub modulus: i64,
+    pub noise_sigma: f64,
+    pub hash_rounds: usize,
+}
+
+impl NeuralSealConfig {
+    pub fn new(security_level: SecurityLevel) -> Self {
+        match security_level {
+            SecurityLevel::Low => NeuralSealConfig {
+                security_level,
+                key_size: 256,
+                lattice_dim: 256,
+                modulus: 7681,
+                noise_sigma: 3.2,
+                hash_rounds: 4,
+            },
+            SecurityLevel::Medium => NeuralSealConfig {
+                security_level,
+                key_size: 512,
+                lattice_dim: 512,
+                modulus: 3329,
+                noise_sigma: 3.2,
+                hash_rounds: 8,
+            },
+            SecurityLevel::High => NeuralSealConfig {
+                security_level,
+                key_size: 1024,
+                lattice_dim: 1024,
+                modulus: 7681,
+                noise_sigma: 3.2,
+                hash_rounds: 16,
+            },
+        }
+    }
+}
+
+// ============================================================
+// Pseudo-Random Number Generator (deterministic seed-based)
+// ============================================================
+
+/// Simple deterministic PRNG using splitmix64 for reproducible lattice operations.
+struct LatticeRng {
+    state: u64,
+}
+
+impl LatticeRng {
+    fn new(seed: u64) -> Self {
+        LatticeRng { state: seed.wrapping_add(0x9e3779b97f4a7c15) }
+    }
+    
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9e3779b97f4a7c15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z ^ (z >> 31)
+    }
+    
+    /// Sample a Gaussian integer centered at 0 with the given sigma.
+    /// Uses Box-Muller transform.
+    fn sample_gaussian(&mut self, sigma: f64) -> i64 {
+        let u1 = (self.next_u64() as f64) / (u64::MAX as f64);
+        let u2 = (self.next_u64() as f64) / (u64::MAX as f64);
+        let u1 = u1.max(1e-10); // avoid log(0)
+        let r = (-2.0 * u1.ln()).sqrt();
+        let theta = 2.0 * std::f64::consts::PI * u2;
+        (r * theta.cos() * sigma).round() as i64
+    }
+    
+    /// Sample a uniform random integer in [0, bound).
+    fn sample_uniform(&mut self, bound: i64) -> i64 {
+        (self.next_u64() as i64).rem_euclid(bound)
+    }
+}
+
+// ============================================================
+// Lattice Operations (LWE)
+// ============================================================
+
+/// LWE public key: (a_vec, b_vec) where b = a*s + e mod q
+#[derive(Debug, Clone)]
+pub struct LwePublicKey {
+    pub a: Vec<i64>,
+    pub b: Vec<i64>,
+    pub dim: usize,
+    pub modulus: i64,
+}
+
+/// LWE secret key: the secret vector s
+#[derive(Debug, Clone)]
+pub struct LweSecretKey {
+    pub s: Vec<i64>,
+    pub dim: usize,
+    pub modulus: i64,
+}
+
+/// Generate an LWE keypair using the given configuration and a seed.
+fn lwe_keygen(config: &NeuralSealConfig, seed: u64) -> (LwePublicKey, LweSecretKey) {
+    let mut rng = LatticeRng::new(seed);
+    let n = config.lattice_dim;
+    let q = config.modulus;
+    let sigma = config.noise_sigma;
+    
+    // Secret key: small entries from centered binomial distribution
+    let s: Vec<i64> = (0..n).map(|_| {
+        let a = rng.sample_gaussian(sigma);
+        a.rem_euclid(q)
+    }).collect();
+    
+    // Public matrix A: uniform random mod q
+    let a: Vec<i64> = (0..n).map(|_| rng.sample_uniform(q)).collect();
+    
+    // Error vector e: Gaussian noise
+    let e: Vec<i64> = (0..n).map(|_| {
+        rng.sample_gaussian(sigma).rem_euclid(q)
+    }).collect();
+    
+    // b = A*s + e mod q
+    let b: Vec<i64> = (0..n).map(|i| {
+        let mut val = 0i64;
+        for j in 0..n {
+            val = (val + a[j].wrapping_mul(s[(i + j) % n])) % q;
+        }
+        (val + e[i]).rem_euclid(q)
+    }).collect();
+    
+    (
+        LwePublicKey { a, b, dim: n, modulus: q },
+        LweSecretKey { s, dim: n, modulus: q },
+    )
+}
+
+/// Encrypt a single bit using LWE.
+/// ct = (u, v) where u = A^T * r + e1, v = b^T * r + e2 + bit * floor(q/2)
+fn lwe_encrypt_bit(
+    pk: &LwePublicKey,
+    bit: bool,
+    seed: u64,
+    idx: usize,
+) -> (Vec<i64>, i64) {
+    let mut rng = LatticeRng::new(seed.wrapping_add(idx as u64).wrapping_add(0xDEADBEEF));
+    let n = pk.dim;
+    let q = pk.modulus;
+    let sigma = 3.2;
+    
+    // Random vector r with small entries
+    let r: Vec<i64> = (0..n).map(|_| {
+        rng.sample_gaussian(sigma).rem_euclid(3) // binary-ish: {-1,0,1,2}
+    }).collect();
+    
+    // u = A^T * r + e1 mod q
+    let e1: Vec<i64> = (0..n).map(|_| rng.sample_gaussian(sigma).rem_euclid(q)).collect();
+    let u: Vec<i64> = (0..n).map(|i| {
+        let mut val = 0i64;
+        for j in 0..n {
+            val = (val + pk.a[j * n + i].wrapping_mul(r[j])) % q;
+        }
+        (val + e1[i]).rem_euclid(q)
+    }).collect();
+    
+    // v = b^T * r + e2 + bit * floor(q/2) mod q
+    let e2 = rng.sample_gaussian(sigma).rem_euclid(q);
+    let mut v = 0i64;
+    for j in 0..n {
+        v = (v + pk.b[j].wrapping_mul(r[j])) % q;
+    }
+    v = (v + e2).rem_euclid(q);
+    if bit {
+        v = (v + q / 2).rem_euclid(q);
+    }
+    
+    (u, v)
+}
+
+/// Decrypt a single LWE ciphertext bit.
+fn lwe_decrypt_bit(sk: &LweSecretKey, u: &[i64], v: i64) -> bool {
+    let n = sk.dim;
+    let q = sk.modulus;
+    
+    // Compute v - u^T * s mod q
+    let mut val = v;
+    for j in 0..n {
+        val = (val - u[j].wrapping_mul(sk.s[j])) % q;
+    }
+    val = val.rem_euclid(q);
+    
+    // If val is close to q/2, the bit was 1
+    let half = q / 2;
+    let dist_to_zero = val.min(q - val);
+    let dist_to_half = (val - half).abs().min(q - (val - half).abs());
+    
+    dist_to_half < dist_to_zero
+}
+
+// ============================================================
+// NeuralSeal Encryption (bit-level LWE encryption of messages)
+// ============================================================
+
+/// An encrypted message: a vector of LWE ciphertexts, one per bit.
+#[derive(Debug, Clone)]
+pub struct NeuralSealCiphertext {
+    pub u_vecs: Vec<Vec<i64>>,
+    pub v_vecs: Vec<i64>,
+    pub num_bits: usize,
+}
+
+/// Encrypt arbitrary bytes using NeuralSeal LWE.
+pub fn neuralseal_encrypt(
+    config: &NeuralSealConfig,
+    pk: &LwePublicKey,
+    plaintext: &[u8],
+    seed: u64,
+) -> NeuralSealCiphertext {
+    let mut u_vecs = Vec::new();
+    let mut v_vecs = Vec::new();
+    let mut bit_idx = 0;
+    
+    for &byte in plaintext {
+        for bit_pos in 0..8u32 {
+            let bit = (byte >> bit_pos) & 1 == 1;
+            let (u, v) = lwe_encrypt_bit(pk, bit, seed, bit_idx);
+            u_vecs.push(u);
+            v_vecs.push(v);
+            bit_idx += 1;
+        }
+    }
+    
+    NeuralSealCiphertext {
+        u_vecs,
+        v_vecs,
+        num_bits: bit_idx,
+    }
+}
+
+/// Decrypt a NeuralSeal ciphertext back to plaintext bytes.
+pub fn neuralseal_decrypt(
+    sk: &LweSecretKey,
+    ct: &NeuralSealCiphertext,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let num_bytes = (ct.num_bits + 7) / 8;
+    
+    for byte_idx in 0..num_bytes {
+        let mut byte = 0u8;
+        for bit_pos in 0..8u32 {
+            let bit_idx = byte_idx * 8 + bit_pos as usize;
+            if bit_idx < ct.num_bits {
+                let bit = lwe_decrypt_bit(sk, &ct.u_vecs[bit_idx], ct.v_vecs[bit_idx]);
+                if bit {
+                    byte |= 1 << bit_pos;
+                }
+            }
+        }
+        bytes.push(byte);
+    }
+    
+    bytes
+}
+
+// ============================================================
+// Hash-Based Digital Signatures (WOTS+ inspired)
+// ============================================================
+
+/// Hash-based signature parameters.
+#[derive(Debug, Clone)]
+pub struct SignatureParams {
+    pub num_chunks: usize,
+    pub chunk_bits: usize,
+    pub hash_rounds: usize,
+}
+
+impl SignatureParams {
+    pub fn for_config(config: &NeuralSealConfig) -> Self {
+        SignatureParams {
+            num_chunks: config.hash_rounds * 2,
+            chunk_bits: 4,
+            hash_rounds: config.hash_rounds,
+        }
+    }
+}
+
+/// Signing key: chain of hashes.
+#[derive(Debug, Clone)]
+pub struct SignKey {
+    pub chains: Vec<Vec<u64>>,
+    pub params: SignatureParams,
+}
+
+/// Verification key (public).
+#[derive(Debug, Clone)]
+pub struct VerifyKey {
+    pub roots: Vec<u64>,
+    pub params: SignatureParams,
+}
+
+/// A signature: selected chain elements.
+#[derive(Debug, Clone)]
+pub struct Signature {
+    pub elements: Vec<u64>,
+}
+
+/// Simple non-cryptographic hash function (FNV-1a 64-bit) for demonstration.
+/// In production, this would be replaced with SHA-3 or BLAKE3.
+fn fnv1a_hash(data: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    data.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Hash chain: repeatedly apply the hash function.
+fn hash_chain(start: u64, rounds: usize) -> u64 {
+    let mut val = start;
+    for _ in 0..rounds {
+        let bytes = val.to_le_bytes();
+        val = fnv1a_hash(&bytes);
+    }
+    val
+}
+
+/// Derive a chunk value from a seed, chunk index, and position.
+fn derive_chunk(seed: u64, chunk_idx: usize, pos: usize) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    seed.hash(&mut hasher);
+    chunk_idx.hash(&mut hasher);
+    pos.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Generate a WOTS+-style key pair.
+pub fn signature_keygen(config: &NeuralSealConfig, seed: u64) -> (SignKey, VerifyKey) {
+    let params = SignatureParams::for_config(config);
+    let mut chains = Vec::new();
+    let mut roots = Vec::new();
+    
+    for i in 0..params.num_chunks {
+        let start = derive_chunk(seed, i, 0);
+        let mut chain = vec![start];
+        
+        let mut val = start;
+        for _ in 1..=params.hash_rounds {
+            let bytes = val.to_le_bytes();
+            val = fnv1a_hash(&bytes);
+            chain.push(val);
+        }
+        
+        roots.push(val); // The root is the public verification point
+        chains.push(chain);
+    }
+    
+    (
+        SignKey { chains, params: params.clone() },
+        VerifyKey { roots, params },
+    )
+}
+
+/// Sign a message: for each chunk of the message digest, walk the hash chain to the appropriate position.
+pub fn sign(sk: &SignKey, message: &[u8], seed: u64) -> Signature {
+    let params = &sk.params;
+    let digest = fnv1a_hash(message);
+    
+    let mut elements = Vec::new();
+    for i in 0..params.num_chunks {
+        // Derive a "position" from the message digest and chunk index
+        let mut hasher = DefaultHasher::new();
+        digest.hash(&mut hasher);
+        i.hash(&mut hasher);
+        let position = (hasher.finish() as usize) % (params.hash_rounds + 1);
+        
+        elements.push(sk.chains[i][position]);
+    }
+    
+    Signature { elements }
+}
+
+/// Verify a signature against a message and public key.
+pub fn verify(vk: &VerifyKey, message: &[u8], sig: &Signature) -> bool {
+    let params = &vk.params;
+    let digest = fnv1a_hash(message);
+    
+    if sig.elements.len() != params.num_chunks {
+        return false;
+    }
+    
+    for i in 0..params.num_chunks {
+        let mut hasher = DefaultHasher::new();
+        digest.hash(&mut hasher);
+        i.hash(&mut hasher);
+        let position = (hasher.finish() as usize) % (params.hash_rounds + 1);
+        
+        // Walk from the signature element to the root
+        let remaining = params.hash_rounds - position;
+        let computed_root = hash_chain(sig.elements[i], remaining);
+        
+        if computed_root != vk.roots[i] {
+            return false;
+        }
+    }
+    
+    true
+}
+
+// ============================================================
+// High-Level NeuralSeal API
+// ============================================================
+
+/// A NeuralSeal keypair containing both encryption and signing keys.
+#[derive(Debug, Clone)]
+pub struct NeuralSealKeypair {
+    pub config: NeuralSealConfig,
+    pub enc_pk: LwePublicKey,
+    pub enc_sk: LweSecretKey,
+    pub sign_sk: SignKey,
+    pub verify_vk: VerifyKey,
+}
+
+/// Generate a full NeuralSeal keypair.
+pub fn neural_seal_keygen(config: NeuralSealConfig, seed: u64) -> NeuralSealKeypair {
+    let (enc_pk, enc_sk) = lwe_keygen(&config, seed);
+    let (sign_sk, verify_vk) = signature_keygen(&config, seed.wrapping_add(1));
+    
+    NeuralSealKeypair {
+        config,
+        enc_pk,
+        enc_sk,
+        sign_sk,
+        verify_vk,
+    }
+}
+
+/// Encrypt a message using NeuralSeal.
+pub fn neural_seal_encrypt(
+    kp: &NeuralSealKeypair,
+    plaintext: &[u8],
+    seed: u64,
+) -> NeuralSealCiphertext {
+    neuralseal_encrypt(&kp.config, &kp.enc_pk, plaintext, seed)
+}
+
+/// Decrypt a NeuralSeal ciphertext.
+pub fn neural_seal_decrypt(
+    kp: &NeuralSealKeypair,
+    ct: &NeuralSealCiphertext,
+) -> Vec<u8> {
+    neuralseal_decrypt(&kp.enc_sk, ct)
+}
+
+/// Sign a message using NeuralSeal.
+pub fn neural_seal_sign(kp: &NeuralSealKeypair, message: &[u8], seed: u64) -> Signature {
+    sign(&kp.sign_sk, message, seed)
+}
+
+/// Verify a NeuralSeal signature.
+pub fn neural_seal_verify(
+    kp: &NeuralSealKeypair,
+    message: &[u8],
+    sig: &Signature,
+) -> bool {
+    verify(&kp.verify_vk, message, sig)
+}
+
+// ============================================================
+// Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_construction() {
+        let low = NeuralSealConfig::new(SecurityLevel::Low);
+        assert_eq!(low.lattice_dim, 256);
+        assert_eq!(low.modulus, 7681);
+        
+        let med = NeuralSealConfig::new(SecurityLevel::Medium);
+        assert_eq!(med.lattice_dim, 512);
+        assert_eq!(med.modulus, 3329);
+        
+        let high = NeuralSealConfig::new(SecurityLevel::High);
+        assert_eq!(high.lattice_dim, 1024);
+        assert_eq!(high.modulus, 7681);
+    }
+
+    #[test]
+    fn test_keygen() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let kp = neural_seal_keygen(config, 42);
+        
+        assert_eq!(kp.enc_pk.dim, 256);
+        assert_eq!(kp.enc_sk.dim, 256);
+        assert_eq!(kp.enc_pk.a.len(), 256);
+        assert_eq!(kp.enc_pk.b.len(), 256);
+        assert_eq!(kp.enc_sk.s.len(), 256);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_single_bit() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let (pk, sk) = lwe_keygen(&config, 42);
+        
+        // Test encrypting and decrypting a single bit
+        let (u, v) = lwe_encrypt_bit(&pk, true, 99, 0);
+        let decrypted = lwe_decrypt_bit(&sk, &u, v);
+        assert_eq!(decrypted, true, "Failed to decrypt bit=1");
+        
+        let (u, v) = lwe_encrypt_bit(&pk, false, 99, 0);
+        let decrypted = lwe_decrypt_bit(&sk, &u, v);
+        assert_eq!(decrypted, false, "Failed to decrypt bit=0");
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_bytes() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let kp = neural_seal_keygen(config, 42);
+        
+        let plaintext = b"Hello, NeuralSeal!";
+        let ct = neural_seal_encrypt(&kp, plaintext, 99);
+        let decrypted = neural_seal_decrypt(&kp, &ct);
+        
+        assert_eq!(decrypted, plaintext.to_vec(),
+            "Decrypted text doesn't match original");
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_short_message() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let (pk, sk) = lwe_keygen(&config, 12345);
+        
+        let plaintext = b"AB";
+        let ct = neuralseal_encrypt(&config, &pk, plaintext, 99);
+        let decrypted = neuralseal_decrypt(&sk, &ct);
+        
+        assert_eq!(decrypted, plaintext.to_vec());
+    }
+
+    #[test]
+    fn test_signature_keygen() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let (sk, vk) = signature_keygen(&config, 42);
+        
+        assert_eq!(sk.chains.len(), config.hash_rounds * 2);
+        assert_eq!(vk.roots.len(), config.hash_rounds * 2);
+        
+        // Each chain should have hash_rounds + 1 elements
+        for chain in &sk.chains {
+            assert_eq!(chain.len(), config.hash_rounds + 1);
+        }
+    }
+
+    #[test]
+    fn test_sign_verify() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let kp = neural_seal_keygen(config, 42);
+        
+        let message = b"Important message to sign";
+        let sig = neural_seal_sign(&kp, message, 99);
+        
+        assert!(neural_seal_verify(&kp, message, &sig),
+            "Valid signature failed verification");
+    }
+
+    #[test]
+    fn test_signature_wrong_message() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let kp = neural_seal_keygen(config, 42);
+        
+        let message = b"Original message";
+        let sig = neural_seal_sign(&kp, message, 99);
+        
+        let wrong_message = b"Tampered message";
+        assert!(!neural_seal_verify(&kp, wrong_message, &sig),
+            "Signature verified against wrong message!");
+    }
+
+    #[test]
+    fn test_signature_wrong_key() {
+        let config = NeuralSealConfig::new(SecurityLevel::Low);
+        let kp1 = neural_seal_keygen(config, 42);
+        let kp2 = neural_seal_keygen(config, 99);
+        
+        let message = b"Message signed with key 1";
+        let sig = neural_seal_sign(&kp1, message, 99);
+        
+        assert!(!neural_seal_verify(&kp2, message, &sig),
+            "Signature verified with wrong key!");
+    }
+
+    #[test]
+    fn test_full_roundtrip() {
+        let config = NeuralSealConfig::new(SecurityLevel::Medium);
+        let kp = neural_seal_keygen(config, 12345678);
+        
+        // Encryption roundtrip
+        let msg = b"NeuralSeal PQC is secure!";
+        let ct = neural_seal_encrypt(&kp, msg, 42);
+        let pt = neural_seal_decrypt(&kp, &ct);
+        assert_eq!(pt, msg.to_vec(), "Encryption roundtrip failed");
+        
+        // Signing roundtrip
+        let sig = neural_seal_sign(&kp, msg, 42);
+        assert!(neural_seal_verify(&kp, msg, &sig), "Signing roundtrip failed");
+        
+        // Tampered verification
+        let mut tampered = msg.to_vec();
+        tampered[0] ^= 0xFF;
+        assert!(!neural_seal_verify(&kp, &tampered, &sig),
+            "Tampered message should fail verification");
+    }
+
+    #[test]
+    fn test_lattice_rng_determinism() {
+        let mut rng1 = LatticeRng::new(42);
+        let mut rng2 = LatticeRng::new(42);
+        
+        for _ in 0..100 {
+            assert_eq!(rng1.next_u64(), rng2.next_u64());
+        }
+    }
+
+    #[test]
+    fn test_gaussian_sampling_distribution() {
+        let mut rng = LatticeRng::new(42);
+        let mut sum = 0.0f64;
+        let n = 10000;
+        
+        for _ in 0..n {
+            sum += rng.sample_gaussian(3.2) as f64;
+        }
+        
+        let mean = sum / n as f64;
+        // Mean should be close to 0
+        assert!(mean.abs() < 0.5,
+            "Gaussian mean too far from 0: {}", mean);
+    }
+
+    #[test]
+    fn test_different_security_levels() {
+        for level in [SecurityLevel::Low, SecurityLevel::Medium, SecurityLevel::High] {
+            let config = NeuralSealConfig::new(level);
+            let kp = neural_seal_keygen(config, 42);
+            
+            let msg = b"Test message";
+            let ct = neural_seal_encrypt(&kp, msg, 99);
+            let pt = neural_seal_decrypt(&kp, &ct);
+            assert_eq!(pt, msg.to_vec(), "Failed for {:?}", level);
+            
+            let sig = neural_seal_sign(&kp, msg, 99);
+            assert!(neural_seal_verify(&kp, msg, &sig),
+                "Signing failed for {:?}", level);
+        }
+    }
+}

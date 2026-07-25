@@ -2,7 +2,7 @@
 //! Recursive-descent parser with Pratt expression parsing.
 //! Uses the existing lexer and maps to the existing AST types.
 
-use crate::ast::{self, BinaryOp, Block, Declaration, Expression, ExpressionKind, Literal, MatchArm, MatchPattern, Parameter, Span, Statement, StructDefinition, Type, UnaryOp};
+use crate::ast::{self, BinaryOp, Block, ConstDeclaration, Declaration, EnumDefinition, EnumVariant, EnumVariantData, Expression, ExpressionKind, Function, ImplBlock, Literal, MatchArm, MatchPattern, Parameter, Span, Statement, StaticDeclaration, StructDefinition, TraitDefinition, TraitMethod, Type, TypeAlias, UnaryOp};
 use crate::lexer::{self, Token};
 use crate::types::*;
 
@@ -111,7 +111,7 @@ impl Parser {
                 Some(Token::KwPub) => {
                     // Skip pub keyword, then try to parse the item
                     self.advance();
-                    // After pub, try fn/struct/extern
+                    // After pub, try fn/struct/extern/enum/impl/trait/const/static/type
                     match self.peek() {
                         Some(Token::KwFn) => {
                             match self.parse_fn_decl() {
@@ -125,16 +125,83 @@ impl Parser {
                                 Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
                             }
                         }
+                        Some(Token::KwEnum) => {
+                            match self.parse_enum_def() {
+                                Ok(decl) => declarations.push(decl),
+                                Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                            }
+                        }
+                        Some(Token::KwImpl) => {
+                            match self.parse_impl_block() {
+                                Ok(decl) => declarations.push(decl),
+                                Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                            }
+                        }
+                        Some(Token::KwTrait) => {
+                            match self.parse_trait_def() {
+                                Ok(decl) => declarations.push(decl),
+                                Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                            }
+                        }
+                        Some(Token::KwConst) => {
+                            match self.parse_const_decl() {
+                                Ok(decl) => declarations.push(decl),
+                                Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                            }
+                        }
+                        Some(Token::KwStatic) => {
+                            match self.parse_static_decl() {
+                                Ok(decl) => declarations.push(decl),
+                                Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                            }
+                        }
+                        Some(Token::KwType) => {
+                            match self.parse_type_alias() {
+                                Ok(decl) => declarations.push(decl),
+                                Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                            }
+                        }
                         _ => {
-                            self.errors.push("Expected fn, struct, or extern after pub".to_string());
+                            self.errors.push("Expected fn, struct, extern, enum, impl, trait, const, static, or type after pub".to_string());
                             self.sync_to_next_top_level();
                         }
                     }
                 }
-                Some(Token::KwConst) | Some(Token::KwStatic) | Some(Token::KwEnum) |
-                Some(Token::KwImpl) | Some(Token::KwTrait) | Some(Token::KwType) => {
-                    // Skip aspirational constructs: consume until semicolon or brace
-                    self.skip_aspirational_item();
+                Some(Token::KwEnum) => {
+                    match self.parse_enum_def() {
+                        Ok(decl) => declarations.push(decl),
+                        Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                    }
+                }
+                Some(Token::KwImpl) => {
+                    match self.parse_impl_block() {
+                        Ok(decl) => declarations.push(decl),
+                        Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                    }
+                }
+                Some(Token::KwTrait) => {
+                    match self.parse_trait_def() {
+                        Ok(decl) => declarations.push(decl),
+                        Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                    }
+                }
+                Some(Token::KwConst) => {
+                    match self.parse_const_decl() {
+                        Ok(decl) => declarations.push(decl),
+                        Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                    }
+                }
+                Some(Token::KwStatic) => {
+                    match self.parse_static_decl() {
+                        Ok(decl) => declarations.push(decl),
+                        Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                    }
+                }
+                Some(Token::KwType) => {
+                    match self.parse_type_alias() {
+                        Ok(decl) => declarations.push(decl),
+                        Err(e) => { self.errors.push(e); self.sync_to_next_top_level(); }
+                    }
                 }
                 Some(Token::Hash) => {
                     // Skip attributes: #[...]
@@ -166,12 +233,14 @@ impl Parser {
             match self.peek() {
                 Some(Token::KwFn) | Some(Token::KwExtern) | Some(Token::KwStruct)
                 | Some(Token::KwMod) | Some(Token::KwUse) | Some(Token::KwImport) | Some(Token::KwPub)
-                | Some(Token::KwEnum) | Some(Token::KwImpl) | Some(Token::KwTrait) => break,
+                | Some(Token::KwEnum) | Some(Token::KwImpl) | Some(Token::KwTrait)
+                | Some(Token::KwConst) | Some(Token::KwStatic) | Some(Token::KwType) => break,
                 _ => { self.advance(); }
             }
         }
     }
 
+    #[allow(dead_code)]
     fn skip_aspirational_item(&mut self) {
         let mut brace_depth = 0i32;
         while self.pos < self.tokens.len() {
@@ -224,6 +293,27 @@ impl Parser {
 
     fn parse_extern_decl(&mut self) -> Result<Declaration, String> {
         self.expect(Token::KwExtern)?;
+        // Parse optional calling convention: extern "C" fn, extern "stdcall" fn, etc.
+        let calling_convention = match self.peek() {
+            Some(Token::StringLiteral(_)) => {
+                let s = if let Some((Token::StringLiteral(s), _)) = self.advance() {
+                    s
+                } else {
+                    "system".to_string()
+                };
+                // Validate known calling conventions
+                match s.as_str() {
+                    "C" | "stdcall" | "fastcall" | "system" | "cdecl" | "vectorcall" => s,
+                    other => {
+                        return Err(format!(
+                            "Unknown calling convention \"{}\". Expected one of: \"C\", \"stdcall\", \"fastcall\", \"system\", \"cdecl\", \"vectorcall\"",
+                            other
+                        ));
+                    }
+                }
+            }
+            _ => "system".to_string(), // default calling convention
+        };
         self.expect(Token::KwFn)?;
         let name = self.parse_identifier()?;
         let params = self.parse_param_list()?;
@@ -233,6 +323,7 @@ impl Parser {
             name,
             params,
             return_type,
+            calling_convention,
         })
     }
 
@@ -262,6 +353,171 @@ impl Parser {
             fields,
             generics: vec![],
         })
+    }
+
+    fn parse_enum_def(&mut self) -> Result<Declaration, String> {
+        self.expect(Token::KwEnum)?;
+        let name = self.parse_identifier()?;
+        self.expect(Token::LBrace)?;
+        let mut variants: Vec<EnumVariant> = Vec::new();
+        loop {
+            if self.peek() == Some(&Token::RBrace) {
+                self.advance();
+                break;
+            }
+            let variant_name = self.parse_identifier()?;
+            let data = if self.peek() == Some(&Token::LParen) {
+                // Tuple variant: Variant(Type) or Variant(Type1, Type2, ...)
+                self.advance(); // skip LParen
+                let mut types = Vec::new();
+                if self.peek() != Some(&Token::RParen) {
+                    loop {
+                        types.push(self.parse_type()?);
+                        if self.peek() == Some(&Token::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(Token::RParen)?;
+                if types.len() == 1 {
+                    EnumVariantData::Tuple(types)
+                } else {
+                    EnumVariantData::Tuple(types)
+                }
+            } else if self.peek() == Some(&Token::LBrace) {
+                // Struct variant: Variant { field: Type, ... }
+                self.advance(); // skip LBrace
+                let mut fields = Vec::new();
+                loop {
+                    if self.peek() == Some(&Token::RBrace) {
+                        self.advance();
+                        break;
+                    }
+                    let field_name = self.parse_identifier()?;
+                    self.expect(Token::Colon)?;
+                    let field_type = self.parse_type()?;
+                    fields.push((field_name, field_type));
+                    if self.peek() == Some(&Token::Comma) {
+                        self.advance();
+                    }
+                }
+                EnumVariantData::Struct(fields)
+            } else {
+                EnumVariantData::Unit
+            };
+            variants.push(EnumVariant { name: variant_name, data });
+            if self.peek() == Some(&Token::Comma) {
+                self.advance();
+            }
+        }
+        Ok(Declaration::EnumDefinition(EnumDefinition { name, variants }))
+    }
+
+    fn parse_impl_block(&mut self) -> Result<Declaration, String> {
+        self.expect(Token::KwImpl)?;
+        // Parse the first identifier (trait name or type name)
+        let first_name = self.parse_identifier()?;
+        // Check if this is `impl Trait for Type` or `impl Type`
+        let (trait_name, self_type) = if self.peek() == Some(&Token::KwFor) {
+            self.advance(); // skip 'for'
+            let type_name = self.parse_identifier()?;
+            (Some(first_name), type_name)
+        } else {
+            (None, first_name)
+        };
+        self.expect(Token::LBrace)?;
+        let mut methods = Vec::new();
+        loop {
+            if self.peek() == Some(&Token::RBrace) {
+                self.advance();
+                break;
+            }
+            // Parse a method: fn name(params) -> Type { body } or fn name(params) -> Type;
+            methods.push(self.parse_trait_method_body()?);
+        }
+        Ok(Declaration::ImplBlock(ImplBlock { trait_name, self_type, methods }))
+    }
+
+    fn parse_trait_def(&mut self) -> Result<Declaration, String> {
+        self.expect(Token::KwTrait)?;
+        let name = self.parse_identifier()?;
+        self.expect(Token::LBrace)?;
+        let mut methods = Vec::new();
+        loop {
+            if self.peek() == Some(&Token::RBrace) {
+                self.advance();
+                break;
+            }
+            // Parse a method: fn name(params) -> Type; or fn name(params) -> Type { body }
+            let method = self.parse_trait_method_body()?;
+            methods.push(TraitMethod {
+                name: method.name,
+                params: method.params,
+                return_type: method.return_type,
+                body: Some(method.body),
+            });
+        }
+        Ok(Declaration::TraitDefinition(TraitDefinition { name, methods }))
+    }
+
+    fn parse_trait_method_body(&mut self) -> Result<Function, String> {
+        self.expect(Token::KwFn)?;
+        let name = self.parse_identifier()?;
+        let params = self.parse_param_list()?;
+        let return_type = self.parse_return_type()?;
+        // Check if the method has a body or is just a signature (ends with ;)
+        if self.peek() == Some(&Token::Semicolon) {
+            self.advance();
+            // No body, return a Function with empty block
+            return Ok(Function {
+                name,
+                params,
+                return_type,
+                body: Block { statements: vec![] },
+                generics: vec![],
+            });
+        }
+        let body = self.parse_block()?;
+        Ok(Function {
+            name,
+            params,
+            return_type,
+            body,
+            generics: vec![],
+        })
+    }
+
+    fn parse_const_decl(&mut self) -> Result<Declaration, String> {
+        self.expect(Token::KwConst)?;
+        let name = self.parse_identifier()?;
+        self.expect(Token::Colon)?;
+        let ty = self.parse_type()?;
+        self.expect(Token::Assign)?;
+        let value = self.parse_expression()?;
+        self.expect(Token::Semicolon)?;
+        Ok(Declaration::ConstDecl(ConstDeclaration { name, ty, value }))
+    }
+
+    fn parse_static_decl(&mut self) -> Result<Declaration, String> {
+        self.expect(Token::KwStatic)?;
+        let name = self.parse_identifier()?;
+        self.expect(Token::Colon)?;
+        let ty = self.parse_type()?;
+        self.expect(Token::Assign)?;
+        let value = self.parse_expression()?;
+        self.expect(Token::Semicolon)?;
+        Ok(Declaration::StaticDecl(StaticDeclaration { name, ty, value }))
+    }
+
+    fn parse_type_alias(&mut self) -> Result<Declaration, String> {
+        self.expect(Token::KwType)?;
+        let name = self.parse_identifier()?;
+        self.expect(Token::Assign)?;
+        let ty = self.parse_type()?;
+        self.expect(Token::Semicolon)?;
+        Ok(Declaration::TypeAlias(TypeAlias { name, ty }))
     }
 
     fn parse_mod_decl(&mut self) -> Result<Declaration, String> {
@@ -697,6 +953,36 @@ impl Parser {
                             base: Box::new(expr),
                             field,
                         },
+                        ty: None,
+                    };
+                }
+                Some(Token::LBrace) => {
+                    // Struct literal: TypeName { field: value, ... }
+                    let name = match &expr.kind {
+                        ExpressionKind::Variable(n) => n.clone(),
+                        _ => {
+                            self.errors.push("Struct literal must start with a type name".to_string());
+                            "unknown".to_string()
+                        }
+                    };
+                    self.advance(); // skip LBrace
+                    let mut fields = Vec::new();
+                    if self.peek() != Some(&Token::RBrace) {
+                        loop {
+                            let field_name = self.parse_identifier()?;
+                            self.expect(Token::Colon)?;
+                            let field_value = self.parse_expression()?;
+                            fields.push((field_name, field_value));
+                            if self.peek() == Some(&Token::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(Token::RBrace)?;
+                    expr = Expression {
+                        kind: ExpressionKind::StructLiteral { name, fields },
                         ty: None,
                     };
                 }

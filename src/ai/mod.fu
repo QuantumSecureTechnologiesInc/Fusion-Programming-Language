@@ -1,0 +1,12 @@
+// src/ai/mod.fu
+// Fusion AI / Machine Learning Module
+
+pub mod llm;
+pub mod tensor;
+pub mod training;
+pub mod autodiff;
+
+pub use llm::{LLMModel, llm_load_model, llm_generate, llm_tokenize, llm_detokenize, llm_embed, llm_chat};
+pub use tensor::{Tensor, tensor_new, tensor_zeros, tensor_ones, tensor_matmul, tensor_add, tensor_scale};
+pub use training::{TrainingConfig, TrainingState, train_init, train_step, train_epoch};
+pub use autodiff::{ADNode, ad_variable, ad_add, ad_mul, ad_backward, ad_zero_grad};

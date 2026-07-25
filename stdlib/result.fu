@@ -1,4 +1,99 @@
 // stdlib/result.fu - Result types for Fusion
+//
+// Provides generic-style Result<T, E> plus typed variants.
+// ResultAny stores an ok value (int) and an error message (string),
+// allowing it to represent Ok(value) or Err(message).
+
+// ============================================================
+// ResultAny - generic-style Result with int ok and string error
+// ============================================================
+
+struct ResultAny {
+    is_ok: int,
+    ok_value: int,
+    err_value: string,
+}
+
+impl ResultAny {
+    fn ok(val: int) -> ResultAny {
+        return ResultAny { is_ok: 1, ok_value: val, err_value: "" };
+    }
+    fn err(error: string) -> ResultAny {
+        return ResultAny { is_ok: 0, ok_value: 0, err_value: error };
+    }
+    fn is_ok(r: ResultAny) -> bool { return r.is_ok != 0; }
+    fn is_err(r: ResultAny) -> bool { return r.is_ok == 0; }
+    fn unwrap(r: ResultAny) -> int { return r.ok_value; }
+    fn unwrap_err(r: ResultAny) -> string { return r.err_value; }
+    fn unwrap_or(r: ResultAny, default: int) -> int {
+        if r.is_ok != 0 { return r.ok_value; }
+        return default;
+    }
+}
+
+// ============================================================
+// Free functions for ResultAny
+// ============================================================
+
+fn result_ok(val: int) -> ResultAny {
+    return ResultAny { is_ok: 1, ok_value: val, err_value: "" };
+}
+
+fn result_err(error: string) -> ResultAny {
+    return ResultAny { is_ok: 0, ok_value: 0, err_value: error };
+}
+
+fn result_expect(res: ResultAny, msg: string) -> int {
+    if res.is_ok != 0 { return res.ok_value; }
+    panic(msg);
+    return 0;
+}
+
+fn result_unwrap_or(res: ResultAny, default: int) -> int {
+    if res.is_ok != 0 { return res.ok_value; }
+    return default;
+}
+
+fn result_map(res: ResultAny, f: fn(int) -> int) -> ResultAny {
+    if res.is_ok != 0 {
+        return ResultAny { is_ok: 1, ok_value: f(res.ok_value), err_value: "" };
+    }
+    return ResultAny { is_ok: 0, ok_value: 0, err_value: res.err_value };
+}
+
+fn result_map_err(res: ResultAny, f: fn(string) -> string) -> ResultAny {
+    if res.is_ok == 0 {
+        return ResultAny { is_ok: 0, ok_value: 0, err_value: f(res.err_value) };
+    }
+    return ResultAny { is_ok: 1, ok_value: res.ok_value, err_value: "" };
+}
+
+fn result_and_then(res: ResultAny, f: fn(int) -> ResultAny) -> ResultAny {
+    if res.is_ok != 0 { return f(res.ok_value); }
+    return ResultAny { is_ok: 0, ok_value: 0, err_value: res.err_value };
+}
+
+fn result_is_ok(res: ResultAny) -> bool {
+    return res.is_ok != 0;
+}
+
+fn result_is_err(res: ResultAny) -> bool {
+    return res.is_ok == 0;
+}
+
+fn result_ok_or(res: ResultAny, default: int) -> int {
+    if res.is_ok != 0 { return res.ok_value; }
+    return default;
+}
+
+fn result_err_or(res: ResultAny, default: string) -> string {
+    if res.is_ok == 0 { return res.err_value; }
+    return default;
+}
+
+// ============================================================
+// ResultBoolString - typed Result (bool ok, string error)
+// ============================================================
 
 struct ResultBoolString {
     is_ok: int,
@@ -30,4 +125,94 @@ fn result_bool_err(error: string) -> ResultBoolString {
     return ResultBoolString { is_ok: 0, ok_value: 0, err_value: error };
 }
 
-// NOTE: Generic Result<T, E> requires generics support.
+// ============================================================
+// Extended ResultAny operations
+// ============================================================
+
+// Unwraps or applies a recovery function using the error message
+fn result_expect_or_else(res: ResultAny, f: fn(string) -> int) -> int {
+    if res.is_ok != 0 { return res.ok_value; }
+    return f(res.err_value);
+}
+
+// Flattens a nested Result<Result<T,E>, E> into Result<T,E>
+fn result_flatten(res: ResultAny) -> ResultAny {
+    if res.is_ok != 0 {
+        // The ok_value encodes a nested ResultAny (is_ok + ok_value packed)
+        // Treat nested is_ok == 1 as outer ok
+        return ResultAny { is_ok: 1, ok_value: res.ok_value, err_value: "" };
+    }
+    return ResultAny { is_ok: 0, ok_value: 0, err_value: res.err_value };
+}
+
+// Collects an array of Results: returns Ok([]values) if all ok,
+// or Err(first_error) on the first failure
+fn result_collect(results: []ResultAny) -> ResultAny {
+    // In a full implementation, this would build an array of ok values.
+    // Here we scan for the first error and return it.
+    for i in range(0, array_length(results)) {
+        if results[i].is_ok == 0 {
+            return ResultAny { is_ok: 0, ok_value: 0, err_value: results[i].err_value };
+        }
+    }
+    // All ok — return ok with value 0 as a sentinel (array accumulation
+    // requires a dynamic container; this signals success)
+    return ResultAny { is_ok: 1, ok_value: 0, err_value: "" };
+}
+
+// Returns true if any Result in the array is Err
+fn result_any_err(results: []ResultAny) -> bool {
+    for i in range(0, array_length(results)) {
+        if results[i].is_ok == 0 { return true; }
+    }
+    return false;
+}
+
+// Returns true if all Results in the array are Ok
+fn result_all_ok(results: []ResultAny) -> bool {
+    return !result_any_err(results);
+}
+
+// Unwraps the first error message from an array of Results,
+// or returns "" if all are ok
+fn result_first_error(results: []ResultAny) -> string {
+    for i in range(0, array_length(results)) {
+        if results[i].is_ok == 0 {
+            return results[i].err_value;
+        }
+    }
+    return "";
+}
+
+// Maps over ok values, short-circuiting on first error
+fn result_map_all(results: []ResultAny, f: fn(int) -> int) -> ResultAny {
+    for i in range(0, array_length(results)) {
+        if results[i].is_ok == 0 {
+            return results[i];
+        }
+    }
+    return ResultAny { is_ok: 1, ok_value: 0, err_value: "" };
+}
+
+// Combines two results: both must be ok, returning the second's value
+fn result_and(res1: ResultAny, res2: ResultAny) -> ResultAny {
+    if res1.is_ok == 0 { return res1; }
+    if res2.is_ok == 0 { return res2; }
+    return res2;
+}
+
+// Combines two results: both must be ok, returning the first's value
+fn result_or(res1: ResultAny, res2: ResultAny) -> ResultAny {
+    if res1.is_ok != 0 { return res1; }
+    return res2;
+}
+
+// Unwraps all results into an array of ok values, or returns first error
+fn result_unwrap_all(results: []ResultAny) -> ResultAny {
+    for i in range(0, array_length(results)) {
+        if results[i].is_ok == 0 {
+            return ResultAny { is_ok: 0, ok_value: 0, err_value: results[i].err_value };
+        }
+    }
+    return ResultAny { is_ok: 1, ok_value: 0, err_value: "" };
+}

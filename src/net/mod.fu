@@ -2,5 +2,13 @@
 // Fusion Networking Module
 
 pub mod tcp;
+pub mod http;
+pub mod grpc;
+pub mod tls;
+pub mod websocket;
 
 pub use tcp::{TcpStream, TcpListener};
+pub use http::{HttpRequest, HttpResponse};
+pub use grpc::{GrpcService, GrpcRequest, GrpcResponse};
+pub use tls::{TlsConfig, TlsSession};
+pub use websocket::WebSocket;

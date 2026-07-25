@@ -1,0 +1,53 @@
+// Algebraic Effects & Handlers — Fusion v2.0 Vortex
+//
+// This module provides algebraic effect abstractions that decouple effect
+// declarations from their interpretations. Effects are first-class values
+// that can be performed, handled, and composed.
+//
+// Architecture:
+//   effect.fu   — Core effect types and perform/handle primitives
+//   handler.fu  — Handler construction and installation
+//   builtin.fu  — Built-in effects (IO, State, Async, Error, Log, Network)
+
+module effects
+
+pub mod effect
+pub mod handler
+pub mod builtin
+
+// Re-export core types at module level
+pub use effect::{
+    Effect,
+    EffectHandler,
+    EffectOperation,
+    effect_perform,
+    effect_handle,
+    effect_register,
+    effect_list,
+    effect_is_performed,
+}
+
+pub use handler::{
+    Handler,
+    HandlerResult,
+    handler_new,
+    handler_add_operation,
+    handler_set_handler,
+    handler_install,
+    handler_remove,
+    handler_list,
+}
+
+pub use builtin::{
+    effect_io_perform,
+    effect_state_perform,
+    effect_async_perform,
+    effect_error_perform,
+    effect_log_perform,
+    effect_network_perform,
+}
+
+// Cross-references to related features
+pub use crate::concurrency::channel     // effects can use channels
+pub use crate::actors::actor            // effects can be performed by actors
+pub use crate::control::continuation    // effects can capture continuations

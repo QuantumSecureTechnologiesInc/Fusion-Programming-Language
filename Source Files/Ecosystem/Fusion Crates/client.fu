@@ -4,22 +4,128 @@
 /// 
 /// Features:
 /// - Connection Pooling (Keep-Alive).
-/// - Redirect Handling.
+/// - Redirect Handling (301/302/307/308).
 /// - Timeout per request.
+/// - Full HTTP/1.1 request serialization and response parsing.
 
 use fusion_net::tcp::FusionTcpStream;
 use fusion_std::error::{StdResult, StdError};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::{timeout, Duration};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+const MAX_REDIRECTS: usize = 10;
+
+struct ParsedUrl {
+    scheme: FString,
+    host: FString,
+    port: u16,
+    path: FString,
+}
+
+impl ParsedUrl {
+    fn parse(url: &str) -> StdResult<Self> {
+        // Handle scheme
+        let (scheme, rest) = if let Some(pos) = url.find("://") {
+            (&url[..pos], &url[pos + 3..])
+        } else {
+            ("http", url)
+        };
+
+        // Split host:port from path
+        let (host_port, path) = if let Some(pos) = rest.find('/') {
+            (&rest[..pos], &rest[pos..])
+        } else {
+            (rest, "/")
+        };
+
+        // Parse port from host
+        let (host, port) = if let Some(pos) = host_port.find(':') {
+            let h = &host_port[..pos];
+            let p: u16 = host_port[pos + 1..].parse()
+                .map_err(|_| StdError::Config(format!("invalid port in URL: {}", url)))?;
+            (h.to_string(), p)
+        } else {
+            let default_port = match scheme {
+                "https" => 443u16,
+                _ => 80u16,
+            };
+            (host_port.to_string(), default_port)
+        };
+
+        Ok(Self {
+            scheme: scheme.to_string(),
+            host,
+            port,
+            path: path.to_string(),
+        })
+    }
+
+    fn host_port(&self) -> FString {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
+struct Response {
+    pub status: u16,
+    pub headers: FMap<FString, FString>,
+    pub body: FVec<u8>,
+}
+
+impl Response {
+    /// Parse raw HTTP response bytes into status, headers, and body.
+    fn parse(raw: &[u8]) -> StdResult<Self> {
+        // Find the end of headers (double CRLF)
+        let header_end = raw.windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .ok_or_else(|| StdError::Parse("missing header/body separator".into()))?;
+
+        let header_bytes = &raw[..header_end];
+        let header_str = std::str::from_utf8(header_bytes)
+            .map_err(|e| StdError::Parse(format!("invalid UTF-8 in headers: {}", e)))?;
+
+        let body = raw[header_end + 4..].to_vec();
+
+        // Parse status line: "HTTP/1.1 200 OK\r\n"
+        let mut lines = header_str.lines();
+        let status_line = lines.next()
+            .ok_or_else(|| StdError::Parse("empty response".into()))?;
+        let status_code: u16 = status_line.split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| StdError::Parse(format!("cannot parse status: {}", status_line)))?;
+
+        // Parse headers
+        let mut headers = HashMap::new();
+        for line in lines {
+            if let Some(pos) = line.find(':') {
+                let key = line[..pos].trim().to_lowercase();
+                let val = line[pos + 1..].trim().to_string();
+                headers.insert(key, val);
+            }
+        }
+
+        Ok(Self { status: status_code, headers, body })
+    }
+
+    fn location(&self) -> Option<&str> {
+        self.headers.get("location").map(|s| s.as_str())
+    }
+
+    fn is_redirect(&self) -> bool {
+        matches!(self.status, 301 | 302 | 307 | 308)
+    }
+}
 
 struct ConnectionPool {
-    // Host -> Queue of idle streams
     streams: FMap<FString, FVec<FusionTcpStream>>,
 }
 
 struct Client {
     pool: Arc<Mutex<ConnectionPool>>,
     timeout: Duration,
-    follow_redirects: FBool,
+    follow_redirects: bool,
 }
 
 impl Client {
@@ -31,40 +137,142 @@ impl Client {
         }
     }
 
-    pub async fn get(&self, url: &str) -> StdResult<FVec<u8>> {
+    pub async fn get(&self, url: &str) -> StdResult<Response> {
         self.execute("GET", url, &[]).await
     }
 
-    async fn execute(&self, method: &str, url: &str, body: &[u8]) -> StdResult<FVec<u8>> {
-        // 1. Parse URL (Host/Port)
-        let host = "127.0.0.1:80"; // Mock parsing
-        
-        // 2. Checkout Connection
-        let mut stream = {
-            let mut pool = self.pool.lock().unwrap();
-            if let Some(mut streams) = pool.streams.get_mut(host) {
-                if let Some(s) = streams.pop() {
-                    s // Reused
-                } else {
-                    FusionTcpStream::connect(host).await? // New
-                }
-            } else {
-                FusionTcpStream::connect(host).await? // New
+    pub async fn post(&self, url: &str, body: &[u8]) -> StdResult<Response> {
+        self.execute("POST", url, body).await
+    }
+
+    /// Checkout a connection from the pool, or create a new one.
+    async fn checkout_stream(&self, host_port: &str) -> StdResult<FusionTcpStream> {
+        let mut pool = self.pool.lock().unwrap();
+        if let Some(streams) = pool.streams.get_mut(host_port) {
+            if let Some(s) = streams.pop() {
+                return Ok(s);
             }
-        };
-
-        // 3. Send Request
-        // ... Write bytes ...
-
-        // 4. Read Response
-        // ... Read bytes ...
-        
-        // 5. Return Connection to Pool
-        {
-            let mut pool = self.pool.lock().unwrap();
-            pool.streams.entry(host.to_string()).or_default().push(stream);
         }
+        drop(pool); // Release lock before async connect
+        FusionTcpStream::connect(host_port).await
+    }
 
-        Ok(vec![]) // Mock body
+    /// Return a connection to the pool for reuse.
+    fn return_stream(&self, host_port: &str, stream: FusionTcpStream) {
+        let mut pool = self.pool.lock().unwrap();
+        pool.streams.entry(host_port.to_string()).or_default().push(stream);
+    }
+
+    async fn execute(&self, method: &str, url: &str, body: &[u8]) -> StdResult<Response> {
+        let mut current_url = url.to_string();
+        let mut redirect_count = 0usize;
+
+        loop {
+            let parsed = ParsedUrl::parse(&current_url)?;
+            let host_port = parsed.host_port();
+
+            // Checkout or create connection
+            let mut stream = self.checkout_stream(&host_port).await?;
+
+            // Serialize HTTP request
+            let mut request = format!(
+                "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: keep-alive\r\n",
+                method, parsed.path, parsed.host,
+            );
+
+            // Add Content-Length for methods with body
+            if !body.is_empty() {
+                request.push_str(&format!("Content-Length: {}\r\n", body.len()));
+                request.push_str("Content-Type: application/octet-stream\r\n");
+            }
+
+            request.push_str("\r\n"); // End of headers
+
+            // Write request with timeout
+            let mut full_request = request.into_bytes();
+            full_request.extend_from_slice(body);
+
+            timeout(self.timeout, stream.write_all(&full_request))
+                .await
+                .map_err(|_| StdError::Timeout("request write timed out".into()))?
+                .map_err(|e| StdError::Network(format!("write failed: {}", e)))?;
+
+            // Read response with timeout
+            let mut response_buf = Vec::with_capacity(8192);
+            let mut temp = [0u8; 4096];
+
+            // Read until we have headers; then read body based on Content-Length or chunked
+            let mut headers_complete = false;
+            let mut content_length: Option<usize> = None;
+            let mut chunked = false;
+
+            loop {
+                let n = timeout(self.timeout, stream.read(&mut temp))
+                    .await
+                    .map_err(|_| StdError::Timeout("response read timed out".into()))?
+                    .map_err(|e| StdError::Network(format!("read failed: {}", e)))?;
+
+                if n == 0 {
+                    break; // Connection closed
+                }
+                response_buf.extend_from_slice(&temp[..n]);
+
+                if !headers_complete {
+                    if let Some(pos) = response_buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        headers_complete = true;
+                        let header_part = std::str::from_utf8(&response_buf[..pos])
+                            .unwrap_or("");
+                        // Detect body framing
+                        for line in header_part.lines() {
+                            let lower = line.to_lowercase();
+                            if lower.starts_with("content-length:") {
+                                content_length = line.split(':').nth(1)
+                                    .and_then(|v| v.trim().parse().ok());
+                            }
+                            if lower.starts_with("transfer-encoding:") && lower.contains("chunked") {
+                                chunked = true;
+                            }
+                        }
+                    }
+                }
+
+                // Once headers are known, read remaining body bytes
+                if headers_complete {
+                    if let Some(cl) = content_length {
+                        let header_end = response_buf.windows(4)
+                            .position(|w| w == b"\r\n\r\n")
+                            .unwrap_or(0) + 4;
+                        let body_received = response_buf.len() - header_end;
+                        if body_received >= cl {
+                            break;
+                        }
+                    } else if !chunked {
+                        break; // No length known; assume complete
+                    }
+                }
+            }
+
+            // Return connection to pool
+            self.return_stream(&host_port, stream);
+
+            let response = Response::parse(&response_buf)?;
+
+            // Handle redirects
+            if response.is_redirect() && self.follow_redirects {
+                redirect_count += 1;
+                if redirect_count > MAX_REDIRECTS {
+                    return Err(StdError::Network(format!(
+                        "too many redirects ({}). Last: {}",
+                        MAX_REDIRECTS, current_url
+                    )));
+                }
+                current_url = response.location()
+                    .ok_or_else(|| StdError::Parse("redirect without Location header".into()))?
+                    .to_string();
+                continue;
+            }
+
+            return Ok(response);
+        }
     }
 }

@@ -1,0 +1,12 @@
+// iOS mobile integration for Fusion V2.0 Vortex
+
+struct IosView {
+    id: int,
+    kind: string,
+    text: string
+}
+
+extern fn ios_create_view(kind: string, text: string) -> IosView
+extern fn ios_add_child(parent: IosView, child: IosView) -> void
+extern fn ios_update_text(view: IosView, text: string) -> void
+extern fn ios_set_on_click(view: IosView, callback: fn() -> void) -> void

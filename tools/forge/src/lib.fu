@@ -2,12 +2,35 @@ mod cache;
 mod ffi_gen;
 mod graph;
 mod manifest;
+mod manifest_full;
 mod resolver;
 mod toolchains;
 pub use cache::BuildCache;
 pub use ffi_gen::BindingGenerator;
 pub use graph::DependencyGraph;
 pub use manifest::{Manifest, RuntimeTarget};
+pub use manifest_full::{
+    AiConfig, AiDistributed, AiGemma, AiMistral, AiOllama, AiPhi, AiQwen, AiDeepseek,
+    AiGptOss, AiServing,
+    BenchConfig, BuildConfig, BuildTarget,
+    CppConfig, Cortex, CortexGpu,
+    Database, DeployConfig, DeployDocker, DeployKubernetes,
+    Dependency, DependencyDetail,
+    DocsConfig,
+    FeatureFlags,
+    Haft, HaftAgents,
+    JavaConfig, JavascriptConfig,
+    Lints,
+    Manifest as FullManifest, Monolith,
+    Package, PythonConfig,
+    Quantum, QuantumAwsBraket, QuantumIbm,
+    Runtime, RustLangConfig,
+    Scripts, SecurityConfig, Sentinel, SentinelChaos, SentinelCrypto,
+    SupernovaConfig,
+    Telemetry, TestConfig, ThreadPoolConfig, TypescriptConfig,
+    WebServer, WebTls,
+    Workspace, WorkspaceLints, WorkspacePackage,
+};
 pub use resolver::SatSolver;
 pub use toolchains::{
     CppToolchain, JsToolchain, PythonToolchain, RustToolchain, Toolchain,

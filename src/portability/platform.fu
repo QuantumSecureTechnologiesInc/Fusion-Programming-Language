@@ -1,0 +1,12 @@
+module portability.platform
+
+extern fn platform_os() -> string
+extern fn platform_arch() -> string
+extern fn platform_endianness() -> string
+extern fn platform_page_size() -> int
+extern fn platform_cpu_count() -> int
+extern fn platform_hostname() -> string
+extern fn platform_env(key: string) -> string
+extern fn platform_set_env(key: string, value: string) -> void
+extern fn platform_temp_dir() -> string
+extern fn platform_home_dir() -> string

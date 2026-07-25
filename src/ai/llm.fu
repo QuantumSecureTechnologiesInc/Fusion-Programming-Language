@@ -1,0 +1,23 @@
+// LLM inference and tokenization for Fusion AI
+// Provides low-level bindings and high-level chat interface
+
+struct LLMModel {
+    handle: int
+    name: string
+    params: int
+}
+
+extern fn llm_load_model(path: string) -> LLMModel
+
+extern fn llm_generate(model: LLMModel, prompt: string, max_tokens: int) -> string
+
+extern fn llm_tokenize(model: LLMModel, text: string) -> []int
+
+extern fn llm_detokenize(model: LLMModel, tokens: []int) -> string
+
+extern fn llm_embed(model: LLMModel, text: string) -> []float
+
+fn llm_chat(model: LLMModel, messages: []string) -> string {
+    let prompt = messages.join("\n")
+    return llm_generate(model, prompt, 2048)
+}

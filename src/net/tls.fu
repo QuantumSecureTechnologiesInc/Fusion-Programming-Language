@@ -1,0 +1,21 @@
+// src/net/tls.fu
+// TLS/SSL Transport Layer API for Fusion v2.0 Vortex
+
+struct TlsConfig {
+    cert_path: string
+    key_path: string
+    ca_path: string
+}
+
+struct TlsSession {
+    handle: int
+    established: bool
+}
+
+extern fn tls_connect(addr: string, config: TlsConfig) -> TlsSession
+
+extern fn tls_send(session: TlsSession, data: string) -> int
+
+extern fn tls_receive(session: TlsSession, max_len: int) -> string
+
+extern fn tls_close(session: TlsSession) -> void

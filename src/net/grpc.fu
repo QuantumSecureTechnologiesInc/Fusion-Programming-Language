@@ -1,0 +1,24 @@
+// src/net/grpc.fu
+// gRPC Client API for Fusion v2.0 Vortex
+
+struct GrpcService {
+    name: string
+    methods: Vector<string>
+}
+
+struct GrpcRequest {
+    service: string
+    method: string
+    message: string
+}
+
+struct GrpcResponse {
+    status: int
+    message: string
+}
+
+extern fn grpc_connect(addr: string) -> int
+
+extern fn grpc_call(handle: int, service: string, method: string, message: string) -> GrpcResponse
+
+extern fn grpc_close(handle: int) -> void

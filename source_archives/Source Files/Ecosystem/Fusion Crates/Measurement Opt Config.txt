@@ -1,9 +1,0 @@
-[package]
-name = "fusion_q_measurement_opt"
-version = "0.1.0"
-edition = "2021"
-description = "Algorithms for reducing quantum measurement overhead (Qubit Reuse, Basis Selection)"
-license = "MIT"
-
-[dependencies]
-fusion_quantum_sdk = { path = "../quantum-sdk", version = "0.1.0" }

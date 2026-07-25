@@ -1,0 +1,69 @@
+// Fusion v2.0 Vortex - macOS Installer
+// Written in native Fusion language
+
+fn main() -> void {
+    println("=== Fusion v2.0 Vortex Installer (macOS) ===")
+    
+    // Step 1: Check prerequisites
+    println("[1/6] Checking prerequisites...")
+    let rust_version = exec_command("rustc --version")
+    if rust_version == "" {
+        println("Error: Rust not installed.")
+        println("  Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")
+        exit(1)
+    }
+    println("  Rust: " + rust_version)
+    
+    let xcode = exec_command("xcode-select -p")
+    if xcode == "" {
+        println("Error: Xcode Command Line Tools not installed.")
+        println("  Install: xcode-select --install")
+        exit(1)
+    }
+    println("  Xcode CLI tools: OK")
+    
+    // Step 2: Check for Homebrew LLVM
+    println("")
+    println("[2/6] Checking LLVM...")
+    let llvm = exec_command("brew list llvm 2>/dev/null || echo \"\"")
+    if llvm == "" {
+        println("  Installing LLVM via Homebrew...")
+        exec_command("brew install llvm")
+    }
+    
+    // Step 3: Build and install
+    println("")
+    println("[3/6] Building Fusion...")
+    exec_command("cargo install --path crates/fuc --features llvm")
+    exec_command("cargo install --path tools/fusion-cli")
+    
+    // Step 4: Install stdlib
+    println("")
+    println("[4/6] Installing standard library...")
+    let home = exec_command("echo $HOME")
+    let stdlib_path = home + "/.fusion/stdlib"
+    exec_command("mkdir -p " + stdlib_path)
+    exec_command("cp -r stdlib/* " + stdlib_path)
+    
+    // Step 5: Configure shell
+    println("")
+    println("[5/6] Configuring shell...")
+    let cargo_bin = home + "/.cargo/bin"
+    let shell_rc = home + "/.zshrc"
+    exec_command("grep -q '" + cargo_bin + "' " + shell_rc + " || echo 'export PATH=\"" + cargo_bin + ":$PATH"' >> " + shell_rc)
+    println("  Added cargo bin to " + shell_rc)
+    
+    // Step 6: Verify
+    println("")
+    println("[6/6] Verifying...")
+    let version = exec_command("fusion --version")
+    if version != "" {
+        println("  Fusion " + version + " installed!")
+    } else {
+        println("  Run: source " + shell_rc)
+    }
+    
+    println("")
+    println("=== Installation Complete ===")
+    println("Quick start: fusion init my_project && cd my_project && fusion run")
+}

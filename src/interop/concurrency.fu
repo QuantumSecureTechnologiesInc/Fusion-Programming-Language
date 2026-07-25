@@ -1,0 +1,28 @@
+// src/interop/concurrency.fu
+// Cross-language concurrency model for Fusion
+
+pub struct CrossLangTask {
+    pub id: int,
+    pub lang: string,
+    pub status: string,
+    pub result: string,
+}
+
+pub struct CrossLangChannel {
+    pub id: int,
+    pub lang_from: string,
+    pub lang_to: string,
+}
+
+// Task lifecycle
+extern "C" fn task_spawn(lang: string, code: string) -> CrossLangTask;
+extern "C" fn task_poll(task: CrossLangTask) -> string;
+extern "C" fn task_await(task: CrossLangTask) -> string;
+extern "C" fn task_cancel(task: CrossLangTask) -> void;
+extern "C" fn task_error(task: CrossLangTask) -> string;
+
+// Cross-language channels
+extern "C" fn channel_create(lang_from: string, lang_to: string) -> CrossLangChannel;
+extern "C" fn channel_send(channel: CrossLangChannel, message: string) -> void;
+extern "C" fn channel_receive(channel: CrossLangChannel) -> string;
+extern "C" fn channel_close(channel: CrossLangChannel) -> void;

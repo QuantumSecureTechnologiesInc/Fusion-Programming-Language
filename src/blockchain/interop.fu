@@ -1,0 +1,96 @@
+// Fusion v2.0 Vortex — Blockchain Interoperability & Cross-Chain Messaging
+
+struct ChainConfig {
+    chain_id: string
+    name: string
+    consensus: string         // "pow", "pos", "dpos", "bft"
+    block_time: int           // seconds
+    native_token: string
+}
+
+struct CrossChainMessage {
+    source: string            // source chain_id
+    target: string            // target chain_id
+    data: string
+    nonce: int
+    signature: string
+}
+
+fn chain_config_new(chain_id: string, name: string, consensus: string) -> ChainConfig {
+    assert(len(chain_id) > 0, "Chain ID must not be empty")
+    assert(len(name) > 0, "Chain name must not be empty")
+    assert(
+        consensus == "pow" || consensus == "pos" || consensus == "dpos" || consensus == "bft",
+        "Invalid consensus type"
+    )
+
+    ChainConfig {
+        chain_id: chain_id,
+        name: name,
+        consensus: consensus,
+        block_time: 12,
+        native_token: concat(name, "_TOKEN")
+    }
+}
+
+fn chain_config_validate(config: ChainConfig) -> bool {
+    if len(config.chain_id) == 0 {
+        return false
+    }
+    if len(config.name) == 0 {
+        return false
+    }
+    let valid_consensus =
+        config.consensus == "pow" ||
+        config.consensus == "pos" ||
+        config.consensus == "dpos" ||
+        config.consensus == "bft"
+    if !valid_consensus {
+        return false
+    }
+    if config.block_time <= 0 {
+        return false
+    }
+    true
+}
+
+fn cross_chain_send(message: CrossChainMessage, bridge: Bridge) -> CrossChainMessage {
+    assert(message.source == bridge.source_chain,
+           "Message source does not match bridge source chain")
+    assert(message.target == bridge.target_chain,
+           "Message target does not match bridge target chain")
+    assert(len(bridge.validators) > 0, "Bridge has no validators")
+
+    let sig = sign_data(concat(message.source, message.target, message.data, to_string(message.nonce)))
+    CrossChainMessage { ...message, signature: sig }
+}
+
+fn cross_chain_receive(message: CrossChainMessage, bridge: Bridge) -> CrossChainMessage {
+    assert(message.target == bridge.source_chain || message.target == bridge.target_chain,
+           "Message target does not match this bridge")
+    assert(len(message.signature) > 0, "Message must be signed")
+
+    // Validate signature
+    let expected = sign_data(concat(message.source, message.target, message.data, to_string(message.nonce)))
+    assert(message.signature == expected, "Invalid message signature")
+
+    message
+}
+
+fn cross_chain_verify(message: CrossChainMessage) -> bool {
+    if len(message.source) == 0 || len(message.target) == 0 {
+        return false
+    }
+    if message.source == message.target {
+        return false
+    }
+    if len(message.signature) == 0 {
+        return false
+    }
+    if message.nonce < 0 {
+        return false
+    }
+
+    let expected = sign_data(concat(message.source, message.target, message.data, to_string(message.nonce)))
+    message.signature == expected
+}

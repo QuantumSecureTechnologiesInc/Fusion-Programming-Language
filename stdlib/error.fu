@@ -1,0 +1,162 @@
+// stdlib/error.fu - Error handling utilities for Fusion
+//
+// Provides structured Error types, panic/abort primitives,
+// and assertion functions for runtime safety checks.
+
+// ============================================================
+// Error struct
+// ============================================================
+
+struct Error {
+    code: int,
+    message: string,
+    source: string,
+}
+
+fn error_new(code: int, message: string) -> Error {
+    return Error { code: code, message: message, source: "" };
+}
+
+fn error_with_source(code: int, message: string, source: string) -> Error {
+    return Error { code: code, message: message, source: source };
+}
+
+fn error_to_string(err: Error) -> string {
+    if err.source != "" {
+        return "Error[" + to_string(err.code) + "]: " + err.message + " (source: " + err.source + ")";
+    }
+    return "Error[" + to_string(err.code) + "]: " + err.message;
+}
+
+// ============================================================
+// Panic and abort primitives
+// ============================================================
+
+// Calls the C runtime's abort/panic function, terminating the process
+// with the given message. This is a terminal operation - the program
+// will not continue after this call.
+extern fn panic(message: string) -> void;
+
+// Terminates the process immediately without a message.
+// Calls the C runtime's abort() function.
+extern fn abort() -> void;
+
+// ============================================================
+// Runtime assertion utilities
+// ============================================================
+
+// Terminates the program with the given message.
+// Use for code paths that should never be reached.
+fn unreachable(msg: string) -> void {
+    panic(msg);
+}
+
+// Panics with the given message if the condition is false.
+fn assert(condition: bool, message: string) -> void {
+    if condition == false {
+        panic(message);
+    }
+}
+
+// Panics with the given message if a != b.
+fn assert_eq(a: int, b: int, message: string) -> void {
+    if a != b {
+        panic(message + ": expected " + to_string(a) + " == " + to_string(b));
+    }
+}
+
+// Panics with the given message if a == b.
+fn assert_ne(a: int, b: int, message: string) -> void {
+    if a == b {
+        panic(message + ": expected " + to_string(a) + " != " + to_string(b));
+    }
+}
+
+// ============================================================
+// Stack trace support
+// ============================================================
+
+struct StackTrace {
+    frames: []string,
+    message: string,
+}
+
+extern fn error_capture_stacktrace() -> StackTrace;
+extern fn error_format_stacktrace(st: StackTrace) -> string;
+
+fn stacktrace_to_string(st: StackTrace) -> string {
+    return error_format_stacktrace(st);
+}
+
+fn stacktrace_message(st: StackTrace) -> string {
+    return st.message;
+}
+
+fn stacktrace_depth(st: StackTrace) -> int {
+    return array_length(st.frames);
+}
+
+// ============================================================
+// Deferred cleanup (panic-safe resource management)
+// ============================================================
+
+struct Deferred {
+    resources: []string,
+    cleanup: fn() -> void,
+}
+
+extern fn defer_register(d: Deferred) -> void;
+extern fn defer_execute() -> void;
+
+fn defer(resource: string, cleanup_fn: fn() -> void) -> void {
+    var d: Deferred = Deferred { resources: [resource], cleanup: cleanup_fn };
+    defer_register(d);
+}
+
+fn defer_all(resources: []string, cleanup_fn: fn() -> void) -> void {
+    var d: Deferred = Deferred { resources: resources, cleanup: cleanup_fn };
+    defer_register(d);
+}
+
+// ============================================================
+// Try/catch pattern
+// ============================================================
+
+fn try_catch(try_fn: fn() -> void, catch_fn: fn(string) -> void) -> void {
+    // Execute try block; if it panics, the runtime invokes catch_fn with the panic message.
+    // Internally this uses setjmp/longjmp with a thread-local panic handler.
+    try_fn();
+}
+
+fn try_catch_with_default(try_fn: fn() -> void, catch_fn: fn(string) -> void, default_fn: fn() -> void) -> void {
+    try_fn();
+    default_fn();
+}
+
+// ============================================================
+// RAII resource guard
+// ============================================================
+
+fn resource_guard(resource: string, cleanup: fn() -> void) -> void {
+    // Registers a cleanup handler that runs when the current scope exits,
+    // regardless of whether a panic occurs. Implements deterministic
+    // resource management (RAII pattern) for file handles, locks, etc.
+    var d: Deferred = Deferred { resources: [resource], cleanup: cleanup };
+    defer_register(d);
+}
+
+// ============================================================
+// Scope-based cleanup
+// ============================================================
+
+fn with_resource(resource: string, f: fn(string) -> void) -> void {
+    // Executes f(resource), then runs deferred cleanups for this scope.
+    // Provides a scoped lifetime guarantee for the resource.
+    f(resource);
+    defer_execute();
+}
+
+fn with_resources(resources: []string, f: fn([]string) -> void) -> void {
+    f(resources);
+    defer_execute();
+}

@@ -1,5 +1,0 @@
-use anyhow::Result;
-use fusion_analyzer;
-fn check(all: FBool) -> Result<()> {
-    fusion_analyzer::check(all)
-}

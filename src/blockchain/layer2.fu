@@ -1,0 +1,133 @@
+// Fusion v2.0 Vortex — Layer 2 Scaling: State Channels & Rollups
+
+struct StateChannel {
+    id: string
+    participants: []string
+    balance_a: float
+    balance_b: float
+    nonce: int
+    open: bool
+}
+
+struct Rollup {
+    batches: []string
+    state_root: string
+    proof: string
+}
+
+fn channel_new(participant_a: string, participant_b: string, deposit_a: float, deposit_b: float) -> StateChannel {
+    assert(participant_a != participant_b, "Participants must be different")
+    assert(deposit_a >= 0.0, "Deposit A must be non-negative")
+    assert(deposit_b >= 0.0, "Deposit B must be non-negative")
+
+    let id = hash_concat(participant_a, participant_b)
+    StateChannel {
+        id: id,
+        participants: [participant_a, participant_b],
+        balance_a: deposit_a,
+        balance_b: deposit_b,
+        nonce: 0,
+        open: false
+    }
+}
+
+fn channel_open(channel: StateChannel) -> StateChannel {
+    assert(!channel.open, "Channel is already open")
+    assert(channel.balance_a + channel.balance_b > 0.0, "Channel has no funds")
+
+    StateChannel { ...channel, open: true }
+}
+
+fn channel_close(channel: StateChannel) -> StateChannel {
+    assert(channel.open, "Channel is not open")
+    StateChannel { ...channel, open: false }
+}
+
+fn channel_transfer(channel: StateChannel, from: string, to: string, amount: float) -> StateChannel {
+    assert(channel.open, "Channel is not open")
+    assert(amount > 0.0, "Transfer amount must be positive")
+    assert(from != to, "Cannot transfer to self")
+
+    let from_idx = index_of(channel.participants, from)
+    let to_idx = index_of(channel.participants, to)
+    assert(from_idx >= 0, "From address is not a channel participant")
+    assert(to_idx >= 0, "To address is not a channel participant")
+
+    if from_idx == 0 {
+        assert(channel.balance_a >= amount, "Insufficient balance for sender A")
+        if to_idx == 1 {
+            StateChannel {
+                ...channel,
+                balance_a: channel.balance_a - amount,
+                balance_b: channel.balance_b + amount,
+                nonce: channel.nonce + 1
+            }
+        } else {
+            channel
+        }
+    } else {
+        assert(channel.balance_b >= amount, "Insufficient balance for sender B")
+        if to_idx == 0 {
+            StateChannel {
+                ...channel,
+                balance_a: channel.balance_a + amount,
+                balance_b: channel.balance_b - amount,
+                nonce: channel.nonce + 1
+            }
+        } else {
+            channel
+        }
+    }
+}
+
+fn channel_validate(channel: StateChannel) -> bool {
+    if len(channel.participants) != 2 {
+        return false
+    }
+    if channel.participants[0] == channel.participants[1] {
+        return false
+    }
+    if channel.balance_a < 0.0 || channel.balance_b < 0.0 {
+        return false
+    }
+    if channel.nonce < 0 {
+        return false
+    }
+    true
+}
+
+fn rollup_new() -> Rollup {
+    Rollup {
+        batches: [],
+        state_root: "",
+        proof: ""
+    }
+}
+
+fn rollup_add_batch(rollup: Rollup, batch: string) -> Rollup {
+    let new_batches = append(rollup.batches, batch)
+    let new_root = hash_concat(rollup.state_root, batch)
+    Rollup { ...rollup, batches: new_batches, state_root: new_root }
+}
+
+fn rollup_finalize(rollup: Rollup) -> Rollup {
+    assert(len(rollup.batches) > 0, "No batches to finalize")
+
+    let proof = sign_data(rollup.state_root)
+    Rollup { ...rollup, proof: proof }
+}
+
+fn rollup_verify(rollup: Rollup) -> bool {
+    if len(rollup.batches) == 0 {
+        return false
+    }
+    if len(rollup.state_root) == 0 {
+        return false
+    }
+    if len(rollup.proof) == 0 {
+        return false
+    }
+    // Verify proof matches state root
+    let expected = sign_data(rollup.state_root)
+    rollup.proof == expected
+}

@@ -1,0 +1,89 @@
+// commands/quantum.fu — Quantum computing commands.
+// simulate, run, devices
+
+fn cmd_quantum(args: CliArgs) -> void {
+    let sub = args.subcommand;
+
+    if str_eq(sub, "") {
+        quantum_help();
+        return;
+    }
+
+    if str_eq(sub, "simulate") {
+        quantum_simulate(args);
+    } else if str_eq(sub, "run") {
+        quantum_run(args);
+    } else if str_eq(sub, "devices") {
+        quantum_devices(args);
+    } else {
+        print_error("Unknown quantum subcommand: ");
+        puts(sub);
+        quantum_help();
+    }
+}
+
+fn quantum_help() -> void {
+    print_bold("Fusion Quantum Commands:");
+    puts("  fusion quantum simulate <circuit>   Simulate a quantum circuit");
+    puts("  fusion quantum run <circuit>        Run on quantum hardware");
+    puts("  fusion quantum devices              List available devices");
+}
+
+fn quantum_simulate(args: CliArgs) -> void {
+    let circuit = args.arg1;
+    if str_eq(circuit, "") {
+        print_error("Error: circuit file required");
+        puts("Usage: fusion quantum simulate <circuit-file>");
+        exit(1);
+    }
+
+    print_info("Simulating circuit: ");
+    puts(circuit);
+
+    let cmd = "fuc.exe quantum simulate \"";
+    cmd = cmd + circuit;
+    cmd = cmd + "\"";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn quantum_run(args: CliArgs) -> void {
+    let circuit = args.arg1;
+    if str_eq(circuit, "") {
+        print_error("Error: circuit file required");
+        puts("Usage: fusion quantum run <circuit-file>");
+        exit(1);
+    }
+
+    print_info("Running circuit on hardware: ");
+    puts(circuit);
+
+    let device = args.arg2;
+
+    let cmd = "fuc.exe quantum run \"";
+    cmd = cmd + circuit;
+    cmd = cmd + "\"";
+
+    if !str_eq(device, "") {
+        cmd = cmd + " --device ";
+        cmd = cmd + device;
+    }
+
+    run_command(cmd);
+}
+
+fn quantum_devices(args: CliArgs) -> void {
+    print_info("Available quantum devices:");
+
+    let cmd = "fuc.exe quantum devices";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}

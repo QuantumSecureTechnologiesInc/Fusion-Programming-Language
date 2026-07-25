@@ -1,9 +1,0 @@
-[package]
-name = "fusion_q_pulse_seq"
-version = "0.1.0"
-edition = "2021"
-description = "Low-level microwave pulse generation and scheduling (Qiskit Pulse/Quil-T equivalent)"
-license = "MIT"
-
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" } # Complex tensors for pulse envelopes

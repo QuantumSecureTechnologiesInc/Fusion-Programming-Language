@@ -1,0 +1,26 @@
+[package]
+name = "fusion-llm-core"
+version = "0.2.0"
+edition = "2021"
+authors = ["Fusion Team"]
+description = "Core LLM abstractions: model trait, tokenizer, KV-cache, and inference engine"
+
+[dependencies]
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[lints.rust]
+unsafe_code = "warn"
+unused_imports = "warn"
+unused_variables = "warn"
+dead_code = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"

@@ -1,0 +1,9 @@
+// Java interoperability for Fusion V2.0 Vortex
+
+struct Jvm {
+    handle: int
+}
+
+extern fn jvm_create() -> Jvm
+extern fn jvm_call_static(jvm: Jvm, class_name: string, method: string, args: string) -> string
+extern fn jvm_release(jvm: Jvm) -> void

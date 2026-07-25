@@ -1,0 +1,23 @@
+// Training loop primitives for Fusion AI models
+
+struct TrainingConfig {
+    learning_rate: float
+    epochs: int
+    batch_size: int
+}
+
+struct TrainingState {
+    loss: float
+    epoch: int
+    step: int
+}
+
+extern fn train_init(config: TrainingConfig) -> TrainingState
+
+extern fn train_step(state: TrainingState, batch: string) -> TrainingState
+
+extern fn train_checkpoint(state: TrainingState, path: string) -> void
+
+extern fn train_load_checkpoint(path: string) -> TrainingState
+
+extern fn train_get_loss(state: TrainingState) -> float

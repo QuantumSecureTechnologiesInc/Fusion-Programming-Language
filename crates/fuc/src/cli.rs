@@ -24,6 +24,8 @@ pub struct FusionCli {
     pub verbose: bool,
     /// Target WASM instead of native code.
     pub target_wasm: bool,
+    /// Run only the Vortex borrow check, then exit.
+    pub vortex_only: bool,
 }
 
 impl Default for FusionCli {
@@ -38,6 +40,7 @@ impl Default for FusionCli {
             is_library: false,
             verbose: false,
             target_wasm: false,
+            vortex_only: false,
         }
     }
 }
@@ -57,6 +60,7 @@ impl FusionCli {
                 }
                 "--parse-only" => cli.parse_only = true,
                 "--sema-only" => cli.sema_only = true,
+                "--vortex-only" => cli.vortex_only = true,
                 "--emit-llvm" => cli.emit_llvm = true,
                 "--lib" => cli.is_library = true,
                 "-v" | "--verbose" => cli.verbose = true,

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Fusion post-commit hook
+#
+# Runs after every commit to detect whether pre-commit was bypassed
+# (git commit --no-verify) and, if so, records an audit entry. High-risk
+# bypasses (crates/fuc/, runtime/, stdlib/) are flagged for explicit approval;
+# the pre-commit escalation gate then blocks further commits until approved.
+#
+# This hook never fails a commit -- the commit has already happened. It only
+# records the audit trail and prints guidance.
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$ROOT" ]; then
+    exit 0
+fi
+
+if [ -f "$ROOT/scripts/bypass_audit.sh" ]; then
+    bash "$ROOT/scripts/bypass_audit.sh" detect || true
+fi
+
+exit 0

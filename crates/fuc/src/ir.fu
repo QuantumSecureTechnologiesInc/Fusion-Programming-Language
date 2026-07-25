@@ -213,6 +213,7 @@ impl Lowerer {
                     params: vec![("msg".to_string(), Type::String)],
                     return_type: Type::Void,
                     is_variadic: false,
+                    calling_convention: "C".to_string(),
                 });
         }
         Module {

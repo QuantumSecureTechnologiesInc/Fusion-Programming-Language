@@ -8,7 +8,7 @@
 #include <windows.h>
 
 #define PATH_SEP '\\'
-#define MAX_RT 3
+#define MAX_RT 4
 
 int main(int argc, char* argv[]) {
     char self[4096];
@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
 
     char rt_objs[MAX_RT][4096];
     const char* rt_names[MAX_RT] = {
-        "hashmap_runtime.o", "vector_runtime.o", "hashset_runtime.o"
+        "runtime.o", "hashmap_runtime.o", "vector_runtime.o", "hashset_runtime.o"
     };
     for (int i = 0; i < MAX_RT; i++) {
         char raw[4096];

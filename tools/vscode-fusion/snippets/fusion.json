@@ -1,0 +1,665 @@
+{
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function definition"
+  },
+  "Public Function": {
+    "prefix": "pub fn",
+    "body": [
+      "pub fn ${1:name}(${2:params}) -> ${3:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Public function definition"
+  },
+  "Async Function": {
+    "prefix": "async fn",
+    "body": [
+      "async fn ${1:name}(${2:params}) -> ${3:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Async function definition"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:Type},",
+      "}"
+    ],
+    "description": "Struct definition"
+  },
+  "Struct with derive": {
+    "prefix": "struct derive",
+    "body": [
+      "#[derive(${1:Debug, Clone})]",
+      "struct ${2:Name} {",
+      "\t${3:field}: ${4:Type},",
+      "}"
+    ],
+    "description": "Struct with derive macro"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant1},",
+      "\t${3:Variant2}(${4:Type}),",
+      "\t${5:Variant3} { ${6:field}: ${7:Type} },",
+      "}"
+    ],
+    "description": "Enum definition"
+  },
+  "Enum with derive": {
+    "prefix": "enum derive",
+    "body": [
+      "#[derive(${1:Debug, Clone})]",
+      "enum ${2:Name} {",
+      "\t${3:Variant1},",
+      "\t${4:Variant2}(${5:Type}),",
+      "}"
+    ],
+    "description": "Enum with derive macro"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "\t${2:Pattern1} => ${3:result1},",
+      "\t${4:Pattern2}(${5:binding}) => ${6:result2},",
+      "\t_ => ${7:fallback},",
+      "}"
+    ],
+    "description": "Match expression"
+  },
+  "Match with Option": {
+    "prefix": "match option",
+    "body": [
+      "match ${1:value} {",
+      "\tSome(${2:v}) => ${3:v},",
+      "\tNone => ${4:fallback},",
+      "}"
+    ],
+    "description": "Match on Option"
+  },
+  "Match with Result": {
+    "prefix": "match result",
+    "body": [
+      "match ${1:result} {",
+      "\tOk(${2:v}) => ${3:v},",
+      "\tErr(${4:e}) => ${5:panic!(e)},",
+      "}"
+    ],
+    "description": "Match on Result"
+  },
+  "For Loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:collection} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "For loop"
+  },
+  "For Loop with Index": {
+    "prefix": "for index",
+    "body": [
+      "for (${1:i}, ${2:item}) in ${3:collection}.iter().enumerate() {",
+      "\t$0",
+      "}"
+    ],
+    "description": "For loop with index"
+  },
+  "For Loop Range": {
+    "prefix": "for range",
+    "body": [
+      "for ${1:i} in ${2:0}..${3:n} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "For loop over range"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Loop": {
+    "prefix": "loop",
+    "body": [
+      "loop {",
+      "\t$0",
+      "\tif ${1:condition} { break; }",
+      "}"
+    ],
+    "description": "Infinite loop"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "If expression"
+  },
+  "If Else": {
+    "prefix": "if else",
+    "body": [
+      "if ${1:condition} {",
+      "\t$2",
+      "} else {",
+      "\t$0",
+      "}"
+    ],
+    "description": "If-else expression"
+  },
+  "If Let": {
+    "prefix": "if let",
+    "body": [
+      "if let ${1:Some}(${2:value}) = ${3:expression} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "If-let expression"
+  },
+  "Implementation": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Implementation block"
+  },
+  "Implementation for Trait": {
+    "prefix": "impl trait",
+    "body": [
+      "impl ${1:Trait} for ${2:Type} {",
+      "\tfn ${3:method}(&self${4:, params}) -> ${5:ReturnType} {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Implementation of trait for type"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "\tfn ${2:method}(&self${3:, params}) -> ${4:ReturnType};",
+      "}"
+    ],
+    "description": "Trait definition"
+  },
+  "Test Function": {
+    "prefix": "test",
+    "body": [
+      "#[test]",
+      "fn ${1:test_name}() {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Test function"
+  },
+  "Test Module": {
+    "prefix": "test module",
+    "body": [
+      "#[cfg(test)]",
+      "mod tests {",
+      "\tuse super::*;",
+      "",
+      "\t#[test]",
+      "\tfn ${1:test_name}() {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Test module"
+  },
+  "Test Assert": {
+    "prefix": "assert",
+    "body": [
+      "assert!(${1:condition});"
+    ],
+    "description": "Assert expression"
+  },
+  "Test Assert Equals": {
+    "prefix": "assert_eq",
+    "body": [
+      "assert_eq!(${1:left}, ${2:right});"
+    ],
+    "description": "Assert equals"
+  },
+  "Test Assert Not Equals": {
+    "prefix": "assert_ne",
+    "body": [
+      "assert_ne!(${1:left}, ${2:right});"
+    ],
+    "description": "Assert not equals"
+  },
+  "Let Binding": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name}: ${2:Type} = ${3:value};"
+    ],
+    "description": "Let binding"
+  },
+  "Mutable Let Binding": {
+    "prefix": "let mut",
+    "body": [
+      "let mut ${1:name}: ${2:Type} = ${3:value};"
+    ],
+    "description": "Mutable let binding"
+  },
+  "Const": {
+    "prefix": "const",
+    "body": [
+      "const ${1:NAME}: ${2:Type} = ${3:value};"
+    ],
+    "description": "Constant definition"
+  },
+  "Println": {
+    "prefix": "println",
+    "body": [
+      "println!(\"${1:message}\");"
+    ],
+    "description": "Print with newline"
+  },
+  "Println Format": {
+    "prefix": "printlnf",
+    "body": [
+      "println!(\"${1:value:}\", ${2:expr});"
+    ],
+    "description": "Print with format"
+  },
+  "Vec": {
+    "prefix": "vec",
+    "body": [
+      "let ${1:v}: Vec<${2:Type}> = vec![${3:values}];"
+    ],
+    "description": "Create vector"
+  },
+  "Option": {
+    "prefix": "option",
+    "body": [
+      "let ${1:x}: Option<${2:Type}> = ${3:Some(value)};"
+    ],
+    "description": "Option type"
+  },
+  "Result": {
+    "prefix": "result",
+    "body": [
+      "let ${1:r}: Result<${2:T}, ${3:E}> = ${4:Ok(value)};"
+    ],
+    "description": "Result type"
+  },
+  "HashMap": {
+    "prefix": "hashmap",
+    "body": [
+      "let mut ${1:map}: HashMap<${2:K}, ${3:V}> = HashMap::new();"
+    ],
+    "description": "Create HashMap"
+  },
+  "Closures": {
+    "prefix": "closure",
+    "body": [
+      "|${1:params}| ${2:expression}"
+    ],
+    "description": "Closure expression"
+  },
+  "Closures Block": {
+    "prefix": "closure block",
+    "body": [
+      "|${1:params}| {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Closure with block"
+  },
+  "Quantum Function": {
+    "prefix": "quantum",
+    "body": [
+      "quantum ${1:name}(${2:qubit}: Qubit) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Quantum function"
+  },
+  "Quantum Circuit": {
+    "prefix": "quantum circuit",
+    "body": [
+      "circuit ${1:bell_state} {",
+      "\thadamard ${2:q0};",
+      "\tcnot ${3:q0}, ${4:q1};",
+      "\tmeasure ${5:q0};",
+      "\tmeasure ${6:q1};",
+      "}"
+    ],
+    "description": "Quantum circuit with gates and measurement"
+  },
+  "Bell State Circuit": {
+    "prefix": "bell state",
+    "body": [
+      "circuit bell_state {",
+      "\thadamard q0;",
+      "\tcnot q0, q1;",
+      "\tlet ${1:result0} = measure q0;",
+      "\tlet ${2:result1} = measure q1;",
+      "}"
+    ],
+    "description": "Create Bell state (EPR pair)"
+  },
+  "Quantum Circuit Simulate": {
+    "prefix": "quantum simulate",
+    "body": [
+      "circuit ${1:my_circuit} {",
+      "\t${2:hadamard} ${3:q0};",
+      "\t${4:cnot} ${5:q0}, ${6:q1};",
+      "}",
+      "",
+      "let ${7:results} = simulate ${1:my_circuit}(${8:1024});"
+    ],
+    "description": "Define circuit and simulate"
+  },
+  "Circuit": {
+    "prefix": "circuit",
+    "body": [
+      "circuit ${1:name} {",
+      "\t${2:gate} ${3:qubit};",
+      "}"
+    ],
+    "description": "Quantum circuit"
+  },
+  "Measure": {
+    "prefix": "measure",
+    "body": [
+      "let ${1:classical} = measure ${2:qubit};"
+    ],
+    "description": "Quantum measurement"
+  },
+  "Hybrid Function": {
+    "prefix": "hybrid fn",
+    "body": [
+      "hybrid fn ${1:name}(${2:params}) -> ${3:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Hybrid crypto function"
+  },
+  "PQC Function": {
+    "prefix": "pqc fn",
+    "body": [
+      "pqc fn ${1:name}(${2:params}) -> ${3:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Post-quantum crypto function"
+  },
+  "KEM Function": {
+    "prefix": "kem fn",
+    "body": [
+      "kem fn ${1:keygen}() -> ${2:(PublicKey, SecretKey)} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "KEM function"
+  },
+  "PQC Key Generation": {
+    "prefix": "pqc keygen",
+    "body": [
+      "use quantum::pqc::{dilithium_keygen, kyber_keygen};",
+      "",
+      "fn ${1:generate_keys}() {",
+      "\t// Dilithium signing keys",
+      "\tlet (${2:dilithium_pk}, ${3:dilithium_sk}) = dilithium_keygen();",
+      "",
+      "\t// Kyber encapsulation keys",
+      "\tlet (${4:kyber_pk}, ${5:kyber_sk}) = kyber_keygen();",
+      "\t$0",
+      "}"
+    ],
+    "description": "Generate PQC key pairs (Dilithium + Kyber)"
+  },
+  "Dilithium Sign & Verify": {
+    "prefix": "dilithium sign",
+    "body": [
+      "use quantum::pqc::{dilithium_keygen, dilithium_sign, dilithium_verify};",
+      "",
+      "fn ${1:sign_and_verify}(${2:message}: &[u8]) -> bool {",
+      "\tlet (pk, sk) = dilithium_keygen();",
+      "\tlet signature = dilithium_sign(&sk, ${2:message});",
+      "\tdilithium_verify(&pk, ${2:message}, &signature)",
+      "}"
+    ],
+    "description": "Dilithium sign and verify workflow"
+  },
+  "NeuralSeal Encrypt/Decrypt": {
+    "prefix": "neuralseal",
+    "body": [
+      "use quantum::pqc::{neuralseal_encrypt, neuralseal_decrypt};",
+      "",
+      "fn ${1:secure_communication}(${2:key}: &[u8], ${3:data}: &[u8]) -> Vec<u8> {",
+      "\tlet ciphertext = neuralseal_encrypt(${2:key}, ${3:data});",
+      "\tneuralseal_decrypt(${2:key}, &ciphertext)",
+      "}"
+    ],
+    "description": "NeuralSeal encrypt and decrypt"
+  },
+  "AI Model Training": {
+    "prefix": "ai train",
+    "body": [
+      "use tensor::{zeros, relu, softmax, cross_entropy};",
+      "use autodiff::{grad, enable_grad};",
+      "",
+      "model ${1:classifier} {",
+      "\tlinear(${2:input_dim}, ${3:128}) -> relu -> linear(${3:128}, ${4:10}) -> softmax",
+      "}",
+      "",
+      "fn ${5:train_model}(${6:data}: Dataset) {",
+      "\tenable_grad();",
+      "\tlet mut model = ${1:classifier};",
+      "\tlet mut optimizer = adam(model.parameters(), lr=0.001);",
+      "",
+      "\tfor epoch in 0..${7:100} {",
+      "\t\tlet predictions = forward(&model, &${6:data}.inputs);",
+      "\t\tlet loss = cross_entropy(&predictions, &${6:data}.labels);",
+      "\t\tbackward(&loss);",
+      "\t\toptimizer.step();",
+      "\t}",
+      "}"
+    ],
+    "description": "Define and train an AI model"
+  },
+  "AI Inference": {
+    "prefix": "ai inference",
+    "body": [
+      "fn ${1:predict}(${2:model}: &Model, ${3:input}: &Tensor) -> Tensor {",
+      "\tinference(${2:model}, ${3:input})",
+      "}"
+    ],
+    "description": "Run AI model inference"
+  },
+  "Tensor Operations": {
+    "prefix": "tensor ops",
+    "body": [
+      "let ${1:a}: Tensor = zeros([${2:rows}, ${3:cols}]);",
+      "let ${4:b}: Tensor = ones([${2:rows}, ${3:cols}]);",
+      "let ${5:product} = matmul(&${1:a}, &${4:b});",
+      "let ${6:transposed} = ${5:product}.transpose();"
+    ],
+    "description": "Common tensor operations"
+  },
+  "Cloud Deployment": {
+    "prefix": "cloud deploy",
+    "body": [
+      "kubernetes ${1:production_cluster} {",
+      "\tpod ${2:webapp} {",
+      "\t\tcontainer ${3:app} {",
+      "\t\t\timage \"${4:myapp:latest}\"",
+      "\t\t\tport ${5:8080}",
+      "\t\t}",
+      "\t}",
+      "",
+      "\tservice ${6:web_svc} {",
+      "\t\tport ${7:80}",
+      "\t\ttarget pod/${2:webapp}",
+      "\t}",
+      "}",
+      "",
+      "deploy ${6:web_svc} to kubernetes;"
+    ],
+    "description": "Define K8s infrastructure and deploy"
+  },
+  "FaaS Function": {
+    "prefix": "faas",
+    "body": [
+      "faas ${1:handler}(${2:req}: Request) -> Response {",
+      "\t${3:// serverless function body}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function-as-a-Service definition"
+  },
+  "FaaS Deploy": {
+    "prefix": "faas deploy",
+    "body": [
+      "faas ${1:handler}(${2:req}: Request) -> Response {",
+      "\t$0",
+      "}",
+      "",
+      "deploy ${1:handler} to faas {",
+      "\tmemory = ${3:256}",
+      "\ttimeout = ${4:30}",
+      "}"
+    ],
+    "description": "Define and deploy FaaS function"
+  },
+  "Interop Python": {
+    "prefix": "interop python",
+    "body": [
+      "py_import ${1:numpy};",
+      "",
+      "fn ${2:compute}() {",
+      "\tlet result = python ${1:numpy}::${3:array}(${4:data});",
+      "\t$0",
+      "}"
+    ],
+    "description": "Import and call Python"
+  },
+  "Interop JavaScript": {
+    "prefix": "interop js",
+    "body": [
+      "fn ${1:process_data}(${2:data}: &[u8]) -> String {",
+      "\tjs_eval ${3:JSON.parse(data)}",
+      "}"
+    ],
+    "description": "Evaluate JavaScript code"
+  },
+  "Interop Java/JVM": {
+    "prefix": "interop java",
+    "body": [
+      "fn ${1:call_java}(${2:args}) {",
+      "\tjvm_call ${3:java.lang.String}::${4:valueOf}(${2:args});",
+      "\t$0",
+      "}"
+    ],
+    "description": "Call Java/JVM method"
+  },
+  "Supernova Runtime": {
+    "prefix": "supernova",
+    "body": [
+      "supernova {",
+      "\tlet ${1:handle} = spawn(async {",
+      "\t\t$0",
+      "\t});",
+      "\tlet ${2:result} = ${1:handle}.await;",
+      "}"
+    ],
+    "description": "Supernova async runtime block"
+  },
+  "Fiber": {
+    "prefix": "fiber",
+    "body": [
+      "fiber ${1:compute_task} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Create a fiber"
+  },
+  "Haft Scheduler": {
+    "prefix": "haft",
+    "body": [
+      "haft ${1:scheduler} {",
+      "\tschedule(${2:task_a}, priority=high);",
+      "\tschedule(${3:task_b}, priority=low);",
+      "\t$0",
+      "}"
+    ],
+    "description": "Haft scheduler block"
+  },
+  "Cortex AI": {
+    "prefix": "cortex",
+    "body": [
+      "cortex {",
+      "\tintent \"${1:optimize system}\" {",
+      "\t\tplan();",
+      "\t\texecute();",
+      "\t\tobserve();",
+      "\t\tadapt();",
+      "\t}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Cortex AI reasoning block"
+  },
+  "Module": {
+    "prefix": "mod",
+    "body": [
+      "mod ${1:name} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Module definition"
+  },
+  "Use": {
+    "prefix": "use",
+    "body": [
+      "use ${1:path};"
+    ],
+    "description": "Use declaration"
+  },
+  "Use Multiple": {
+    "prefix": "use multi",
+    "body": [
+      "use ${1:path}::{${2:Item1}, ${3:Item2}};"
+    ],
+    "description": "Use multiple items"
+  },
+  "Extern": {
+    "prefix": "extern",
+    "body": [
+      "extern \"${1:C}\" {",
+      "\tfn ${2:function_name}(${3:params});",
+      "}"
+    ],
+    "description": "Foreign function interface"
+  },
+  "Type Alias": {
+    "prefix": "type",
+    "body": [
+      "type ${1:Name} = ${2:Type};"
+    ],
+    "description": "Type alias"
+  }
+}

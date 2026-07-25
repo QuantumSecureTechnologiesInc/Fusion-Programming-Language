@@ -1,9 +1,0 @@
-User Guide: Fusion Flux1. InstallationFlux is distributed alongside Forge.cargo install fusion-flux
-2. Basic UsageRun Flux in your project root. It automatically detects Fusion.toml.# Check for issues
-flux check
-
-# Automatically fix fixable issues
-flux fix
-3. The RulesetE001: Runtime IncompatibilityError: Targeting v1 (Native) but using Python dependencies.Fix: Change runtime_target to supernova or remove Python.E002: Blocking I/O DetectedError: Usage of std::fs::read inside a Fusion async task.Why: This blocks the executor thread.Fix: Use fusion_rt::fs::read.E003: Unsafe FFI BoundaryError: extern "C" function in Rust missing #[no_mangle].Why: The linker will strip the symbol, causing runtime crashes in the plugin loader.W001: Missing DocumentationWarning: Public FFI functions missing doc comments.4. ConfigurationYou can ignore rules in Fusion.toml:[linter]
-ignore = ["W001"]
-allow-blocking = ["src/legacy_loader.rs"]

@@ -81,6 +81,10 @@ static void wsa_ensure_init(void) {
 
 static void wsa_ensure_init(void) { /* no-op on POSIX */ }
 
+#ifndef _strdup
+#define _strdup strdup
+#endif
+
 #endif /* _WIN32 */
 
 void panic(const char* msg) {

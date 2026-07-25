@@ -99,7 +99,7 @@ impl Analyzer {
                     let ret = convert_type(return_type);
                     self.functions.insert(name.clone(), (param_types, ret));
                 }
-                Declaration::ExternFunction { name, params, return_type } => {
+                Declaration::ExternFunction { name, params, return_type, .. } => {
                     let param_types: Vec<ir::Type> = params.iter().map(|p| convert_type(&p.param_type)).collect();
                     let ret = convert_type(return_type);
                     self.functions.insert(name.clone(), (param_types, ret));
@@ -110,6 +110,12 @@ impl Analyzer {
                 }
                 _ => {}
             }
+        }
+
+        // Register struct definitions from the dedicated structs list
+        for s in &prog.structs {
+            let fields: Vec<(String, ir::Type)> = s.fields.iter().map(|(n, t)| (n.clone(), convert_type(t))).collect();
+            self.structs.insert(s.name.clone(), fields);
         }
 
         // Second pass: type-check each function

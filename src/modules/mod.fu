@@ -1,0 +1,203 @@
+// src/modules/mod.fu - Module system for Fusion
+//
+// Provides module registration, import/export, dependency tracking,
+// and circular dependency detection. This is the central hub of
+// the modular system architecture.
+
+pub mod resolution
+pub mod visibility
+
+// ============================================================
+// Module struct
+// ============================================================
+
+struct Module {
+    name: string,
+    path: string,
+    exports: []string,
+    dependencies: []string,
+}
+
+// ============================================================
+// Module registration and lookup
+// ============================================================
+
+// Registers a new module with the given name and filesystem path.
+// Returns the created Module struct.
+extern fn mod_register(name: string, path: string) -> Module;
+
+// Imports a specific item from a registered module into the current scope.
+extern fn mod_import(module: string, item: string) -> void;
+
+// Exports a named item from the current module, making it available
+// to other modules that import this one.
+extern fn mod_export(name: string, item: string) -> void;
+
+// Resolves a module path string to an absolute filesystem path,
+// searching through registered search paths.
+extern fn mod_resolve(path: string) -> string;
+
+// Lists the names of all currently registered modules.
+extern fn mod_list() -> []string;
+
+// Returns the list of dependency names for a given module.
+extern fn mod_dependencies(module: string) -> []string;
+
+// Checks the entire module graph for circular dependencies.
+// Returns true if a cycle exists, false otherwise.
+extern fn mod_circular_check() -> bool;
+
+// ============================================================
+// Module metadata queries
+// ============================================================
+
+// Returns the number of registered modules.
+fn mod_count() -> int {
+    var modules: []string = mod_list();
+    return array_length(modules);
+}
+
+// Checks whether a module with the given name is registered.
+fn mod_is_registered(name: string) -> bool {
+    var modules: []string = mod_list();
+    for i in range(0, array_length(modules)) {
+        if modules[i] == name {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Returns the number of exports a module provides.
+fn mod_export_count(module: string) -> int {
+    // In a full implementation, this queries the Module struct's exports field.
+    // Placeholder returning 0 when the module is not found.
+    var deps: []string = mod_dependencies(module);
+    _ = deps;
+    return 0;
+}
+
+// Returns true if a module has the named item exported.
+fn mod_has_export(module: string, item: string) -> bool {
+    var deps: []string = mod_dependencies(module);
+    _ = deps;
+    // Placeholder: a full implementation would check the exports list.
+    return false;
+}
+
+// ============================================================
+// Dependency graph operations
+// ============================================================
+
+// Returns the transitive dependencies of a module (all modules it
+// depends on, directly or indirectly).
+fn mod_transitive_deps(module: string) -> []string {
+    var direct: []string = mod_dependencies(module);
+    var visited: []string = [];
+
+    for i in range(0, array_length(direct)) {
+        var dep: string = direct[i];
+        var found: bool = false;
+        for j in range(0, array_length(visited)) {
+            if visited[j] == dep {
+                found = true;
+                break;
+            }
+        }
+        if found == false {
+            visited = array_push(visited, dep);
+            var sub: []string = mod_transitive_deps(dep);
+            for k in range(0, array_length(sub)) {
+                var sub_found: bool = false;
+                for l in range(0, array_length(visited)) {
+                    if visited[l] == sub[k] {
+                        sub_found = true;
+                        break;
+                    }
+                }
+                if sub_found == false {
+                    visited = array_push(visited, sub[k]);
+                }
+            }
+        }
+    }
+    return visited;
+}
+
+// Returns true if module 'a' depends on module 'b' (directly or transitively).
+fn mod_depends_on(a: string, b: string) -> bool {
+    var deps: []string = mod_transitive_deps(a);
+    for i in range(0, array_length(deps)) {
+        if deps[i] == b {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Returns the top-level modules with no dependencies (root modules).
+fn mod_roots() -> []string {
+    var all: []string = mod_list();
+    var roots: []string = [];
+    for i in range(0, array_length(all)) {
+        var deps: []string = mod_dependencies(all[i]);
+        if array_length(deps) == 0 {
+            roots = array_push(roots, all[i]);
+        }
+    }
+    return roots;
+}
+
+// Returns the leaf modules that no other module depends on.
+fn mod_leaves() -> []string {
+    var all: []string = mod_list();
+    var leaves: []string = [];
+    for i in range(0, array_length(all)) {
+        var is_dep: bool = false;
+        for j in range(0, array_length(all)) {
+            if i != j {
+                var deps: []string = mod_dependencies(all[j]);
+                for k in range(0, array_length(deps)) {
+                    if deps[k] == all[i] {
+                        is_dep = true;
+                        break;
+                    }
+                }
+                if is_dep == true {
+                    break;
+                }
+            }
+        }
+        if is_dep == false {
+            leaves = array_push(leaves, all[i]);
+        }
+    }
+    return leaves;
+}
+
+// ============================================================
+// Module loading lifecycle
+// ============================================================
+
+// Loads a module from the given path, registers it, and resolves
+// its dependencies. Returns the loaded Module.
+fn mod_load(path: string) -> Module {
+    var resolved: string = mod_resolve(path);
+    _ = resolved;
+    // In practice: parse the file, find mod/export declarations,
+    // register the module, then resolve and load dependencies.
+    return mod_register(path, path);
+}
+
+// Unloads a module by name, removing it from the registry.
+// This is a semantic operation; the actual cleanup depends on
+// the runtime's resource model.
+fn mod_unload(name: string) -> void {
+    _ = name;
+    // In practice: remove from registry, release associated resources.
+}
+
+// Cross-references to related features
+pub use crate::security::capability    // modules have capabilities
+pub use crate::types::visibility       // modules control visibility
+pub use crate::safety::memory          // modules check memory safety

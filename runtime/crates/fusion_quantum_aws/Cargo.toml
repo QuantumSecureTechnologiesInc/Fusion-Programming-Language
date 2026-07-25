@@ -1,0 +1,26 @@
+[package]
+name = "fusion_quantum_aws"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "AWS Braket backend integration for Fusion v2.0 Vortex"
+authors = ["Fusion Team"]
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(disabled)'] }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"

@@ -1,5 +1,0 @@
-use anyhow::Result;
-fn run(_release: FBool, _args: &[FString]) -> Result<()> {
-    println!("Running Fusion project...");
-    Ok(())
-}

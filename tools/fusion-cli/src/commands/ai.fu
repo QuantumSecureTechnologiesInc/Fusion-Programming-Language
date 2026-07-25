@@ -1,0 +1,486 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+import fusion::cmd
+import fusion::http
+import fusion::input
+
+use crate::config::FusionConfig
+
+const OLLAMA_API: String = "http://localhost:11434"
+
+/// Read AI configuration from Fusion.toml [ai] section
+fn read_ai_config(config: FusionConfig) -> Dict {
+    let ai_config = {}
+
+    if let Some(ai) = config["ai"] {
+        if let Some(provider) = ai["provider"] {
+            ai_config["provider"] = provider
+        }
+        if let Some(device) = ai["default_device"] {
+            ai_config["default_device"] = device
+        }
+        // Read Ollama-specific config from [ai.ollama]
+        if let Some(ollama) = ai["ollama"] {
+            ai_config["ollama"] = ollama
+        }
+        // Read Mistral-specific config from [ai.mistral]
+        if let Some(mistral) = ai["mistral"] {
+            ai_config["mistral"] = mistral
+        }
+        // Read DeepSeek-specific config from [ai.deepseek]
+        if let Some(deepseek) = ai["deepseek"] {
+            ai_config["deepseek"] = deepseek
+        }
+    }
+
+    return ai_config
+}
+
+/// Read Ollama provider settings from [ai.ollama]
+fn read_ollama_config(ai_config: Dict) -> Dict {
+    let ollama_config = {}
+
+    if let Some(ollama) = ai_config["ollama"] {
+        if let Some(api_url) = ollama["api_url"] {
+            ollama_config["api_url"] = api_url
+        }
+        if let Some(model) = ollama["default_model"] {
+            ollama_config["default_model"] = model
+        }
+        if let Some(timeout) = ollama["timeout"] {
+            ollama_config["timeout"] = timeout
+        }
+        if let Some(num_ctx) = ollama["num_ctx"] {
+            ollama_config["num_ctx"] = num_ctx
+        }
+    }
+
+    return ollama_config
+}
+
+/// Read Mistral provider settings from [ai.mistral]
+fn read_mistral_config(ai_config: Dict) -> Dict {
+    let mistral_config = {}
+
+    if let Some(mistral) = ai_config["mistral"] {
+        if let Some(api_url) = mistral["api_url"] {
+            mistral_config["api_url"] = api_url
+        }
+        if let Some(model) = mistral["default_model"] {
+            mistral_config["default_model"] = model
+        }
+        if let Some(api_key_env) = mistral["api_key_env"] {
+            mistral_config["api_key_env"] = api_key_env
+        }
+        if let Some(max_tokens) = mistral["max_tokens"] {
+            mistral_config["max_tokens"] = max_tokens
+        }
+    }
+
+    return mistral_config
+}
+
+/// Read DeepSeek provider settings from [ai.deepseek]
+fn read_deepseek_config(ai_config: Dict) -> Dict {
+    let deepseek_config = {}
+
+    if let Some(deepseek) = ai_config["deepseek"] {
+        if let Some(api_url) = deepseek["api_url"] {
+            deepseek_config["api_url"] = api_url
+        }
+        if let Some(model) = deepseek["default_model"] {
+            deepseek_config["default_model"] = model
+        }
+        if let Some(api_key_env) = deepseek["api_key_env"] {
+            deepseek_config["api_key_env"] = api_key_env
+        }
+        if let Some(max_tokens) = deepseek["max_tokens"] {
+            deepseek_config["max_tokens"] = max_tokens
+        }
+    }
+
+    return deepseek_config
+}
+
+/// Get the API URL for the configured provider
+fn get_provider_api_url(ai_config: Dict) -> String {
+    let provider = ai_config.get("provider").unwrap_or("ollama")
+
+    if provider == "ollama" {
+        let ollama_config = read_ollama_config(ai_config)
+        return ollama_config.get("api_url").unwrap_or(OLLAMA_API)
+    } else if provider == "mistral" {
+        let mistral_config = read_mistral_config(ai_config)
+        return mistral_config.get("api_url").unwrap_or("https://api.mistral.ai/v1")
+    } else if provider == "deepseek" {
+        let deepseek_config = read_deepseek_config(ai_config)
+        return deepseek_config.get("api_url").unwrap_or("https://api.deepseek.com/v1")
+    }
+
+    return OLLAMA_API
+}
+
+/// Get the default model for the configured provider
+fn get_default_model(ai_config: Dict) -> String {
+    let provider = ai_config.get("provider").unwrap_or("ollama")
+
+    if provider == "ollama" {
+        let ollama_config = read_ollama_config(ai_config)
+        return ollama_config.get("default_model").unwrap_or("llama3")
+    } else if provider == "mistral" {
+        let mistral_config = read_mistral_config(ai_config)
+        return mistral_config.get("default_model").unwrap_or("mistral-large-latest")
+    } else if provider == "deepseek" {
+        let deepseek_config = read_deepseek_config(ai_config)
+        return deepseek_config.get("default_model").unwrap_or("deepseek-chat")
+    }
+
+    return "llama3"
+}
+
+/// Interactive chat with an AI model
+async fn chat(model: String, json: bool) -> Result {
+    // Load Fusion.toml for AI provider configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let ai_config = read_ai_config(config)
+    let api_url = get_provider_api_url(ai_config)
+    let resolved_model = if model == "default" { get_default_model(ai_config) } else { model }
+
+    io::println("Starting chat with {resolved_model} (type 'exit' to quit)")
+
+    loop {
+        let user_input = input::Input::new()
+            .with_prompt("you")
+            .allow_empty(true)
+            .interact_text()
+
+        if user_input.trim().len() == 0 || user_input.trim() == "exit" {
+            io::println("Chat ended.")
+            break
+        }
+
+        let provider = ai_config.get("provider").unwrap_or("ollama")
+
+        if provider == "ollama" {
+            // Ollama API: /api/generate
+            let payload = {
+                "model": resolved_model,
+                "prompt": user_input,
+                "stream": false,
+            }
+            let client = http::Client::new()
+            let resp = client
+                .post("{api_url}/api/generate")
+                .json(payload)
+                .send()
+
+            if !resp.status().is_success() {
+                io::eprintln("error: Ollama returned status {resp.status()}")
+                continue
+            }
+
+            let body = resp.json()
+            let response = body["response"].unwrap_or("no response")
+            io::println("{resolved_model}: {response}")
+        } else if provider == "mistral" {
+            // Mistral API: /chat/completions
+            let payload = {
+                "model": resolved_model,
+                "messages": [{"role": "user", "content": user_input}],
+            }
+            let client = http::Client::new()
+            let resp = client
+                .post("{api_url}/chat/completions")
+                .json(payload)
+                .send()
+
+            let body = resp.json()
+            let response = body["choices"][0]["message"]["content"].unwrap_or("no response")
+            io::println("{resolved_model}: {response}")
+        } else if provider == "deepseek" {
+            // DeepSeek API: /chat/completions
+            let payload = {
+                "model": resolved_model,
+                "messages": [{"role": "user", "content": user_input}],
+            }
+            let client = http::Client::new()
+            let resp = client
+                .post("{api_url}/chat/completions")
+                .json(payload)
+                .send()
+
+            let body = resp.json()
+            let response = body["choices"][0]["message"]["content"].unwrap_or("no response")
+            io::println("{resolved_model}: {response}")
+        }
+    }
+
+    return Ok(())
+}
+
+/// Code completion
+async fn complete(model: String, prompt: String, json: bool) -> Result {
+    // Load Fusion.toml for AI provider configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let ai_config = read_ai_config(config)
+    let api_url = get_provider_api_url(ai_config)
+    let resolved_model = if model == "default" { get_default_model(ai_config) } else { model }
+
+    let provider = ai_config.get("provider").unwrap_or("ollama")
+
+    let response = if provider == "ollama" {
+        let payload = {
+            "model": resolved_model,
+            "prompt": prompt,
+            "stream": false,
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/api/generate")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["response"].unwrap_or("")
+    } else {
+        let payload = {
+            "model": resolved_model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/chat/completions")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["choices"][0]["message"]["content"].unwrap_or("")
+    }
+
+    if json {
+        io::println("{\"model\":\"{resolved_model}\",\"prompt\":\"{prompt}\",\"response\":\"{response}\"}")
+    } else {
+        io::println(response)
+    }
+
+    return Ok(())
+}
+
+/// Explain code in a file
+async fn explain(file: String, json: bool) -> Result {
+    let content = fs::read_to_string(file)
+
+    // Load Fusion.toml for AI configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let ai_config = read_ai_config(config)
+    let api_url = get_provider_api_url(ai_config)
+    let resolved_model = get_default_model(ai_config)
+
+    let prompt = "Explain this Fusion code in detail:\n\n{content}"
+    let provider = ai_config.get("provider").unwrap_or("ollama")
+
+    let response = if provider == "ollama" {
+        let payload = {
+            "model": resolved_model,
+            "prompt": prompt,
+            "stream": false,
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/api/generate")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["response"].unwrap_or("")
+    } else {
+        let payload = {
+            "model": resolved_model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/chat/completions")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["choices"][0]["message"]["content"].unwrap_or("")
+    }
+
+    if json {
+        io::println("{\"file\":\"{file}\",\"explanation\":\"{response}\"}")
+    } else {
+        io::println("Explanation: {file}")
+        io::println(response)
+    }
+
+    return Ok(())
+}
+
+/// Review code in a file
+async fn review(file: String, json: bool) -> Result {
+    let content = fs::read_to_string(file)
+
+    // Load Fusion.toml for AI configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let ai_config = read_ai_config(config)
+    let api_url = get_provider_api_url(ai_config)
+    let resolved_model = get_default_model(ai_config)
+
+    let prompt = "Review this Fusion code for bugs, security issues, and improvements:\n\n{content}"
+    let provider = ai_config.get("provider").unwrap_or("ollama")
+
+    let response = if provider == "ollama" {
+        let payload = {
+            "model": resolved_model,
+            "prompt": prompt,
+            "stream": false,
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/api/generate")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["response"].unwrap_or("")
+    } else {
+        let payload = {
+            "model": resolved_model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/chat/completions")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["choices"][0]["message"]["content"].unwrap_or("")
+    }
+
+    if json {
+        io::println("{\"file\":\"{file}\",\"review\":\"{response}\"}")
+    } else {
+        io::println("Code Review: {file}")
+        io::println(response)
+    }
+
+    return Ok(())
+}
+
+/// Generate code from a description
+async fn generate(description: String, json: bool) -> Result {
+    // Load Fusion.toml for AI configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let ai_config = read_ai_config(config)
+    let api_url = get_provider_api_url(ai_config)
+    let resolved_model = get_default_model(ai_config)
+
+    let prompt = "Generate Fusion code based on this description:\n\n{description}"
+    let provider = ai_config.get("provider").unwrap_or("ollama")
+
+    let response = if provider == "ollama" {
+        let payload = {
+            "model": resolved_model,
+            "prompt": prompt,
+            "stream": false,
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/api/generate")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["response"].unwrap_or("")
+    } else {
+        let payload = {
+            "model": resolved_model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        let client = http::Client::new()
+        let resp = client
+            .post("{api_url}/chat/completions")
+            .json(payload)
+            .send()
+        let body = resp.json()
+        body["choices"][0]["message"]["content"].unwrap_or("")
+    }
+
+    if json {
+        io::println("{\"description\":\"{description}\",\"code\":\"{response}\"}")
+    } else {
+        io::println("Generated code:")
+        io::println(response)
+    }
+
+    return Ok(())
+}
+
+/// List available AI models
+async fn list_models(json: bool) -> Result {
+    // Load Fusion.toml for AI provider configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let ai_config = read_ai_config(config)
+    let provider = ai_config.get("provider").unwrap_or("ollama")
+
+    if provider == "ollama" {
+        let output = cmd::Command::new("ollama")
+            .args(["list"])
+            .output()
+
+        let stdout = output.stdout
+
+        if json {
+            let models = stdout.lines().skip(1).filter(|l| l.trim().len() > 0).collect()
+            io::println("{\"models\":{models}}")
+        } else {
+            io::println("ai: Available models (Ollama):")
+            if stdout.trim().len() == 0 {
+                io::println("  No models installed. Run `fusion ai pull <model>` to download one.")
+            } else {
+                io::println(stdout)
+            }
+        }
+    } else {
+        io::println("ai: Provider '{provider}' configured in Fusion.toml")
+        if let Some(model) = ai_config.get("default_device") {
+            io::println("  Default model: {model}")
+        }
+    }
+
+    return Ok(())
+}
+
+/// Pull a model via Ollama
+async fn pull(model: String, json: bool) -> Result {
+    io::println("ai: Pulling model '{model}'...")
+
+    let output = cmd::Command::new("ollama")
+        .args(["pull", model])
+        .stdin(cmd::Stdio::inherit())
+        .stdout(cmd::Stdio::inherit())
+        .stderr(cmd::Stdio::inherit())
+        .status()
+
+    if output.success() {
+        if json {
+            io::println("{\"model\":\"{model}\",\"status\":\"pulled\"}")
+        } else {
+            io::println("OK: Model '{model}' pulled successfully.")
+        }
+    } else {
+        return Err("Failed to pull model '{model}'")
+    }
+
+    return Ok(())
+}
+
+/// Run the AI command
+pub async fn run(command: AiCommands, json: bool) -> Result {
+    match command {
+        AiCommands::Chat { model } => chat(model, json).await,
+        AiCommands::Complete { model, prompt } => complete(model, prompt, json).await,
+        AiCommands::Explain { file } => explain(file, json).await,
+        AiCommands::Review { file } => review(file, json).await,
+        AiCommands::Generate { description } => generate(description.join(" "), json).await,
+        AiCommands::Models => list_models(json).await,
+        AiCommands::Pull { model } => pull(model, json).await,
+    }
+}

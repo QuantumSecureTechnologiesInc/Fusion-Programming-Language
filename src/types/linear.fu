@@ -1,0 +1,118 @@
+// Linear and Affine Types — Resource Protocols
+// Enforces single-use and protocol-ordered resource consumption.
+
+struct LinearType {
+    name: string,
+    resource: string,
+    protocol: []string,
+}
+
+struct LinearValue {
+    type_name: string,
+    value: string,
+    used: bool,
+    use_count: int,
+}
+
+extern fn linear_new(type_name: string, value: string) -> LinearValue {
+    LinearValue {
+        type_name: type_name,
+        value: value,
+        used: false,
+        use_count: 1,
+    }
+}
+
+extern fn linear_use(val: LinearValue) -> LinearValue {
+    if val.use_count > 0 {
+        LinearValue {
+            type_name: val.type_name,
+            value: val.value,
+            used: true,
+            use_count: val.use_count - 1,
+        }
+    } else {
+        // Already consumed — linear violation
+        LinearValue {
+            type_name: val.type_name,
+            value: val.value,
+            used: true,
+            use_count: 0,
+        }
+    }
+}
+
+extern fn linear_is_used(val: LinearValue) -> bool {
+    val.use_count == 0 || val.used
+}
+
+extern fn linear_use_count(val: LinearValue) -> int {
+    val.use_count
+}
+
+// Verify exactly-once usage: value must have been used exactly one time.
+extern fn linear_check(val: LinearValue) -> bool {
+    val.use_count == 0 && val.used
+}
+
+// Verify a sequence of values were consumed in the declared protocol order.
+// Each value's type_name must match the next expected protocol step.
+extern fn linear_protocol_check(vals: []LinearValue) -> bool {
+    if vals.length == 0 {
+        return false
+    }
+    let i = 0
+    while i < vals.length {
+        let v = vals[i]
+        if v.used == false {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// ---- Resource Protocols ----
+
+struct ResourceProtocol {
+    name: string,
+    steps: []string,
+    current_step: int,
+}
+
+extern fn protocol_new(name: string, steps: []string) -> ResourceProtocol {
+    ResourceProtocol {
+        name: name,
+        steps: steps,
+        current_step: 0,
+    }
+}
+
+extern fn protocol_step(protocol: ResourceProtocol) -> ResourceProtocol {
+    if protocol.current_step < protocol.steps.length {
+        ResourceProtocol {
+            name: protocol.name,
+            steps: protocol.steps,
+            current_step: protocol.current_step + 1,
+        }
+    } else {
+        protocol
+    }
+}
+
+extern fn protocol_is_complete(protocol: ResourceProtocol) -> bool {
+    protocol.current_step >= protocol.steps.length
+}
+
+extern fn protocol_validate(protocol: ResourceProtocol) -> bool {
+    if protocol.steps.length == 0 {
+        return false
+    }
+    if protocol.current_step < 0 {
+        return false
+    }
+    if protocol.current_step > protocol.steps.length {
+        return false
+    }
+    true
+}

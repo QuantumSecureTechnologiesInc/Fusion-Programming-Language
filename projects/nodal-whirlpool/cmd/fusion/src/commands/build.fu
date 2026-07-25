@@ -1,5 +1,0 @@
-use anyhow::Result;
-use fusion_toolchain;
-fn build(release: FBool, target: Option<&str>, verbose: FBool) -> Result<()> {
-    fusion_toolchain::build(release, target, verbose)
-}

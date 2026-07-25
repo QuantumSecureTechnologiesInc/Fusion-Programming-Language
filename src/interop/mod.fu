@@ -1,0 +1,18 @@
+// src/interop/mod.fu
+// Fusion Language Interoperability Module
+
+pub mod python;
+pub mod javascript;
+pub mod java;
+pub mod protocol;
+pub mod export;
+pub mod eval;
+pub mod type_mapping;
+pub mod proxy;
+pub mod shared_memory;
+pub mod reference;
+pub mod concurrency;
+
+pub use python::{PyModule, py_import, py_call, py_eval, py_release};
+pub use javascript::{JsEngine, js_create, js_eval, js_call, js_release};
+pub use java::{Jvm, jvm_create, jvm_call_static, jvm_release};

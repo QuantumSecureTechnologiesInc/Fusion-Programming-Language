@@ -1,9 +1,0 @@
-//! # Fusion Kubernetes Operator
-//! 
-//! Orchestrates Fusion applications on Kubernetes.
-//! Specialized handling for Hybrid Quantum/AI workloads.
-
-pub mod crd;
-pub mod controller;
-
-pub use crd::FusionApp;

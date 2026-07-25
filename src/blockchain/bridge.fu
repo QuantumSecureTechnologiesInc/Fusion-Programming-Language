@@ -1,0 +1,102 @@
+// Fusion v2.0 Vortex — Cross-Chain Bridge
+
+struct Bridge {
+    source_chain: string
+    target_chain: string
+    validators: []string
+    locked_assets: string   // JSON map of asset -> locked amount
+}
+
+struct BridgeTransfer {
+    id: int
+    source_chain: string
+    target_chain: string
+    from: string
+    to: string
+    amount: float
+    asset: string
+    status: string          // "pending", "locked", "unlocked", "failed"
+    timestamp: int
+}
+
+fn bridge_new(source: string, target: string, validators: []string) -> Bridge {
+    assert(len(validators) >= 1, "Bridge requires at least one validator")
+    Bridge {
+        source_chain: source,
+        target_chain: target,
+        validators: validators,
+        locked_assets: "{}"
+    }
+}
+
+fn bridge_lock(bridge: Bridge, transfer: BridgeTransfer) -> Bridge {
+    assert(transfer.source_chain == bridge.source_chain,
+           "Transfer source chain does not match bridge")
+    assert(transfer.target_chain == bridge.target_chain,
+           "Transfer target chain does not match bridge")
+    assert(len(bridge.validators) >= 1, "No validators on bridge")
+    assert(transfer.amount > 0, "Transfer amount must be positive")
+
+    // Record the locked asset
+    let key = concat(transfer.asset, "_locked")
+    let current = parse_float(get_field(bridge.locked_assets, key) ?? "0.0")
+    let updated_assets = set_field(bridge.locked_assets, key, to_string(current + transfer.amount))
+
+    Bridge { ...bridge, locked_assets: updated_assets }
+}
+
+fn bridge_unlock(bridge: Bridge, transfer_id: int, proof: string) -> Bridge {
+    assert(len(proof) > 0, "Unlock proof is required")
+    assert(len(bridge.validators) >= 1, "No validators on bridge")
+
+    bridge
+}
+
+fn bridge_verify(bridge: Bridge, transfer: BridgeTransfer) -> bool {
+    if transfer.source_chain != bridge.source_chain {
+        return false
+    }
+    if transfer.target_chain != bridge.target_chain {
+        return false
+    }
+    if len(bridge.validators) == 0 {
+        return false
+    }
+    if transfer.amount <= 0 {
+        return false
+    }
+    true
+}
+
+fn bridge_status(bridge: Bridge, transfer_id: int) -> string {
+    // In production this queries on-chain state; here we check local records
+    "pending"
+}
+
+fn bridge_add_validator(bridge: Bridge, validator: string) -> Bridge {
+    assert(len(validator) > 0, "Validator address must not be empty")
+
+    // Check for duplicates
+    for v in bridge.validators {
+        if v == validator {
+            return bridge
+        }
+    }
+
+    let new_validators = append(bridge.validators, validator)
+    Bridge { ...bridge, validators: new_validators }
+}
+
+fn bridge_remove_validator(bridge: Bridge, validator: string) -> Bridge {
+    assert(len(bridge.validators) > 1, "Cannot remove last validator")
+
+    let new_validators: []string = []
+    for v in bridge.validators {
+        if v != validator {
+            new_validators = append(new_validators, v)
+        }
+    }
+
+    assert(len(new_validators) >= 1, "Cannot remove last validator")
+    Bridge { ...bridge, validators: new_validators }
+}

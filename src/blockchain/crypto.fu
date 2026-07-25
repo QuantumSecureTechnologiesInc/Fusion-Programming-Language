@@ -1,0 +1,63 @@
+// Fusion v2.0 Vortex — Blockchain Cryptographic Primitives
+// Low-level hash, sign, verify, encrypt/decrypt, and utility functions.
+
+/// SHA-256 hash
+extern fn crypto_hash_sha256(data: string) -> string
+
+/// SHA-512 hash
+extern fn crypto_hash_sha512(data: string) -> string
+
+/// BLAKE3 hash
+extern fn crypto_hash_blake3(data: string) -> string
+
+/// Ed25519 signature
+extern fn crypto_sign_ed25519(message: string, private_key: string) -> string
+
+/// Ed25519 verify
+extern fn crypto_verify_ed25519(message: string, signature: string, public_key: string) -> bool
+
+/// Ed25519 key generation — returns (private_key, public_key)
+extern fn crypto_keygen_ed25519() -> (string, string)
+
+/// AES-256 encrypt
+extern fn crypto_encrypt_aes256(data: string, key: string) -> string
+
+/// AES-256 decrypt
+extern fn crypto_decrypt_aes256(data: string, key: string) -> string
+
+/// HMAC-SHA256
+extern fn crypto_hmac_sha256(key: string, data: string) -> string
+
+/// Derive a short hex address from a public key via double SHA-256.
+fn crypto_generate_address(public_key: string) -> string {
+    let first = crypto_hash_sha256(public_key)
+    let second = crypto_hash_sha256(first)
+    // Take first 40 hex chars (20 bytes) as the address
+    return second[:40]
+}
+
+/// Compute a Merkle root from a list of hashes.
+/// If the list is empty, returns the zero hash.
+/// If odd count, the last hash is promoted to the next level unchanged.
+fn crypto_merkle_root(hashes: []string) -> string {
+    if hashes.len() == 0 {
+        return crypto_hash_sha256("")
+    }
+
+    let level = hashes
+    while level.len() > 1 {
+        let next: []string = []
+        let i = 0
+        while i < level.len() {
+            if i + 1 < level.len() {
+                next.push(crypto_hash_sha256(level[i] + level[i + 1]))
+            } else {
+                // Odd element — promote as-is
+                next.push(level[i])
+            }
+            i += 2
+        }
+        level = next
+    }
+    return level[0]
+}

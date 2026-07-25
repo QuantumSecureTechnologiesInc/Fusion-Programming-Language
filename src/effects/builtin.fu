@@ -1,0 +1,66 @@
+// Built-in Effects — Standard Effect Operations
+//
+// These are the effects provided out-of-the-box by the Fusion runtime.
+// Each performs a domain-specific operation that can be intercepted and
+// replaced by custom handlers for testing, logging, or alternative
+// implementations.
+
+// ---------------------------------------------------------------------------
+// I/O Effect
+// ---------------------------------------------------------------------------
+
+/// Perform an I/O operation (file read/write, stdout/stderr, etc.).
+/// `operation` — the I/O verb (e.g. "read", "write", "open", "close")
+/// `args`      — serialized operation-specific arguments
+/// Returns serialized result of the I/O operation.
+extern fn effect_io_perform(operation: string, args: string) -> string
+
+// ---------------------------------------------------------------------------
+// State Effect
+// ---------------------------------------------------------------------------
+
+/// Perform a stateful operation (get, set, update, compare-and-swap).
+/// `operation` — the state verb (e.g. "get", "set", "modify")
+/// `args`      — serialized state key/value arguments
+/// Returns serialized current state value.
+extern fn effect_state_perform(operation: string, args: string) -> string
+
+// ---------------------------------------------------------------------------
+// Async Effect
+// ---------------------------------------------------------------------------
+
+/// Perform an asynchronous operation (spawn, await, cancel, timeout).
+/// `operation` — the async verb (e.g. "spawn", "await", "cancel")
+/// `args`      — serialized task/promise arguments
+/// Returns serialized async handle or result.
+extern fn effect_async_perform(operation: string, args: string) -> string
+
+// ---------------------------------------------------------------------------
+// Error Effect
+// ---------------------------------------------------------------------------
+
+/// Perform an error-related operation (raise, catch, retry, ignore).
+/// `operation` — the error verb (e.g. "raise", "catch", "retry")
+/// `args`      — serialized error value / retry configuration
+/// Returns serialized error propagation result.
+extern fn effect_error_perform(operation: string, args: string) -> string
+
+// ---------------------------------------------------------------------------
+// Log Effect
+// ---------------------------------------------------------------------------
+
+/// Perform a logging operation (debug, info, warn, error, trace).
+/// `operation` — the log level / verb (e.g. "debug", "info", "warn")
+/// `args`      — serialized log message and metadata
+/// Returns serialized acknowledgement.
+extern fn effect_log_perform(operation: string, args: string) -> string
+
+// ---------------------------------------------------------------------------
+// Network Effect
+// ---------------------------------------------------------------------------
+
+/// Perform a network operation (HTTP request, DNS lookup, socket I/O).
+/// `operation` — the network verb (e.g. "http_get", "http_post", "dns_resolve")
+/// `args`      — serialized URL / request parameters
+/// Returns serialized response body and metadata.
+extern fn effect_network_perform(operation: string, args: string) -> string

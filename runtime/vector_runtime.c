@@ -9,6 +9,10 @@
 #ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 #endif
+#else
+#ifndef _strdup
+#define _strdup strdup
+#endif
 #endif
 
 #define VEC_POOL 64

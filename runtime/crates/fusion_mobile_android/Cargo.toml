@@ -1,0 +1,9 @@
+[package]
+name = "fusion_mobile_android"
+version = "2.0.0"
+edition = "2021"
+description = "Android runtime bridge for Fusion v2.0 Vortex (JNI abstractions)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

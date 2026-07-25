@@ -1,0 +1,19 @@
+[package]
+name = "fusion_cortex_scheduler"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion"
+authors = ["Quantum Secure Technologies Inc."]
+description = "AI-powered workload routing with task profiling, cost prediction, and online learning"
+
+[dependencies]
+parking_lot = "0.12"
+tracing = "0.1"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1.4", features = ["v4"] }
+crossbeam = "0.8"
+num_cpus = "1.16"
+
+[dev-dependencies]

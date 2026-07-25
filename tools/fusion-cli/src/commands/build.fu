@@ -1,0 +1,182 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+import fusion::cmd
+import fusion::path
+
+use crate::config::FusionConfig
+
+/// Read build configuration from Fusion.toml
+fn read_build_config(config: FusionConfig) -> Dict {
+    let build_config = {}
+
+    // [build] section
+    if let Some(build) = config["build"] {
+        if let Some(opt) = build["optimization_level"] {
+            build_config["optimization_level"] = opt
+        }
+        if let Some(debug) = build["debug_info"] {
+            build_config["debug_info"] = debug
+        }
+        if let Some(lto) = build["lto"] {
+            build_config["lto"] = lto
+        }
+        if let Some(incr) = build["incremental"] {
+            build_config["incremental"] = incr
+        }
+    }
+
+    // [features] section for conditional compilation
+    if let Some(features) = config["features"] {
+        build_config["features"] = features
+    }
+
+    // [runtime] section for runtime target selection
+    if let Some(runtime) = config["runtime"] {
+        if let Some(target) = runtime["target"] {
+            build_config["runtime_target"] = target
+        }
+    }
+
+    return build_config
+}
+
+/// Read target-specific build settings from [build.target.*]
+fn read_target_config(config: FusionConfig, target: String) -> Dict {
+    let target_config = {}
+
+    if let Some(build) = config["build"] {
+        let target_key = "target.{target}"
+        if let Some(target_section) = build[target_key] {
+            for key in target_section.keys() {
+                target_config[key] = target_section[key]
+            }
+        }
+    }
+
+    return target_config
+}
+
+/// Resolve active features from [features] section
+fn resolve_features(config: FusionConfig) -> List {
+    let active_features = []
+
+    if let Some(features) = config["features"] {
+        if let Some(default_features) = features["default"] {
+            for feat in default_features {
+                active_features.push(feat)
+            }
+        }
+    }
+
+    return active_features
+}
+
+/// Run the build command
+pub fn run(target: String, release: bool, verbose: bool, json: bool) -> Result {
+    let config_path = FusionConfig::find_config_file()?
+    let root = config_path.parent()
+    let config = FusionConfig::load_from(config_path)?
+    let build_config = read_build_config(config)
+    let target_config = read_target_config(config, target.clone())
+    let active_features = resolve_features(config)
+
+    if !json {
+        io::println("Building project...")
+    }
+
+    let build_dir = root.join("build")
+    fs::create_dir_all(build_dir)
+
+    let mut args = ["build", "--target={target}"]
+
+    // Apply release mode
+    if release {
+        args.push("--release")
+    }
+
+    // Apply verbose mode
+    if verbose {
+        args.push("--verbose")
+    }
+
+    // Apply optimization level from [build] section
+    if let Some(opt) = build_config["optimization_level"] {
+        args.push("--opt-level={opt}")
+    }
+
+    // Apply LTO from [build] section
+    if let Some(true) = build_config["lto"] {
+        args.push("--lto")
+    }
+
+    // Apply debug info from [build] section
+    if let Some(true) = build_config["debug_info"] {
+        args.push("--debug")
+    }
+
+    // Apply incremental compilation from [build] section
+    if let Some(true) = build_config["incremental"] {
+        args.push("--incremental")
+    }
+
+    // Apply target-specific overrides from [build.target.*]
+    for key in target_config.keys() {
+        if key == "optimization_level" {
+            args.push("--opt-level={target_config[key]}")
+        } else if key == "lto" && target_config[key] == true {
+            args.push("--lto")
+        } else if key == "debug_info" && target_config[key] == true {
+            args.push("--debug")
+        }
+    }
+
+    // Apply active features for conditional compilation
+    if active_features.len() > 0 {
+        let features_str = active_features.join(",")
+        args.push("--features={features_str}")
+    }
+
+    // Apply runtime target from [runtime] section
+    if let Some(rt_target) = build_config["runtime_target"] {
+        args.push("--runtime={rt_target}")
+    }
+
+    // Execute the build
+    let output = cmd::Command::new("fuc.exe")
+        .args(args)
+        .current_dir(root)
+        .output()
+
+    if !output.status.success() {
+        let stderr = output.stderr
+        if json {
+            io::println("{\"success\":false,\"error\":\"{stderr}\",\"target\":\"{target}\",\"release\":{release}}")
+        } else {
+            io::println("error: Build failed:")
+            io::println(stderr)
+        }
+        return Err("Build failed with exit code {output.status.code()}")
+    }
+
+    let stdout = output.stdout
+
+    if json {
+        io::println("{\"success\":true,\"target\":\"{target}\",\"release\":{release},\"build_dir\":\"{build_dir}\"}")
+    } else {
+        io::println("Build successful! ({target})")
+        if stdout.len() > 0 {
+            io::println(stdout)
+        }
+        io::println("  Output: {build_dir}")
+        if release {
+            io::println("  Mode:   release")
+        }
+        io::println("  Target: {target}")
+        if active_features.len() > 0 {
+            io::println("  Features: {active_features.join(\", \")}")
+        }
+    }
+
+    return Ok(())
+}

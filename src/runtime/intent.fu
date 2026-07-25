@@ -1,0 +1,10 @@
+struct Intent {
+    kind: string
+    memory: string
+    ops: int
+    cores: int
+}
+
+extern fn intent_parse(source: string) -> []Intent
+extern fn intent_from_string(s: string) -> Intent
+extern fn intent_to_string(intent: Intent) -> string

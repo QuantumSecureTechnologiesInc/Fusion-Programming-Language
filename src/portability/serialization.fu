@@ -1,0 +1,28 @@
+module portability.serialization
+
+extern fn serialize_int(value: int) -> []byte
+extern fn deserialize_int(data: []byte) -> int
+extern fn serialize_float(value: float) -> []byte
+extern fn deserialize_float(data: []byte) -> float
+extern fn serialize_string(value: string) -> []byte
+extern fn deserialize_string(data: []byte) -> string
+extern fn serialize_struct(value: string, fields: []string) -> []byte
+extern fn endian_swap(data: []byte, size: int) -> []byte
+
+fn to_little_endian(data: []byte, size: int) -> []byte {
+    // Convert data to little-endian byte order
+    match platform_endianness() {
+        "little" => data
+        "big" => endian_swap(data, size)
+        _ => data
+    }
+}
+
+fn to_big_endian(data: []byte, size: int) -> []byte {
+    // Convert data to big-endian byte order
+    match platform_endianness() {
+        "little" => endian_swap(data, size)
+        "big" => data
+        _ => data
+    }
+}

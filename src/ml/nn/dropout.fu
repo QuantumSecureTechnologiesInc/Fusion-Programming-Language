@@ -1,0 +1,141 @@
+#![allow(dead_code)]
+use super::Module;
+use crate::ml::tensor::Tensor;
+use crate::ml::MLError;
+
+/// Standard Dropout Layer
+/// Randomly zeros elements with probability p during training
+struct Dropout {
+    pub p: f32,
+    training: FBool,
+    scale: f32,
+}
+
+impl Dropout {
+    pub fn new(p: f32) -> Self {
+        assert!(p >= 0.0 && p < 1.0, "Dropout probability must be in [0, 1)");
+        Self {
+            p,
+            training: true,
+            scale: 1.0 / (1.0 - p),
+        }
+    }
+}
+
+impl Module for Dropout {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        dropout_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// Alpha Dropout (for SELU networks)
+/// Maintains zero mean and unit variance for SELU
+struct AlphaDropout {
+    pub p: f32,
+    pub alpha: f32,
+    pub scale: f32,
+    training: FBool,
+}
+
+impl AlphaDropout {
+    pub fn new(p: f32) -> Self {
+        // SELU-specific constants
+        let alpha = 1.6732632423543772848170429916717;
+        let scale = 1.0507009873554804934193349852946;
+        Self {
+            p,
+            alpha,
+            scale,
+            training: true,
+        }
+    }
+}
+
+impl Module for AlphaDropout {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        alpha_dropout_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// LCG-based pseudo-random number generator
+fn pseudo_random(seed: u64) -> f32 {
+    let hash = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    (hash % 10000) as f32 / 10000.0
+}
+
+/// Dropout forward pass
+/// Randomly zeros elements with probability p, scales survivors by 1/(1-p)
+fn dropout_forward(input: &Tensor, layer: &Dropout) -> Result<Tensor, MLError> {
+    if !layer.training || layer.p == 0.0 {
+        return Ok(input.clone());
+    }
+
+    let data: FVec<f32> = input
+        .data()
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let r = pseudo_random(i as u64);
+            if r < layer.p {
+                0.0
+            } else {
+                v * layer.scale
+            }
+        })
+        .collect();
+
+    Ok(Tensor::new(data, input.shape().clone()).unwrap())
+}
+
+/// Alpha dropout forward pass
+/// For SELU networks: preserves zero mean and unit variance
+fn alpha_dropout_forward(input: &Tensor, layer: &AlphaDropout) -> Result<Tensor, MLError> {
+    if !layer.training || layer.p == 0.0 {
+        return Ok(input.clone());
+    }
+
+    // Compute alpha and scale for SELU
+    let alpha = layer.alpha;
+    let scale = layer.scale;
+
+    // Compute the noisy input statistics
+    let p = layer.p;
+    let alpha_p = alpha * p;
+
+    let data: FVec<f32> = input
+        .data()
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let r = pseudo_random(i as u64);
+            if r < p {
+                // Dropped: set to -alpha * scale to maintain zero mean
+                -alpha * scale
+            } else {
+                // Kept: scale to maintain unit variance
+                let noisy_mean = -alpha_p;
+                let noisy_var = (1.0 - p) * (scale * v - noisy_mean).powi(2)
+                    + p * (scale * (-alpha) - noisy_mean).powi(2);
+                let target_var = 1.0;
+                let noise_scale = (target_var / noisy_var.max(1e-8)).sqrt();
+                scale * v * noise_scale + noisy_mean
+            }
+        })
+        .collect();
+
+    Ok(Tensor::new(data, input.shape().clone()).unwrap())
+}

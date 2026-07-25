@@ -1,0 +1,25 @@
+[package]
+name = "fusion_websocket"
+version = "0.2.0"
+edition = "2021"
+authors = ["Quantum Secure Technologies Inc."]
+description = "WebSocket server and client with frame encoding, ping/pong, and binary/text messages"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bytes = "1.9"
+tokio = { version = "1.42", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+thiserror = "2.0"
+futures = "0.3"
+sha1 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio = { version = "1.42", features = ["full", "test-util"] }
+
+[lib]
+name = "fusion_websocket"
+path = "src/lib.rs"

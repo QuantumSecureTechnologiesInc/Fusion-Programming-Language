@@ -106,8 +106,7 @@ fn run_pipeline(cli: &Cli) -> Result<(), String> {
     // Stage 2: Vortex check (optional)
     if cli.vortex {
         eprintln!("[fuc2] Running Vortex borrow check...");
-        // Vortex check is a placeholder — the actual checker runs inside fuc.exe
-        eprintln!("[fuc2] Vortex check: OK (no violations detected)");
+        invoke_vortex_check(&cli.bootstrap, &preprocessed_path)?;
     }
 
     // Stage 3: Compile with bootstrap compiler
@@ -168,6 +167,39 @@ fn invoke_bootstrap(
     }
 
     eprintln!("  [fuc2] Bootstrap compilation successful.");
+    Ok(())
+}
+
+/// Invoke the bootstrap fuc.exe compiler in Vortex-check-only mode.
+fn invoke_vortex_check(bootstrap: &Path, input: &Path) -> Result<(), String> {
+    let bootstrap = if bootstrap.is_absolute() {
+        bootstrap.to_path_buf()
+    } else {
+        let workspace_root = find_workspace_root()?;
+        workspace_root.join(bootstrap)
+    };
+
+    if !bootstrap.exists() {
+        return Err(format!(
+            "Bootstrap compiler not found: {}. Build it first with: cargo build -p fuc --release",
+            bootstrap.display()
+        ));
+    }
+
+    let status = Command::new(&bootstrap)
+        .arg("--vortex-only")
+        .arg(input)
+        .status()
+        .map_err(|e| format!("Failed to run vortex checker: {}", e))?;
+
+    if !status.success() {
+        return Err(format!(
+            "Vortex borrow check failed with exit code: {:?}",
+            status.code()
+        ));
+    }
+
+    eprintln!("[fuc2] Vortex check passed.");
     Ok(())
 }
 

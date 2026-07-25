@@ -1,4 +1,4 @@
-use super::circuit::{CircuitGate, QuantumCircuit};
+use super::circuit::{QuantumGate, Circuit};
 use super::gates::Gate;
 use super::{Complex, QuantumError, StateVector};
 /// Quantum simulator
@@ -157,7 +157,7 @@ impl QuantumSimulator {
         (0..num_bits).rev().map(|i| ((value >> i) & 1) as u8).collect()
     }
     /// Reset simulator to initial state
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.state.fill(Complex::zero());
         self.state[0] = Complex::one();
     }

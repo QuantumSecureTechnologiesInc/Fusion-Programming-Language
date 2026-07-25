@@ -1,6 +1,0 @@
-use anyhow::Result;
-fn handle_prompt(prompt: &str, _offline: FBool) -> Result<()> {
-    println!("Processing: {}", prompt);
-    println!("Response: This is a mock AI response.");
-    Ok(())
-}

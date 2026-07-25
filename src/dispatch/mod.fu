@@ -1,0 +1,11 @@
+// Dispatch Module
+// Provides multiple dispatch for flexible method resolution
+
+mod multimethod
+
+pub use multimethod.*
+
+// Cross-references to related features
+pub use crate::types::gradual           // dispatch uses gradual types
+pub use crate::meta::reflection         // dispatch uses reflection
+pub use crate::effects::effect          // dispatch can perform effects

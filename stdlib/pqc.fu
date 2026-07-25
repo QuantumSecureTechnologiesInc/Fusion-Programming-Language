@@ -1,0 +1,112 @@
+// Fusion Standard Library: Post-Quantum Cryptography (PQC)
+// 50/50 Hybrid Classical + PQC Enforcement
+// Every operation uses BOTH classical AND post-quantum algorithms.
+
+// ML-KEM-768 (Kyber) sizes
+const MLKEM768_PK_SIZE: int = 1184
+const MLKEM768_SK_SIZE: int = 2400
+const MLKEM768_CT_SIZE: int = 1088
+const MLKEM768_SS_SIZE: int = 32
+
+// ML-DSA-65 (Dilithium) sizes
+const MLDSA65_PK_SIZE: int = 1952
+const MLDSA65_SK_SIZE: int = 4032
+const MLDSA65_SIG_SIZE: int = 3309
+
+// Hybrid shared secret size
+const HYBRID_SECRET_SIZE: int = 64
+
+// ============================================================
+// Hybrid Key Encapsulation (X25519 + ML-KEM-768)
+// ============================================================
+
+// Generate a hybrid KEM keypair (classical + PQC)
+extern fn fusion_hybrid_kem_keygen() -> void
+
+// Get the classical public key from the last generated keypair
+extern fn fusion_hybrid_kem_get_classical_pk(buf: *mut u8, max_len: int) -> int
+
+// Get the PQC public key from the last generated keypair
+extern fn fusion_hybrid_kem_get_pq_pk(buf: *mut u8, max_len: int) -> int
+
+// Get the classical secret key from the last generated keypair
+extern fn fusion_hybrid_kem_get_classical_sk(buf: *mut u8, max_len: int) -> int
+
+// Get the PQC secret key from the last generated keypair
+extern fn fusion_hybrid_kem_get_pq_sk(buf: *mut u8, max_len: int) -> int
+
+// Encapsulate: produce ciphertext and shared secret using peer's public keys
+extern fn fusion_hybrid_kem_encapsulate(
+    peer_classical_pk: *const u8,
+    peer_pq_pk: *const u8,
+    ct_classical_out: *mut u8,
+    ct_pq_out: *mut u8,
+    shared_secret_out: *mut u8,
+) -> int
+
+// Decapsulate: recover shared secret from ciphertext using our private keys
+extern fn fusion_hybrid_kem_decapsulate(
+    ct_classical: *const u8,
+    ct_pq: *const u8,
+    my_classical_sk: *const u8,
+    my_pq_sk: *const u8,
+    shared_secret_out: *mut u8,
+) -> int
+
+// ============================================================
+// Hybrid Digital Signatures (Ed25519 + ML-DSA-65)
+// ============================================================
+
+// Generate a hybrid signature keypair
+extern fn fusion_hybrid_sign_keygen() -> void
+
+// Get the classical public key for signing
+extern fn fusion_hybrid_sign_get_classical_pk(buf: *mut u8, max_len: int) -> int
+
+// Get the PQC public key for signing
+extern fn fusion_hybrid_sign_get_pq_pk(buf: *mut u8, max_len: int) -> int
+
+// Get the classical secret key for signing
+extern fn fusion_hybrid_sign_get_classical_sk(buf: *mut u8, max_len: int) -> int
+
+// Get the PQC secret key for signing
+extern fn fusion_hybrid_sign_get_pq_sk(buf: *mut u8, max_len: int) -> int
+
+// Sign a message with both classical and PQC signatures
+extern fn fusion_hybrid_sign(
+    message: *const u8,
+    message_len: int,
+    classical_sk: *const u8,
+    pq_sk: *const u8,
+    sig_classical_out: *mut u8,
+    sig_pq_out: *mut u8,
+) -> int
+
+// Verify both classical and PQC signatures (50/50: both must pass)
+extern fn fusion_hybrid_verify(
+    message: *const u8,
+    message_len: int,
+    classical_pk: *const u8,
+    pq_pk: *const u8,
+    sig_classical: *const u8,
+    sig_pq: *const u8,
+) -> int
+
+// ============================================================
+// Secure Transport (Hybrid PQC TLS)
+// ============================================================
+
+// Connect with hybrid X25519 + ML-KEM-768 key exchange
+extern fn fusion_pqc_connect(address: *const u8, port: int) -> int
+
+// Accept a connection with hybrid key exchange
+extern fn fusion_pqc_accept(listener_fd: int) -> int
+
+// Send data over PQC-secured connection
+extern fn fusion_pqc_send(fd: int, data: *const u8, len: int) -> int
+
+// Receive data from PQC-secured connection
+extern fn fusion_pqc_recv(fd: int, buf: *mut u8, max_len: int) -> int
+
+// Close PQC-secured connection
+extern fn fusion_pqc_close(fd: int) -> int

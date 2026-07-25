@@ -1,0 +1,17 @@
+// src/net/websocket.fu
+// WebSocket Client API for Fusion v2.0 Vortex
+
+struct WebSocket {
+    handle: int
+    url: string
+}
+
+extern fn ws_connect(url: string) -> WebSocket
+
+extern fn ws_send(ws: WebSocket, message: string) -> int
+
+extern fn ws_receive(ws: WebSocket) -> string
+
+extern fn ws_close(ws: WebSocket) -> void
+
+extern fn ws_on_message(ws: WebSocket, callback: fn(string) -> void) -> void

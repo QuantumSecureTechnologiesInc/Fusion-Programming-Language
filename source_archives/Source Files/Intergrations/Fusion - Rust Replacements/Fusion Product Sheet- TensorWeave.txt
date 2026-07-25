@@ -1,4 +1,0 @@
-Product Guide: TensorWeaveComponent ID: F-COMPUTE-WEAVEClassification: Memory OptimizerAuthor: AI/Compute Team1. Vision & PurposeTensorWeave is the "Loom" that arranges tensor data in memory. It automatically optimizes memory layouts to ensure that the CPU/GPU caches are always utilized at 100% efficiency.2. Technical Replacement SpecsReplaces: Manual memory layout management, transpose() calls, buffer packing logic.Mechanism: Static Access Analysis.3. Technical DetailTensorWeave analyzes your code's loops. If it sees:for i in 0..1024 {
-    let x = tensor[i][0]; // Column-major access
-}
-It will "weave" the tensor into a Column-Major layout in memory automatically, eliminating cache misses without the developer changing a line of code.4. Why this existsMemory bandwidth is the primary bottleneck in modern compute. TensorWeave ensures the data is always where the processor needs it, before the processor asks for it.

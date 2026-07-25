@@ -1,0 +1,382 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Fusion",
+  "scopeName": "source.fusion",
+  "fileTypes": [
+    "fus"
+  ],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#characters" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#storage" },
+    { "include": "#quantum" },
+    { "include": "#pqc" },
+    { "include": "#aiml" },
+    { "include": "#runtime" },
+    { "include": "#cloud" },
+    { "include": "#interop" },
+    { "include": "#types" },
+    { "include": "#attributes" },
+    { "include": "#macros" },
+    { "include": "#functions" },
+    { "include": "#operators" },
+    { "include": "#punctuation" },
+    { "include": "#variables" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.fusion",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.fusion",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#comments" }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.fusion",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.fusion",
+              "match": "\\\\(?:[nrt\\\\\"'0]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\})"
+            },
+            {
+              "name": "variable.other.interpolated.fusion",
+              "begin": "\\{\\{",
+              "end": "\\}\\}",
+              "patterns": [
+                { "include": "source.fusion" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.fusion",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.fusion",
+              "match": "\\\\(?:[nrt\\\\\"'0]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\})"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.other.raw.fusion",
+          "begin": "r#\"",
+          "end": "\"#",
+          "patterns": []
+        },
+        {
+          "name": "string.quoted.other.raw.fusion",
+          "begin": "r##\"",
+          "end": "\"##",
+          "patterns": []
+        }
+      ]
+    },
+    "characters": {
+      "patterns": [
+        {
+          "name": "constant.character.fusion",
+          "match": "'(\\\\(?:[nrt\\\\\"'0]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\})|[^'\\\\])'"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.fusion",
+          "match": "\\b(?:\\d+\\.\\d+|\\d+\\.|\\.\\d+)(?:[eE][+-]?\\d+)?(?:f32|f64)?\\b"
+        },
+        {
+          "name": "constant.numeric.hex.fusion",
+          "match": "\\b0x[0-9a-fA-F_]+(?:u8|u16|u32|u64|u128|i8|i16|i32|i64|isize|usize)?\\b"
+        },
+        {
+          "name": "constant.numeric.octal.fusion",
+          "match": "\\b0o[0-7_]+(?:u8|u16|u32|u64|u128|i8|i16|i32|i64|isize|usize)?\\b"
+        },
+        {
+          "name": "constant.numeric.binary.fusion",
+          "match": "\\b0b[01_]+(?:u8|u16|u32|u64|u128|i8|i16|i32|i64|isize|usize)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.fusion",
+          "match": "\\b\\d[\\d_]*(?:u8|u16|u32|u64|u128|i8|i16|i32|i64|isize|usize)?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.fusion",
+          "match": "\\b(if|else|while|for|loop|break|continue|return|match|in)\\b"
+        },
+        {
+          "name": "keyword.declaration.fusion",
+          "match": "\\b(fn|let|mut|const|static|struct|enum|trait|impl|type|mod|use|pub|extern|async|await)\\b"
+        },
+        {
+          "name": "keyword.other.fusion",
+          "match": "\\b(self|Self|super|crate|where|as|ref|move|unsafe)\\b"
+        },
+        {
+          "name": "constant.language.fusion",
+          "match": "\\b(true|false|none|null|undefined)\\b"
+        }
+      ]
+    },
+    "storage": {
+      "patterns": [
+        {
+          "name": "storage.type.fusion",
+          "match": "\\b(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|char|str|String|Vec|Option|Result|Box|Rc|Arc|HashMap|BTreeMap|HashSet)\\b"
+        }
+      ]
+    },
+    "quantum": {
+      "patterns": [
+        {
+          "name": "keyword.quantum.fusion",
+          "match": "\\b(qubit|quantum|circuit|measure|gate|hadamard|pauli_x|pauli_y|pauli_z|cnot|swap|toffoli|rx|ry|rz|simulate)\\b"
+        },
+        {
+          "name": "support.type.quantum.fusion",
+          "match": "\\b(QuantumState|QuantumRegister|QuantumCircuit|Qubit|Gate|Backend)\\b"
+        }
+      ]
+    },
+    "pqc": {
+      "patterns": [
+        {
+          "name": "keyword.pqc.fusion",
+          "match": "\\b(hybrid|kem|dilithium|kyber|pqc|neuralseal|encrypt|decrypt|sign|verify)\\b"
+        },
+        {
+          "name": "support.type.pqc.fusion",
+          "match": "\\b(HybridKey|KemCiphertext|PqcSignature|DilithiumKey|KyberKey|NeuralSeal)\\b"
+        }
+      ]
+    },
+    "aiml": {
+      "patterns": [
+        {
+          "name": "keyword.aiml.fusion",
+          "match": "\\b(tensor|autodiff|train|model|inference|forward|backward|loss|optimizer)\\b"
+        },
+        {
+          "name": "support.type.aiml.fusion",
+          "match": "\\b(Tensor|AutodiffGraph|Model|Optimizer|LossFunction|Dataset)\\b"
+        }
+      ]
+    },
+    "runtime": {
+      "patterns": [
+        {
+          "name": "keyword.runtime.fusion",
+          "match": "\\b(supernova|cortex|intent|haft|fiber|schedule|dispatch)\\b"
+        },
+        {
+          "name": "support.type.runtime.fusion",
+          "match": "\\b(SupernovaRuntime|CortexEngine|IntentGraph|HaftScheduler|Fiber)\\b"
+        }
+      ]
+    },
+    "cloud": {
+      "patterns": [
+        {
+          "name": "keyword.cloud.fusion",
+          "match": "\\b(kubernetes|deploy|faas|container|pod|service)\\b"
+        },
+        {
+          "name": "support.type.cloud.fusion",
+          "match": "\\b(KubernetesCluster|Container|Pod|Service|FaasEndpoint)\\b"
+        }
+      ]
+    },
+    "interop": {
+      "patterns": [
+        {
+          "name": "keyword.interop.fusion",
+          "match": "\\b(python|javascript|java|py_import|js_eval|jvm_call)\\b"
+        },
+        {
+          "name": "support.type.interop.fusion",
+          "match": "\\b(PyModule|JsValue|JvmClass)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.fusion",
+          "match": "\\b([A-Z][a-zA-Z0-9_]*)\\b"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.fusion",
+          "match": "#\\[[^\\]]*\\]",
+          "captures": {
+            "0": {
+              "patterns": [
+                {
+                  "name": "punctuation.definition.attribute.fusion",
+                  "match": "#\\[|\\]"
+                },
+                {
+                  "name": "storage.type.attribute.fusion",
+                  "match": "\\b(test|derive|cfg|allow|warn|deny|inline|cold|must_use|repr|quantum|hybrid|ai|cloud|interop)\\b"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "meta.attribute.inner.fusion",
+          "match": "#![^\\]]*\\]",
+          "captures": {
+            "0": {
+              "patterns": [
+                {
+                  "name": "punctuation.definition.attribute.fusion",
+                  "match": "#!\\[|\\]"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "macros": {
+      "patterns": [
+        {
+          "name": "support.macro.fusion",
+          "match": "\\b(println!|print!|eprintln!|eprint!|format!|vec!|panic!|assert!|assert_eq!|assert_ne!|debug_assert!|debug_assert_eq!|debug_assert_ne!|todo!|unimplemented!|unreachable!|include!|include_str!|include_bytes!|env!|option_env!|concat!|module_path!|file!|line!|column!|stringify!)\\b"
+        },
+        {
+          "name": "entity.name.macro.fusion",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)!"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "meta.function.fusion",
+          "match": "\\b(fn)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.function.fusion"
+            },
+            "2": {
+              "name": "entity.name.function.fusion"
+            }
+          }
+        },
+        {
+          "name": "meta.function-call.fusion",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.fusion"
+            }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.fusion",
+          "match": "=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|\\?\\="
+        },
+        {
+          "name": "keyword.operator.comparison.fusion",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.arithmetic.fusion",
+          "match": "\\+|-|\\*|/|%|\\*\\*"
+        },
+        {
+          "name": "keyword.operator.logical.fusion",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.bitwise.fusion",
+          "match": "&|\\||\\^|~|<<|>>"
+        },
+        {
+          "name": "keyword.operator.range.fusion",
+          "match": "\\.\\.=?|\\.\\."
+        },
+        {
+          "name": "keyword.operator.path.fusion",
+          "match": "::"
+        },
+        {
+          "name": "keyword.operator.member.fusion",
+          "match": "\\."
+        },
+        {
+          "name": "keyword.operator.arrow.fusion",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.question.fusion",
+          "match": "\\?"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.brace.fusion",
+          "match": "[\\{\\}]"
+        },
+        {
+          "name": "punctuation.parenthesis.fusion",
+          "match": "[\\(\\)]"
+        },
+        {
+          "name": "punctuation.bracket.fusion",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.separator.fusion",
+          "match": "[,;:]"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.language.fusion",
+          "match": "\\b(self|Self)\\b"
+        },
+        {
+          "name": "variable.parameter.fusion",
+          "match": "\\b([a-z_][a-z0-9_]*)\\b"
+        }
+      ]
+    }
+  }
+}

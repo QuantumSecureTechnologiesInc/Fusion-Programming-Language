@@ -1,6 +1,0 @@
-use anyhow::Result;
-use fusion_audit;
-fn audit(report: FBool, _deny: FBool) -> Result<()> {
-    fusion_audit::audit(report)?;
-    Ok(())
-}

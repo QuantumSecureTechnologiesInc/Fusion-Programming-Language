@@ -1,0 +1,17 @@
+// Types Module — Fusion v2.0 Vortex
+//
+// Provides advanced type system features: linear types for resource safety,
+// dependent types for compile-time computation, refinement types for
+// predicate-based constraints, and gradual types for optional checking.
+
+module types
+
+pub mod linear
+pub mod dependent
+pub mod refinement
+pub mod gradual
+
+pub use linear::*
+pub use dependent::*
+pub use refinement::*
+pub use gradual::*

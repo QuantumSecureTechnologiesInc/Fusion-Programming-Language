@@ -1,8 +1,0 @@
-// Reactor CLI interactive (pure .fu)
-
-extern fn fusion_prompt(prompt: string) -> string;
-
-fn wizard_prompt(label: string) -> string {
-    return fusion_prompt(label);
-}
-

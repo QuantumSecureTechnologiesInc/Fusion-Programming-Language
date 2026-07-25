@@ -77,45 +77,321 @@ impl FusionLanguageServer {
     }
 
     /// Handles the 'textDocument/completion' request.
-    fn on_completion(&self, _params: CompletionParams) -> FVec<CompletionItem> {
+    fn on_completion(&self, params: CompletionParams) -> FVec<CompletionItem> {
         // 1. Get the current source code and cursor position.
-        // 2. Query the Semantic Analyzer's Symbol Table for variables/functions in scope.
-        // 3. Filter completions based on context (e.g., if preceded by a dot '.', offer methods/fields).
-        // 4. If suggesting method on a Generic Type, use the Trait bounds (Phase 2, Step 3 logic).
+        let uri = &params.text_document.uri;
+        let position = params.position;
+        let source = match self.open_documents.get(uri) {
+            Some(src) => src,
+            None => return vec![],
+        };
 
-        // Mock result: suggest the core crypto function
-        vec![
-            CompletionItem {
-                label: "hybrid_sign".to_string(),
-                kind: "Function".to_string(),
-            },
-            CompletionItem {
-                label: "CircuitVariable::private".to_string(),
-                kind: "Function".to_string(),
-            },
-        ]
+        // 2. Extract the word prefix and context around the cursor.
+        let lines: FVec<&str> = source.lines().collect();
+        if position.line as usize >= lines.len() {
+            return vec![];
+        }
+        let line = lines[position.line as usize];
+        let col = position.character as usize;
+
+        // Determine if we are completing after a dot (member access).
+        let is_dot_access = col > 0 && line.chars().nth(col - 1) == Some('.');
+        let prefix = self.extract_word_prefix(line, col);
+
+        // 3. Query the Semantic Analyzer's Symbol Table for variables/functions in scope.
+        let current_scope = self.analyzer.current_scope_at(position);
+
+        if is_dot_access {
+            // 4. Dot-access: look up the type of the expression before the dot,
+            //    then offer its methods and fields.
+            let receiver_name = self.extract_receiver_before_dot(line, col);
+            if let Some(receiver_type) = self.analyzer.lookup_type(&receiver_name, &current_scope) {
+                return self.completions_for_type_members(&receiver_type);
+            }
+            return vec![];
+        }
+
+        // 5. Otherwise, offer scope-level symbols filtered by prefix.
+        let symbols = self.analyzer.scope_symbols(&current_scope);
+        symbols
+            .iter()
+            .filter(|s| prefix.is_empty() || s.name.starts_with(&prefix))
+            .map(|s| CompletionItem {
+                label: s.name.clone(),
+                kind: s.kind_label(),
+                detail: s.type_string(),
+            })
+            .collect()
+    }
+
+    /// Extract the alphanumeric word immediately before the cursor position.
+    fn extract_word_prefix(&self, line: &str, col: usize) -> FString {
+        let chars: FVec<char> = line.chars().take(col).collect();
+        let mut start = chars.len();
+        while start > 0 && chars[start - 1].is_alphanumeric() || (start > 0 && chars[start - 1] == '_') {
+            start -= 1;
+        }
+        chars[start..].iter().collect()
+    }
+
+    /// Extract the identifier before a dot at the cursor position.
+    fn extract_receiver_before_dot(&self, line: &str, col: usize) -> FString {
+        // Walk backwards past whitespace, then grab the identifier.
+        let bytes = line.as_bytes();
+        let mut end = col - 1; // skip the dot itself
+        while end > 0 && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\t') {
+            end -= 1;
+        }
+        let mut start = end;
+        while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+            start -= 1;
+        }
+        String::from_utf8_lossy(&bytes[start..end]).to_string()
+    }
+
+    /// Given a resolved type, return all its method and field completions.
+    fn completions_for_type_members(&self, type_info: &Type) -> FVec<CompletionItem> {
+        let mut items = vec![];
+        match type_info {
+            Type::Class(name) | Type::Struct(name) => {
+                if let Some(def) = self.analyzer.get_type_definition(name) {
+                    for field in &def.fields {
+                        items.push(CompletionItem {
+                            label: field.name.clone(),
+                            kind: "Field".to_string(),
+                            detail: field.field_type.to_string(),
+                        });
+                    }
+                    for method in &def.methods {
+                        items.push(CompletionItem {
+                            label: method.name.clone(),
+                            kind: "Method".to_string(),
+                            detail: method.signature_string(),
+                        });
+                    }
+                }
+            }
+            Type::Enum(name) => {
+                if let Some(def) = self.analyzer.get_enum_definition(name) {
+                    for variant in &def.variants {
+                        items.push(CompletionItem {
+                            label: variant.clone(),
+                            kind: "EnumMember".to_string(),
+                            detail: name.clone(),
+                        });
+                    }
+                }
+            }
+            Type::Module(name) => {
+                if let Some(exports) = self.analyzer.get_module_exports(name) {
+                    for export in exports {
+                        items.push(CompletionItem {
+                            label: export.name.clone(),
+                            kind: export.kind_label(),
+                            detail: export.type_string(),
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+        items
     }
 
     /// Handles the 'textDocument/definition' request.
     fn on_definition(&self, params: DefinitionParams) -> Option<Location> {
-        // 1. Identify the symbol name under the cursor position in the AST.
-        // 2. Look up the symbol in the pre-computed symbol_index.
+        // 1. Identify the symbol name under the cursor position in the source.
+        let uri = &params.text_document.uri;
+        let position = params.position;
+        let source = self.open_documents.get(uri)?;
+        let lines: FVec<&str> = source.lines().collect();
+        if position.line as usize >= lines.len() {
+            return None;
+        }
+        let line = lines[position.line as usize];
+        let col = position.character as usize;
+        let symbol_name = self.extract_word_at_cursor(line, col)?;
+        if symbol_name.is_empty() {
+            return None;
+        }
 
-        // Mock result: return a placeholder location
-        self.symbol_index.get("HybridKeypair").cloned()
+        // 2. Look up the symbol in the pre-computed symbol_index for this file.
+        if let Some(loc) = self.symbol_index.get(&symbol_name) {
+            return Some(loc.clone());
+        }
+
+        // 3. Search across all loaded modules in the analyzer's module table.
+        for (module_name, module_info) in self.analyzer.modules() {
+            if let Some(def) = module_info.find_symbol(&symbol_name) {
+                return Some(Location {
+                    uri: def.source_path.clone(),
+                    range: def.declaration_range.clone(),
+                });
+            }
+        }
+
+        // 4. Search imported symbols from use-declarations in the current file.
+        let imports = self.analyzer.get_imports(uri);
+        for import in imports {
+            if let Some(resolved) = self.resolve_imported_symbol(&import, &symbol_name) {
+                return Some(resolved);
+            }
+        }
+
+        None
+    }
+
+    /// Extract the symbol name at the given cursor position.
+    fn extract_word_at_cursor(&self, line: &str, col: usize) -> Option<FString> {
+        let chars: FVec<char> = line.chars().collect();
+        if col > chars.len() {
+            return None;
+        }
+        let mut end = col;
+        while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+            end += 1;
+        }
+        let mut start = col;
+        while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+            start -= 1;
+        }
+        if start == end {
+            return None;
+        }
+        Some(chars[start..end].iter().collect())
+    }
+
+    /// Resolve a symbol through an import declaration (e.g., `use foo::Bar`).
+    fn resolve_imported_symbol(&self, import: &ImportDecl, symbol_name: &str) -> Option<Location> {
+        match &import.kind {
+            ImportKind::Specific(names) => {
+                if names.contains(&symbol_name.to_string()) {
+                    // The imported module is `import.path`, and `symbol_name` is inside it.
+                    self.analyzer
+                        .find_symbol_in_module(&import.path, symbol_name)
+                        .map(|s| Location {
+                            uri: s.source_path.clone(),
+                            range: s.declaration_range.clone(),
+                        })
+                } else {
+                    None
+                }
+            }
+            ImportKind::Glob => {
+                // Glob import: search the target module for the symbol.
+                self.analyzer
+                    .find_symbol_in_module(&import.path, symbol_name)
+                    .map(|s| Location {
+                        uri: s.source_path.clone(),
+                        range: s.declaration_range.clone(),
+                    })
+            }
+            ImportKind::Alias(alias) => {
+                if alias == symbol_name {
+                    // The alias itself resolves to the module path.
+                    Some(Location {
+                        uri: self.analyzer.module_path(&import.path)?,
+                        range: Default::default(),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     /// Background analysis worker (called on file changes or open).
     fn trigger_analysis(&mut self, uri: FString) {
         if let Some(code) = self.open_documents.get(&uri) {
-            // 1. Lexing & Parsing: Convert code into AST
-            // 2. Semantic Analysis: Run the analyzer on the AST
-            //    -> Analyzer generates a list of diagnostics (errors, warnings)
-            //    -> Analyzer updates the symbol_index with definitions
+            // 1. Lexing & Parsing: Convert source code into an AST.
+            let tokens = crate::lexer::tokenize(code);
+            let parse_result = crate::parser::parse(&tokens, &uri);
 
-            // Example of pushing a diagnostic:
-            // let diagnostics = self.analyzer.get_diagnostics();
-            // utils::json_rpc_send(format!("Sending diagnostics for {}", uri));
+            let ast = match parse_result {
+                Ok(ast) => ast,
+                Err(parse_errors) => {
+                    // Convert parse errors into LSP diagnostics and publish.
+                    let diagnostics: FVec<Diagnostic> = parse_errors
+                        .iter()
+                        .map(|e| Diagnostic {
+                            range: e.range.clone(),
+                            severity: DiagnosticSeverity::Error,
+                            message: e.message.clone(),
+                            source: "fusion-parse".to_string(),
+                        })
+                        .collect();
+                    self.publish_diagnostics(&uri, diagnostics);
+                    return;
+                }
+            };
+
+            // 2. Semantic Analysis: Run the analyzer on the AST.
+            self.analyzer.set_current_file(&uri);
+            let analysis_result = self.analyzer.analyze(&ast);
+
+            // 3. Collect diagnostics from the semantic analyzer.
+            let mut diagnostics: FVec<Diagnostic> = analysis_result
+                .type_errors
+                .iter()
+                .map(|e| Diagnostic {
+                    range: e.range.clone(),
+                    severity: DiagnosticSeverity::Error,
+                    message: e.message.clone(),
+                    source: "fusion-sema".to_string(),
+                })
+                .collect();
+
+            let warnings: FVec<Diagnostic> = analysis_result
+                .warnings
+                .iter()
+                .map(|w| Diagnostic {
+                    range: w.range.clone(),
+                    severity: DiagnosticSeverity::Warning,
+                    message: w.message.clone(),
+                    source: "fusion-sema".to_string(),
+                })
+                .collect();
+            diagnostics.extend(warnings);
+
+            // 4. Update the symbol index with newly discovered definitions.
+            for symbol in &analysis_result.exported_symbols {
+                self.symbol_index.insert(
+                    symbol.name.clone(),
+                    Location {
+                        uri: uri.clone(),
+                        range: symbol.range.clone(),
+                    },
+                );
+            }
+
+            // 5. Publish diagnostics to the client via JSON-RPC notification.
+            self.publish_diagnostics(&uri, diagnostics);
         }
+    }
+
+    /// Publish a `textDocument/publishDiagnostics` notification to the client.
+    fn publish_diagnostics(&self, uri: &str, diagnostics: FVec<Diagnostic>) {
+        let notification = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "diagnostics": diagnostics.iter().map(|d| serde_json::json!({
+                    "range": {
+                        "start": { "line": d.range.start.line, "character": d.range.start.character },
+                        "end":   { "line": d.range.end.line,   "character": d.range.end.character }
+                    },
+                    "severity": match d.severity {
+                        DiagnosticSeverity::Error => 1,
+                        DiagnosticSeverity::Warning => 2,
+                        DiagnosticSeverity::Info => 3,
+                        DiagnosticSeverity::Hint => 4,
+                    },
+                    "message": d.message,
+                    "source": d.source,
+                })).collect::<FVec<_>>()
+            }
+        });
+        utils::json_rpc_send(notification.to_string());
     }
 }

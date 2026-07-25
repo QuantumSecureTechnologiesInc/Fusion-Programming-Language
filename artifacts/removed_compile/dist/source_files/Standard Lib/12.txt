@@ -1,8 +1,0 @@
-//! src/core/mod.rs
-//! The Core Module Definition.
-
-pub mod story;
-pub mod telemetry;
-
-pub use story::Narrative;
-pub use telemetry::RuntimeContext;

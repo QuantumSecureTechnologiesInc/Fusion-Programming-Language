@@ -1,0 +1,45 @@
+// commands/run.fu — Run command.
+// Executes the compiled binary.
+
+fn cmd_run(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+
+    let bin_path = "build/target/";
+    bin_path = bin_path + manifest.name;
+
+    if !file_exists(bin_path) {
+        print_warning("Binary not found, building first...");
+        let build_args = args_default();
+        build_args.verbose_flag = args.verbose_flag;
+        cmd_build(build_args);
+    }
+
+    print_info("Running ");
+    puts(manifest.name);
+
+    // Build the command with program arguments
+    let cmd = bin_path;
+
+    // Append program arguments after -- separator
+    if str_eq(args.subcommand, "--") {
+        // Everything after -- is passed to the binary
+        cmd = cmd + " ";
+        cmd = cmd + args.arg1;
+        if !str_eq(args.arg2, "") {
+            cmd = cmd + " ";
+            cmd = cmd + args.arg2;
+        }
+        if !str_eq(args.arg3, "") {
+            cmd = cmd + " ";
+            cmd = cmd + args.arg3;
+        }
+    }
+
+    let status = run_command(cmd);
+
+    if status != 0 {
+        print_error("Process exited with status: ");
+        puts(status);
+        exit(status);
+    }
+}

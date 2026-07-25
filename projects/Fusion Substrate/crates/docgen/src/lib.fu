@@ -1,9 +1,0 @@
-use anyhow::Result;
-fn generate(_private: FBool) -> Result<PathBuf> {
-    println!("Generating documentation...");
-    Ok(PathBuf::from("target/doc"))
-}
-fn open(_path: &PathBuf) -> Result<()> {
-    println!("Opening documentation in browser...");
-    Ok(())
-}

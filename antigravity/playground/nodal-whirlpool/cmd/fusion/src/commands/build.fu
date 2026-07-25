@@ -1,8 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/cmd/fusion/src/commands/build.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-use fusion_toolchain;
-
-fn build(release: FBool, target: Option<&str>, verbose: FBool) -> Result<()> {
-    fusion_toolchain::build(release, target, verbose)
-}

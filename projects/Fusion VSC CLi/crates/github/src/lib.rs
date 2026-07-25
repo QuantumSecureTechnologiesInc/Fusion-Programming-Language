@@ -1,9 +1,0 @@
-pub mod auth;
-pub mod client;
-
-pub use auth::{AuthMethod, GitHubAuth};
-pub use client::{
-    CreateGistRequest, CreateIssueRequest, CreatePullRequest, CreateRepoRequest, Gist, GistFile,
-    GitHubClient, GitHubConfig, Issue, MergePullRequest, MergeResult, PullRequest, Repository,
-    UpdateIssueRequest, User,
-};

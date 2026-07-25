@@ -1,0 +1,105 @@
+// commands/deploy.fu — Deployment commands.
+// deploy, status, rollback
+
+fn cmd_deploy(args: CliArgs) -> void {
+    let sub = args.subcommand;
+
+    if str_eq(sub, "") {
+        deploy_help();
+        return;
+    }
+
+    if str_eq(sub, "deploy") {
+        deploy_deploy(args);
+    } else if str_eq(sub, "status") {
+        deploy_status(args);
+    } else if str_eq(sub, "rollback") {
+        deploy_rollback(args);
+    } else {
+        print_error("Unknown deploy subcommand: ");
+        puts(sub);
+        deploy_help();
+    }
+}
+
+fn deploy_help() -> void {
+    print_bold("Fusion Deploy Commands:");
+    puts("  fusion deploy deploy [--env <env>]   Deploy the project");
+    puts("  fusion deploy status                  Show deployment status");
+    puts("  fusion deploy rollback [--to <ver>]  Rollback to previous version");
+}
+
+fn deploy_deploy(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+    let env = "staging";
+
+    if str_eq(args.arg1, "--env") {
+        if !str_eq(args.arg2, "") {
+            env = args.arg2;
+        }
+    }
+
+    print_info("Deploying ");
+    puts(manifest.name);
+    puts(" to " + env);
+
+    // Build first
+    print_info("Building...");
+    let build_args = args_default();
+    build_args.verbose_flag = args.verbose_flag;
+    cmd_build(build_args);
+
+    // Deploy
+    let cmd = "fuc.exe deploy --manifest Fusion.toml --env ";
+    cmd = cmd + env;
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Deployment complete");
+    } else {
+        print_error("Deployment failed");
+        exit(1);
+    }
+}
+
+fn deploy_status(args: CliArgs) -> void {
+    print_info("Deployment status:");
+
+    let cmd = "fuc.exe deploy status";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn deploy_rollback(args: CliArgs) -> void {
+    let version = args.arg1;
+
+    if str_eq(version, "--to") {
+        version = args.arg2;
+    }
+
+    if str_eq(version, "") {
+        print_error("Error: version required");
+        puts("Usage: fusion deploy rollback --to <version>");
+        exit(1);
+    }
+
+    print_info("Rolling back to version: ");
+    puts(version);
+
+    let cmd = "fuc.exe deploy rollback --to ";
+    cmd = cmd + version;
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Rollback complete");
+    } else {
+        print_error("Rollback failed");
+        exit(1);
+    }
+}

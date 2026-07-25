@@ -1,0 +1,53 @@
+// commands/build.fu — Build command.
+// Invokes fuc.exe (the Fusion compiler) to compile the project.
+
+fn cmd_build(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+    let release = str_eq(args.subcommand, "--release");
+
+    if args.verbose_flag {
+        print_info("Project: ");
+        puts(manifest.name);
+        print_info("Version: ");
+        puts(manifest.version);
+        print_info("Target: ");
+        puts(manifest.runtime_target);
+    }
+
+    // Determine build mode
+    let mode = "debug";
+    if release {
+        mode = "release";
+    }
+
+    print_info("Building ");
+    puts(manifest.name);
+    puts(" [" + mode + "]");
+
+    // Create build directory
+    create_dir("build");
+    create_dir("build/target");
+
+    // Build command: invoke fuc.exe
+    let cmd = "fuc.exe build --manifest Fusion.toml --out build/target/";
+
+    if release {
+        cmd = cmd + " --release";
+    }
+
+    if args.verbose_flag {
+        cmd = cmd + " --verbose";
+    }
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Build succeeded");
+        if !args.quiet_flag {
+            puts("Output: build/target/");
+        }
+    } else {
+        print_error("Build failed");
+        exit(1);
+    }
+}

@@ -1,0 +1,151 @@
+// commands/neuralseal.fu — NeuralSeal PQC commands.
+// keygen, sign, verify, encrypt, decrypt
+
+fn cmd_neuralseal(args: CliArgs) -> void {
+    let sub = args.subcommand;
+
+    if str_eq(sub, "") {
+        neuralseal_help();
+        return;
+    }
+
+    if str_eq(sub, "keygen") {
+        neuralseal_keygen(args);
+    } else if str_eq(sub, "sign") {
+        neuralseal_sign(args);
+    } else if str_eq(sub, "verify") {
+        neuralseal_verify(args);
+    } else if str_eq(sub, "encrypt") {
+        neuralseal_encrypt(args);
+    } else if str_eq(sub, "decrypt") {
+        neuralseal_decrypt(args);
+    } else {
+        print_error("Unknown neuralseal subcommand: ");
+        puts(sub);
+        neuralseal_help();
+    }
+}
+
+fn neuralseal_help() -> void {
+    print_bold("Fusion NeuralSeal PQC Commands:");
+    puts("  fusion neuralseal keygen              Generate NeuralSeal keypair");
+    puts("  fusion neuralseal sign <file>         Sign a file");
+    puts("  fusion neuralseal verify <file>       Verify a signature");
+    puts("  fusion neuralseal encrypt <file>      Encrypt a file");
+    puts("  fusion neuralseal decrypt <file>      Decrypt a file");
+}
+
+fn neuralseal_keygen(args: CliArgs) -> void {
+    print_info("Generating NeuralSeal keypair...");
+
+    let cmd = "fuc.exe neuralseal keygen";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("NeuralSeal keypair generated");
+    } else {
+        print_error("Keypair generation failed");
+        exit(1);
+    }
+}
+
+fn neuralseal_sign(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion neuralseal sign <file>");
+        exit(1);
+    }
+
+    print_info("Signing with NeuralSeal: ");
+    puts(file);
+
+    let cmd = "fuc.exe neuralseal sign \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("File signed");
+    } else {
+        print_error("Signing failed");
+        exit(1);
+    }
+}
+
+fn neuralseal_verify(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion neuralseal verify <file>");
+        exit(1);
+    }
+
+    print_info("Verifying NeuralSeal signature: ");
+    puts(file);
+
+    let cmd = "fuc.exe neuralseal verify \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Signature valid");
+    } else {
+        print_error("Signature invalid");
+        exit(1);
+    }
+}
+
+fn neuralseal_encrypt(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion neuralseal encrypt <file>");
+        exit(1);
+    }
+
+    print_info("Encrypting with NeuralSeal: ");
+    puts(file);
+
+    let cmd = "fuc.exe neuralseal encrypt \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("File encrypted");
+    } else {
+        print_error("Encryption failed");
+        exit(1);
+    }
+}
+
+fn neuralseal_decrypt(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion neuralseal decrypt <file>");
+        exit(1);
+    }
+
+    print_info("Decrypting with NeuralSeal: ");
+    puts(file);
+
+    let cmd = "fuc.exe neuralseal decrypt \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("File decrypted");
+    } else {
+        print_error("Decryption failed");
+        exit(1);
+    }
+}

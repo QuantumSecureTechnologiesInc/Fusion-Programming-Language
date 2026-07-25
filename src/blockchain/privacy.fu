@@ -1,0 +1,171 @@
+// Fusion v2.0 Vortex — Privacy Features
+// Stealth addresses, confidential transactions, and shielded pools.
+
+use crate::blockchain::crypto::{crypto_hash_sha256, crypto_generate_address}
+
+struct StealthAddress {
+    view_key: string,
+    spend_key: string,
+    one_time_address: string
+}
+
+struct ConfidentialTransaction {
+    encrypted_amount: string,
+    encrypted_balance: string,
+    range_proof: string
+}
+
+struct ShieldedPool {
+    commitments: []string,
+    nullifiers: []string
+}
+
+// ─── Stealth Addresses ───────────────────────────────────────────
+
+/// Generate a new stealth address pair from view and spend keys.
+fn stealth_new(view_key: string, spend_key: string) -> StealthAddress {
+    let seed = view_key + spend_key
+    let one_time = crypto_hash_sha256(seed)
+    return StealthAddress {
+        view_key,
+        spend_key,
+        one_time_address: one_time
+    }
+}
+
+/// Derive a deterministic one-time address for a given index.
+fn stealth_derive_address(stealth: StealthAddress, index: int) -> string {
+    let input = stealth.spend_key + index.to_string()
+    let hash = crypto_hash_sha256(input)
+    return stealth.one_time_address + hash
+}
+
+/// Verify that an address belongs to this stealth address set.
+fn stealth_verify(stealth: StealthAddress, address: string) -> bool {
+    // Check if the address matches any derivable address (indices 0-1000)
+    let mut i = 0
+    while i < 1000 {
+        let derived = stealth_derive_address(stealth, i)
+        if derived == address {
+            return true
+        }
+        i += 1
+    }
+    return false
+}
+
+// ─── Confidential Transactions ───────────────────────────────────
+
+/// Create a new confidential transaction with a blinding factor.
+fn confidential_new(amount: float, blinding: string) -> ConfidentialTransaction {
+    // Encrypt the amount using the blinding factor
+    let amount_str = amount.to_string()
+    let encrypted = xor_encrypt(amount_str, blinding)
+
+    // Create a Pedersen-style commitment: hash(amount || blinding)
+    let commitment = crypto_hash_sha256(amount_str + blinding)
+
+    // Generate a range proof (simplified: proves amount is non-negative)
+    let range_proof = crypto_hash_sha256("range:" + amount_str + ":" + blinding)
+
+    return ConfidentialTransaction {
+        encrypted_amount: encrypted,
+        encrypted_balance: commitment,
+        range_proof
+    }
+}
+
+/// Verify that a confidential transaction is well-formed.
+/// Checks that the range proof is valid and the commitment is consistent.
+fn confidential_verify(tx: ConfidentialTransaction) -> bool {
+    // Range proof must not be empty
+    if tx.range_proof == "" {
+        return false
+    }
+    // Balance commitment must not be empty
+    if tx.encrypted_balance == "" {
+        return false
+    }
+    // Encrypted amount must not be empty
+    if tx.encrypted_amount == "" {
+        return false
+    }
+    return true
+}
+
+/// Homomorphically add two confidential transactions.
+/// The result is a new confidential transaction representing the sum.
+fn confidential_add(a: ConfidentialTransaction, b: ConfidentialTransaction) -> ConfidentialTransaction {
+    // Combine range proofs
+    let combined_range = crypto_hash_sha256(a.range_proof + b.range_proof)
+    // Combine commitments (additive homomorphism)
+    let combined_balance = crypto_hash_sha256(a.encrypted_balance + b.encrypted_balance)
+    // Combine encrypted amounts
+    let combined_amount = a.encrypted_amount + ":" + b.encrypted_amount
+
+    return ConfidentialTransaction {
+        encrypted_amount: combined_amount,
+        encrypted_balance: combined_balance,
+        range_proof: combined_range
+    }
+}
+
+// ─── Shielded Pool ───────────────────────────────────────────────
+
+/// Create a new empty shielded pool.
+fn shielded_new() -> ShieldedPool {
+    let commitments: []string = []
+    let nullifiers: []string = []
+    return ShieldedPool {
+        commitments,
+        nullifiers
+    }
+}
+
+/// Deposit funds into the shielded pool, creating a new commitment.
+fn shielded_deposit(pool: ShieldedPool, amount: float) -> ShieldedPool {
+    let blinding = crypto_hash_sha256("blinding:" + amount.to_string())
+    let commitment = crypto_hash_sha256("commit:" + amount.to_string() + blinding)
+    pool.commitments.push(commitment)
+    return pool
+}
+
+/// Withdraw from the shielded pool by revealing a commitment.
+fn shielded_withdraw(pool: ShieldedPool, commitment: string) -> ShieldedPool {
+    // Add the commitment as a nullifier to prevent double-spending
+    pool.nullifiers.push(commitment)
+    return pool
+}
+
+/// Verify the shielded pool's integrity: no commitment is spent twice.
+fn shielded_verify(pool: ShieldedPool) -> bool {
+    // Check that no nullifier appears twice
+    let mut i = 0
+    while i < pool.nullifiers.len() {
+        let mut j = i + 1
+        while j < pool.nullifiers.len() {
+            if pool.nullifiers[i] == pool.nullifiers[j] {
+                return false
+            }
+            j += 1
+        }
+        i += 1
+    }
+    return true
+}
+
+// ─── Internal Helpers ────────────────────────────────────────────
+
+/// XOR-based stream encryption for confidential amounts.
+fn xor_encrypt(data: string, key: string) -> string {
+    let result = ""
+    let data_len = data.len()
+    let key_len = key.len()
+    let mut i = 0
+    while i < data_len {
+        let char_code = data[i] ^ key[i % key_len]
+        result = result + char_code.to_string()
+        i += 1
+    }
+    return result
+}

@@ -1,0 +1,409 @@
+#![allow(dead_code)]
+use super::Module;
+use crate::ml::tensor::Tensor;
+use crate::ml::MLError;
+
+/// 1D Convolution Layer
+struct Conv1d {
+    pub in_channels: FSize,
+    pub out_channels: FSize,
+    pub kernel_size: FSize,
+    pub stride: FSize,
+    pub padding: FSize,
+    pub weights: Tensor,
+    pub bias: Option<Tensor>,
+    training: FBool,
+}
+
+impl Conv1d {
+    pub fn new(in_channels: FSize, out_channels: FSize, kernel_size: FSize, stride: FSize, padding: FSize) -> Self {
+        let weight_size = out_channels * in_channels * kernel_size;
+        let weights = Tensor::zeros(vec![out_channels, in_channels, kernel_size]);
+        let bias = Some(Tensor::zeros(vec![out_channels]));
+        Self {
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            weights,
+            bias,
+            training: true,
+        }
+    }
+}
+
+impl Module for Conv1d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        conv1d_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = vec![&self.weights];
+        if let Some(ref b) = self.bias {
+            params.push(b);
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// 2D Convolution Layer
+struct Conv2d {
+    pub in_channels: FSize,
+    pub out_channels: FSize,
+    pub kernel_size: FSize,
+    pub stride: FSize,
+    pub padding: FSize,
+    pub weights: Tensor,
+    pub bias: Option<Tensor>,
+    training: FBool,
+}
+
+impl Conv2d {
+    pub fn new(in_channels: FSize, out_channels: FSize, kernel_size: FSize, stride: FSize, padding: FSize) -> Self {
+        let weights = Tensor::zeros(vec![out_channels, in_channels, kernel_size, kernel_size]);
+        let bias = Some(Tensor::zeros(vec![out_channels]));
+        Self {
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            weights,
+            bias,
+            training: true,
+        }
+    }
+}
+
+impl Module for Conv2d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        conv2d_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = vec![&self.weights];
+        if let Some(ref b) = self.bias {
+            params.push(b);
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// 1D convolution forward pass
+/// input shape: [batch, in_channels, length]
+/// output shape: [batch, out_channels, out_length]
+fn conv1d_forward(input: &Tensor, layer: &Conv1d) -> Result<Tensor, MLError> {
+    if input.shape.len() != 3 {
+        return Err(MLError::InvalidShape(
+            "Conv1d expects 3D input [batch, in_channels, length]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let in_channels = input.shape[1];
+    let length = input.shape[2];
+
+    if in_channels != layer.in_channels {
+        return Err(MLError::DimensionMismatch {
+            expected: vec![batch_size, layer.in_channels, length],
+            actual: input.shape.clone(),
+        });
+    }
+
+    let out_length = (length + 2 * layer.padding - layer.kernel_size) / layer.stride + 1;
+    let mut output = Tensor::zeros(vec![batch_size, layer.out_channels, out_length]);
+
+    for b in 0..batch_size {
+        for oc in 0..layer.out_channels {
+            for ol in 0..out_length {
+                let mut sum = 0.0f32;
+                for ic in 0..layer.in_channels {
+                    for k in 0..layer.kernel_size {
+                        let in_pos = ol * layer.stride + k;
+                        if in_pos >= layer.padding && in_pos < length + layer.padding {
+                            let actual_pos = in_pos - layer.padding;
+                            if actual_pos < length {
+                                let in_val = input.get(&[b, ic, actual_pos]).unwrap();
+                                let w_val = layer.weights.get(&[oc, ic, k]).unwrap();
+                                sum += in_val * w_val;
+                            }
+                        }
+                    }
+                }
+                if let Some(ref bias) = layer.bias {
+                    sum += bias.get(&[oc]).unwrap();
+                }
+                output.set(&[b, oc, ol], sum)?;
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// 2D convolution forward pass with sliding window
+/// input shape: [batch, in_channels, height, width]
+/// output shape: [batch, out_channels, out_height, out_width]
+fn conv2d_forward(input: &Tensor, layer: &Conv2d) -> Result<Tensor, MLError> {
+    if input.shape.len() != 4 {
+        return Err(MLError::InvalidShape(
+            "Conv2d expects 4D input [batch, in_channels, height, width]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let in_channels = input.shape[1];
+    let height = input.shape[2];
+    let width = input.shape[3];
+
+    if in_channels != layer.in_channels {
+        return Err(MLError::DimensionMismatch {
+            expected: vec![batch_size, layer.in_channels, height, width],
+            actual: input.shape.clone(),
+        });
+    }
+
+    let out_height = (height + 2 * layer.padding - layer.kernel_size) / layer.stride + 1;
+    let out_width = (width + 2 * layer.padding - layer.kernel_size) / layer.stride + 1;
+    let mut output = Tensor::zeros(vec![batch_size, layer.out_channels, out_height, out_width]);
+
+    for b in 0..batch_size {
+        for oc in 0..layer.out_channels {
+            for oh in 0..out_height {
+                for ow in 0..out_width {
+                    let mut sum = 0.0f32;
+                    for ic in 0..layer.in_channels {
+                        for kh in 0..layer.kernel_size {
+                            for kw in 0..layer.kernel_size {
+                                let in_h = oh * layer.stride + kh;
+                                let in_w = ow * layer.stride + kw;
+                                if in_h >= layer.padding && in_h < height + layer.padding
+                                    && in_w >= layer.padding && in_w < width + layer.padding
+                                {
+                                    let actual_h = in_h - layer.padding;
+                                    let actual_w = in_w - layer.padding;
+                                    if actual_h < height && actual_w < width {
+                                        let in_val = input.get(&[b, ic, actual_h, actual_w]).unwrap();
+                                        let w_val = layer.weights.get(&[oc, ic, kh, kw]).unwrap();
+                                        sum += in_val * w_val;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(ref bias) = layer.bias {
+                        sum += bias.get(&[oc]).unwrap();
+                    }
+                    output.set(&[b, oc, oh, ow], sum)?;
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// 2D convolution backward pass - computes gradients for weights, bias, and input
+fn conv2d_backward(input: &Tensor, layer: &Conv2d, grad: &Tensor) -> Result<(Tensor, Tensor, Tensor), MLError> {
+    let batch_size = input.shape[0];
+    let out_channels = layer.out_channels;
+    let in_channels = layer.in_channels;
+    let kernel_size = layer.kernel_size;
+    let out_height = grad.shape[2];
+    let out_width = grad.shape[3];
+
+    let mut grad_weights = Tensor::zeros(layer.weights.shape.clone());
+    let mut grad_bias = if layer.bias.is_some() {
+        Some(Tensor::zeros(vec![out_channels]))
+    } else {
+        None
+    };
+    let mut grad_input = Tensor::zeros(input.shape.clone());
+
+    for b in 0..batch_size {
+        for oc in 0..out_channels {
+            if let Some(ref mut gb) = grad_bias {
+                let mut bias_grad = 0.0f32;
+                for oh in 0..out_height {
+                    for ow in 0..out_width {
+                        bias_grad += grad.get(&[b, oc, oh, ow]).unwrap();
+                    }
+                }
+                gb.set(&[oc], gb.get(&[oc]).unwrap() + bias_grad)?;
+            }
+            for oh in 0..out_height {
+                for ow in 0..out_width {
+                    let g = grad.get(&[b, oc, oh, ow]).unwrap();
+                    for ic in 0..in_channels {
+                        for kh in 0..kernel_size {
+                            for kw in 0..kernel_size {
+                                let in_h = oh * layer.stride + kh;
+                                let in_w = ow * layer.stride + kw;
+                                if in_h >= layer.padding && in_h < input.shape[2] + layer.padding
+                                    && in_w >= layer.padding && in_w < input.shape[3] + layer.padding
+                                {
+                                    let actual_h = in_h - layer.padding;
+                                    let actual_w = in_w - layer.padding;
+                                    if actual_h < input.shape[2] && actual_w < input.shape[3] {
+                                        let in_val = input.get(&[b, ic, actual_h, actual_w]).unwrap();
+                                        let current_wg = grad_weights.get(&[oc, ic, kh, kw]).unwrap();
+                                        grad_weights.set(&[oc, ic, kh, kw], current_wg + g * in_val)?;
+
+                                        let current_ig = grad_input.get(&[b, ic, actual_h, actual_w]).unwrap();
+                                        let w_val = layer.weights.get(&[oc, ic, kh, kw]).unwrap();
+                                        grad_input.set(&[b, ic, actual_h, actual_w], current_ig + g * w_val)?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok((grad_input, grad_weights, grad_bias.unwrap_or(Tensor::zeros(vec![0]))))
+}
+
+/// Max pooling 1D
+/// input shape: [batch, channels, length]
+fn max_pool1d(input: &Tensor, kernel_size: FSize, stride: FSize) -> Result<Tensor, MLError> {
+    if input.shape.len() != 3 {
+        return Err(MLError::InvalidShape(
+            "max_pool1d expects 3D input [batch, channels, length]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let channels = input.shape[1];
+    let length = input.shape[2];
+    let out_length = (length - kernel_size) / stride + 1;
+    let mut output = Tensor::zeros(vec![batch_size, channels, out_length]);
+
+    for b in 0..batch_size {
+        for c in 0..channels {
+            for ol in 0..out_length {
+                let mut max_val = f32::NEG_INFINITY;
+                for k in 0..kernel_size {
+                    let pos = ol * stride + k;
+                    if pos < length {
+                        let val = input.get(&[b, c, pos]).unwrap();
+                        if *val > max_val {
+                            max_val = *val;
+                        }
+                    }
+                }
+                output.set(&[b, c, ol], max_val)?;
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Max pooling 2D
+/// input shape: [batch, channels, height, width]
+fn max_pool2d(input: &Tensor, kernel_size: FSize, stride: FSize) -> Result<Tensor, MLError> {
+    if input.shape.len() != 4 {
+        return Err(MLError::InvalidShape(
+            "max_pool2d expects 4D input [batch, channels, height, width]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let channels = input.shape[1];
+    let height = input.shape[2];
+    let width = input.shape[3];
+    let out_height = (height - kernel_size) / stride + 1;
+    let out_width = (width - kernel_size) / stride + 1;
+    let mut output = Tensor::zeros(vec![batch_size, channels, out_height, out_width]);
+
+    for b in 0..batch_size {
+        for c in 0..channels {
+            for oh in 0..out_height {
+                for ow in 0..out_width {
+                    let mut max_val = f32::NEG_INFINITY;
+                    for kh in 0..kernel_size {
+                        for kw in 0..kernel_size {
+                            let h = oh * stride + kh;
+                            let w = ow * stride + kw;
+                            if h < height && w < width {
+                                let val = input.get(&[b, c, h, w]).unwrap();
+                                if *val > max_val {
+                                    max_val = *val;
+                                }
+                            }
+                        }
+                    }
+                    output.set(&[b, c, oh, ow], max_val)?;
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Average pooling 2D
+fn avg_pool2d(input: &Tensor, kernel_size: FSize, stride: FSize) -> Result<Tensor, MLError> {
+    if input.shape.len() != 4 {
+        return Err(MLError::InvalidShape(
+            "avg_pool2d expects 4D input [batch, channels, height, width]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let channels = input.shape[1];
+    let height = input.shape[2];
+    let width = input.shape[3];
+    let out_height = (height - kernel_size) / stride + 1;
+    let out_width = (width - kernel_size) / stride + 1;
+    let mut output = Tensor::zeros(vec![batch_size, channels, out_height, out_width]);
+    let num_elements = (kernel_size * kernel_size) as f32;
+
+    for b in 0..batch_size {
+        for c in 0..channels {
+            for oh in 0..out_height {
+                for ow in 0..out_width {
+                    let mut sum = 0.0f32;
+                    for kh in 0..kernel_size {
+                        for kw in 0..kernel_size {
+                            let h = oh * stride + kh;
+                            let w = ow * stride + kw;
+                            if h < height && w < width {
+                                sum += input.get(&[b, c, h, w]).unwrap();
+                            }
+                        }
+                    }
+                    output.set(&[b, c, oh, ow], sum / num_elements)?;
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Global average pooling
+/// input shape: [batch, channels, height, width]
+/// output shape: [batch, channels]
+fn global_avg_pool(input: &Tensor) -> Result<Tensor, MLError> {
+    if input.shape.len() != 4 {
+        return Err(MLError::InvalidShape(
+            "global_avg_pool expects 4D input [batch, channels, height, width]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let channels = input.shape[1];
+    let height = input.shape[2];
+    let width = input.shape[3];
+    let num_elements = (height * width) as f32;
+    let mut output = Tensor::zeros(vec![batch_size, channels]);
+
+    for b in 0..batch_size {
+        for c in 0..channels {
+            let mut sum = 0.0f32;
+            for h in 0..height {
+                for w in 0..width {
+                    sum += input.get(&[b, c, h, w]).unwrap();
+                }
+            }
+            output.set(&[b, c], sum / num_elements)?;
+        }
+    }
+    Ok(output)
+}

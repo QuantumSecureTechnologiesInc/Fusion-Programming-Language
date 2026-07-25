@@ -1,0 +1,43 @@
+// src/net/http.fu
+// HTTP Client API for Fusion v2.0 Vortex
+
+struct HttpRequest {
+    method: string
+    url: string
+    headers: HashMap<string, string>
+    body: string
+}
+
+struct HttpResponse {
+    status: int
+    headers: HashMap<string, string>
+    body: string
+}
+
+extern fn http_get(url: string) -> HttpResponse
+
+extern fn http_post(url: string, body: string) -> HttpResponse
+
+extern fn http_put(url: string, body: string) -> HttpResponse
+
+extern fn http_delete(url: string) -> HttpResponse
+
+fn http_request(method: string, url: string, body: string) -> HttpResponse {
+    if method == "GET" {
+        return http_get(url);
+    }
+    if method == "POST" {
+        return http_post(url, body);
+    }
+    if method == "PUT" {
+        return http_put(url, body);
+    }
+    if method == "DELETE" {
+        return http_delete(url);
+    }
+    return HttpResponse {
+        status: 405,
+        headers: HashMap::new(),
+        body: "Method not allowed"
+    };
+}

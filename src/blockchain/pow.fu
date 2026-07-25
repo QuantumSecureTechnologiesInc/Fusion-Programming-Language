@@ -1,0 +1,94 @@
+// Proof of Work implementation for Fusion v2.0 Vortex
+
+import Block from blockchain
+import Blockchain from blockchain
+
+struct PowConfig {
+    difficulty: int,
+    target: string,
+    nonce_range: (int, int)
+}
+
+fn pow_new(difficulty: int) -> PowConfig {
+    let target = ""
+    for i in 0..difficulty {
+        target = target + "0"
+    }
+
+    PowConfig {
+        difficulty: difficulty,
+        target: target,
+        nonce_range: (0, 999999999)
+    }
+}
+
+fn pow_mine(block: Block, config: PowConfig) -> Block {
+    let mut best_nonce = 0
+    let mut best_hash = ""
+
+    for nonce in config.nonce_range.0..config.nonce_range.1 {
+        let hash = pow_hash_block(block, nonce)
+
+        if best_hash == "" || hash < best_hash {
+            best_hash = hash
+            best_nonce = nonce
+
+            if pow_meets_difficulty(hash, config.difficulty) {
+                break
+            }
+        }
+    }
+
+    Block {
+        index: block.index,
+        timestamp: block.timestamp,
+        transactions: block.transactions,
+        previous_hash: block.previous_hash,
+        hash: best_hash,
+        nonce: best_nonce,
+        difficulty: block.difficulty,
+        validator: block.validator
+    }
+}
+
+fn pow_validate(block: Block, config: PowConfig) -> bool {
+    let hash = pow_hash_block(block, block.nonce)
+    pow_meets_difficulty(hash, config.difficulty)
+}
+
+fn pow_hash_block(block: Block, nonce: int) -> string {
+    let data = block.index.to_string() +
+               block.timestamp.to_string() +
+               block.transactions.to_string() +
+               block.previous_hash +
+               nonce.to_string()
+
+    sha256(data)
+}
+
+fn pow_meets_difficulty(hash: string, difficulty: int) -> bool {
+    let target = ""
+    for i in 0..difficulty {
+        target = target + "0"
+    }
+
+    hash.starts_with(target)
+}
+
+fn pow_adjust_difficulty(chain: Blockchain, target_time: int) -> int {
+    if chain.blocks.len() < 2 {
+        return chain.difficulty
+    }
+
+    let last_block = chain.blocks[chain.blocks.len() - 1]
+    let prev_block = chain.blocks[chain.blocks.len() - 2]
+    let actual_time = last_block.timestamp - prev_block.timestamp
+
+    if actual_time < target_time / 2 {
+        return chain.difficulty + 1
+    } else if actual_time > target_time * 2 {
+        return max(1, chain.difficulty - 1)
+    } else {
+        return chain.difficulty
+    }
+}

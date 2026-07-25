@@ -1,0 +1,132 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+import fusion::cmd
+
+use crate::config::FusionConfig
+
+/// Read test configuration from Fusion.toml [test] section
+fn read_test_config(config: FusionConfig) -> Dict {
+    let test_config = {}
+
+    if let Some(test) = config["test"] {
+        if let Some(parallel) = test["parallel"] {
+            test_config["parallel"] = parallel
+        }
+        if let Some(timeout) = test["timeout"] {
+            test_config["timeout"] = timeout
+        }
+        if let Some(coverage) = test["coverage"] {
+            test_config["coverage"] = coverage
+        }
+        if let Some(filter) = test["filter"] {
+            test_config["filter"] = filter
+        }
+        if let Some(verbose) = test["verbose"] {
+            test_config["verbose"] = verbose
+        }
+    }
+
+    // Merge with [build] section for test build configuration
+    if let Some(build) = config["build"] {
+        if let Some(opt) = build["optimization_level"] {
+            test_config["build_optimization_level"] = opt
+        }
+        if let Some(debug) = build["debug_info"] {
+            test_config["build_debug_info"] = debug
+        }
+        if let Some(lto) = build["lto"] {
+            test_config["build_lto"] = lto
+        }
+    }
+
+    return test_config
+}
+
+/// Run the test command
+pub fn run(filter: Option<String>, parallel: bool, json: bool) -> Result {
+    let root = FusionConfig::project_root().unwrap_or_else(|| fs::current_dir())
+
+    // Load Fusion.toml for test and build configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let test_config = read_test_config(config)
+
+    if !json {
+        io::println("Running tests...")
+    }
+
+    let mut args = ["test"]
+
+    // Apply filter from CLI or from [test] section
+    let resolved_filter = match filter {
+        Some(f) => Some(f),
+        None => test_config.get("filter").map(|v| v.to_string()),
+    }
+    if let Some(f) = resolved_filter {
+        args.push("--filter={f}")
+    }
+
+    // Apply parallel setting from CLI or from [test] section
+    let resolved_parallel = if !parallel {
+        // CLI override: --no-parallel
+        false
+    } else {
+        test_config.get("parallel").unwrap_or(true).to_bool()
+    }
+    if resolved_parallel {
+        args.push("--parallel")
+    }
+
+    // Apply timeout from [test] section
+    if let Some(timeout) = test_config.get("timeout") {
+        args.push("--timeout={timeout}")
+    }
+
+    // Apply test build configuration from [build] section
+    if let Some(opt) = test_config.get("build_optimization_level") {
+        args.push("--opt-level={opt}")
+    }
+    if let Some(true) = test_config.get("build_debug_info") {
+        args.push("--debug")
+    }
+    if let Some(true) = test_config.get("build_lto") {
+        args.push("--lto")
+    }
+
+    let output = cmd::Command::new("fuc.exe")
+        .args(args)
+        .current_dir(root)
+        .output()
+
+    let stdout = output.stdout
+    let stderr = output.stderr
+    let success = output.status.success()
+
+    if json {
+        let result = {
+            "success": success,
+            "output": stdout.trim(),
+            "filter": resolved_filter.unwrap_or(""),
+            "parallel": resolved_parallel,
+        }
+        io::println(toml::to_string_pretty(result))
+    } else {
+        if success {
+            io::println("OK: Tests passed!")
+        } else {
+            io::println("FAIL: Tests failed!")
+        }
+        if stdout.len() > 0 {
+            io::println(stdout)
+        }
+        if stderr.len() > 0 {
+            io::eprintln(stderr)
+        }
+    }
+
+    if !success {
+        return Err("Tests failed")
+    }
+
+    return Ok(())
+}

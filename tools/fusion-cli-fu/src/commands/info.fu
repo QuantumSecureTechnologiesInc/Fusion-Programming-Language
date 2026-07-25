@@ -1,0 +1,57 @@
+// commands/info.fu — Project info command.
+// Displays project information from Fusion.toml.
+
+fn cmd_info(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+
+    if args.json_flag {
+        // JSON output
+        puts("{");
+        puts("  " + json_kv("name", manifest.name) + ",");
+        puts("  " + json_kv("version", manifest.version) + ",");
+        puts("  " + json_kv("language", manifest.language) + ",");
+        puts("  " + json_kv("runtime_target", manifest.runtime_target));
+        puts("}");
+        return;
+    }
+
+    // Human-readable output
+    print_bold("Project Information");
+    puts("═══════════════════════════════════════");
+    puts("");
+    puts("  Name:             " + manifest.name);
+    puts("  Version:          " + manifest.version);
+    puts("  Language:         " + manifest.language);
+    puts("  Runtime Target:   " + manifest.runtime_target);
+    puts("");
+
+    // Check for source directory
+    if file_exists("src") {
+        puts("  Source:           src/");
+    } else {
+        puts("  Source:           (not found)");
+    }
+
+    // Check for test directory
+    if file_exists("tests") {
+        puts("  Tests:            tests/");
+    } else {
+        puts("  Tests:            (not found)");
+    }
+
+    // Check for docs directory
+    if file_exists("docs") {
+        puts("  Docs:             docs/");
+    } else {
+        puts("  Docs:             (not found)");
+    }
+
+    // Check for build output
+    if file_exists("build") {
+        puts("  Build:            build/");
+    } else {
+        puts("  Build:            (not built)");
+    }
+
+    puts("═══════════════════════════════════════");
+}

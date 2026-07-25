@@ -3,14 +3,13 @@
 /// Production GCP Service Account Signer.
 /// 
 /// Implements JWT generation and signing for Google Cloud Authentication.
-/// Uses RSA-SHA256.
+/// Uses RSA-SHA256 via `ring` for cryptographic operations.
 
 use fusion_std::error::{StdResult, StdError};
 use serde::{Serialize, Deserialize};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-
-// In real implementation, we would use `ring` or `openssl` for RSA signing.
-// Here we structure the flow correctly.
+use ring::signature::{self, RsaEncoding, KeyPair, RsaKeyPair};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize)]
 struct JwtHeader {
@@ -32,23 +31,50 @@ struct ServiceAccountSigner {
     private_key_pem: FString,
     client_email: FString,
     private_key_id: FString,
+    key_pair: RsaKeyPair,
 }
 
 impl ServiceAccountSigner {
     fn new(json_key: &str) -> StdResult<Self> {
         let parsed: serde_json::Value = serde_json::from_str(json_key)
             .map_err(|e| StdError::Serialization(e.to_string()))?;
-            
+
+        let private_key_pem = parsed["private_key"].as_str()
+            .ok_or_else(|| StdError::Config("missing private_key in JSON key file".into()))?
+            .to_string();
+
+        // Parse the PEM-encoded private key and extract PKCS#8 DER bytes
+        let der_bytes = Self::pem_to_pkcs8_der(&private_key_pem)?;
+        let key_pair = RsaKeyPair::from_pkcs8(&der_bytes)
+            .map_err(|e| StdError::Crypto(format!("failed to parse RSA private key: {}", e)))?;
+
         Ok(Self {
-            private_key_pem: parsed["private_key"].as_str().unwrap_or("").to_string(),
-            client_email: parsed["client_email"].as_str().unwrap_or("").to_string(),
-            private_key_id: parsed["private_key_id"].as_str().unwrap_or("").to_string(),
+            private_key_pem,
+            client_email: parsed["client_email"].as_str()
+                .ok_or_else(|| StdError::Config("missing client_email".into()))?
+                .to_string(),
+            private_key_id: parsed["private_key_id"].as_str()
+                .ok_or_else(|| StdError::Config("missing private_key_id".into()))?
+                .to_string(),
+            key_pair,
         })
+    }
+
+    /// Strip PEM headers/footers and base64-decode to get raw PKCS#8 DER bytes.
+    fn pem_to_pkcs8_der(pem: &str) -> StdResult<Vec<u8>> {
+        let stripped: String = pem.lines()
+            .filter(|line| !line.starts_with("-----BEGIN") && !line.starts_with("-----END") && !line.trim().is_empty())
+            .collect();
+        base64::engine::general_purpose::STANDARD.decode(&stripped)
+            .map_err(|e| StdError::Config(format!("invalid PEM base64: {}", e)))
     }
 
     /// Generate a signed JWT for the given scope.
     fn create_signed_jwt(&self, scope: &str) -> StdResult<FString> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| StdError::System(e.to_string()))?
+            .as_secs();
         let exp = now + 3600; // 1 hour
 
         let header = JwtHeader {
@@ -65,18 +91,39 @@ impl ServiceAccountSigner {
             iat: now,
         };
 
-        let h_json = serde_json::to_vec(&header).map_err(|e| StdError::Serialization(e.to_string()))?;
-        let c_json = serde_json::to_vec(&claim).map_err(|e| StdError::Serialization(e.to_string()))?;
+        let h_json = serde_json::to_vec(&header)
+            .map_err(|e| StdError::Serialization(e.to_string()))?;
+        let c_json = serde_json::to_vec(&claim)
+            .map_err(|e| StdError::Serialization(e.to_string()))?;
 
-        let h_b64 = URL_SAFE_NO_PAD.encode(h_json);
-        let c_b64 = URL_SAFE_NO_PAD.encode(c_json);
+        let h_b64 = URL_SAFE_NO_PAD.encode(&h_json);
+        let c_b64 = URL_SAFE_NO_PAD.encode(&c_json);
         let unsigned_token = format!("{}.{}", h_b64, c_b64);
 
-        // Sign logic (Mocked for pure Rust example without linking OpenSSL)
-        // let signature = rsa_sha256_sign(&self.private_key_pem, &unsigned_token)?;
-        let signature = vec![0u8; 256]; // Mock 2048-bit signature
-        let s_b64 = URL_SAFE_NO_PAD.encode(signature);
+        // Real RSA-SHA256 signing via ring
+        let mut signature = vec![0u8; self.key_pair.public_modulus_len()];
+        self.key_pair.sign(&signature::RSA_PKCS1_SHA256, unsigned_token.as_bytes(), &mut signature)
+            .map_err(|e| StdError::Crypto(format!("RSA signing failed: {}", e)))?;
+        let s_b64 = URL_SAFE_NO_PAD.encode(&signature);
 
         Ok(format!("{}.{}", unsigned_token, s_b64))
+    }
+
+    /// Verify a JWT signature against the embedded public key (for testing/auditing).
+    fn verify_jwt(&self, token: &str) -> StdResult<bool> {
+        let parts: FVec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(StdError::Validation("invalid JWT structure".into()));
+        }
+        let signing_input = format!("{}.{}", parts[0], parts[1]);
+        let signature_bytes = URL_SAFE_NO_PAD.decode(parts[2])
+            .map_err(|e| StdError::Validation(format!("invalid signature encoding: {}", e)))?;
+
+        self.key_pair.public_key().verify(
+            &signature::RSA_PKCS1_SHA256,
+            signing_input.as_bytes(),
+            &signature_bytes,
+        ).map(|_| true)
+        .map_err(|e| StdError::Crypto(format!("JWT verification failed: {}", e)))
     }
 }

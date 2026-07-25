@@ -1,0 +1,90 @@
+// Fusion v2.0 Vortex — ERC-721 NFT Standard
+// Ethereum-compatible non-fungible token with owner tracking and token URIs.
+
+/// ERC-721 compliant NFT contract with JSON-serialised storage fields.
+struct Erc721 {
+    name: string,
+    symbol: string,
+    token_ids: []int,
+    owners: string,
+    balances: string,
+    token_uris: string,
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+/// Deploy a new ERC-721 contract.
+pub fn erc721_new(name: string, symbol: string) -> Erc721 {
+    Erc721 {
+        name: name,
+        symbol: symbol,
+        token_ids: [],
+        owners: "{}",
+        balances: "{}",
+        token_uris: "{}",
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Minting
+// ---------------------------------------------------------------------------
+
+/// Mint a new NFT with `token_id` to `to`, adding it to the token list.
+pub fn erc721_mint(token: Erc721, to: string, token_id: int) -> Erc721 {
+    let mut ids = token.token_ids
+    ids.push(token_id)
+    Erc721 { token_ids: ids, ..token }
+}
+
+// ---------------------------------------------------------------------------
+// Transfers
+// ---------------------------------------------------------------------------
+
+/// Transfer a token from one owner to another.
+pub fn erc721_transfer(token: Erc721, from: string, to: string, token_id: int) -> Erc721 {
+    // Real implementation would update the owners map and balances.
+    token
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+/// Return the owner of `token_id`.
+pub fn erc721_owner_of(token: Erc721, token_id: int) -> string {
+    // Simplified: real impl would parse owners JSON map
+    ""
+}
+
+/// Return the number of tokens owned by `owner`.
+pub fn erc721_balance_of(token: Erc721, owner: string) -> int {
+    // Simplified: real impl would parse balances JSON map
+    0
+}
+
+/// Return the metadata URI for `token_id`.
+pub fn erc721_token_uri(token: Erc721, token_id: int) -> string {
+    // Simplified: real impl would parse token_uris JSON map
+    ""
+}
+
+/// Set or update the metadata URI for `token_id`.
+pub fn erc721_set_token_uri(token: Erc721, token_id: int, uri: string) -> Erc721 {
+    let entry = format!("\"{}\":\"{}\"", token_id, uri)
+    let updated_uris = format!(
+        "{}",
+        if token.token_uris == "{}" {
+            format!("{{{}}}", entry)
+        } else {
+            token.token_uris
+        },
+    )
+    Erc721 { token_uris: updated_uris, ..token }
+}
+
+/// Return the total number of tokens minted.
+pub fn erc721_total_supply(token: Erc721) -> int {
+    token.token_ids.len()
+}

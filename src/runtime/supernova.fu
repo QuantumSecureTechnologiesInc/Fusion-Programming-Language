@@ -1,0 +1,19 @@
+struct SupernovaConfig {
+    cpu_threads: int
+    gpu_enabled: bool
+    qpu_enabled: bool
+}
+
+struct Task {
+    id: int
+    intent: string
+    payload: string
+    priority: int
+}
+
+extern fn supernova_init(config: SupernovaConfig) -> void
+extern fn supernova_submit(task: Task) -> int
+extern fn supernova_poll(task_id: int) -> string
+extern fn supernova_wait(task_id: int) -> string
+extern fn supernova_cancel(task_id: int) -> void
+extern fn supernova_shutdown() -> void

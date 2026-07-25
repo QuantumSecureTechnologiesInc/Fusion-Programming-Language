@@ -1,0 +1,14 @@
+[package]
+name = "fusion_interop_java"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language"
+authors = ["Fusion Team"]
+description = "Java interop bridge: JNI-style interface, type marshaling, and class loading for Fusion"
+
+[dependencies]
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]

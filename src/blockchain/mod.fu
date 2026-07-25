@@ -1,0 +1,129 @@
+// Fusion v2.0 Vortex — Blockchain Module Root
+// Re-exports all 31 blockchain submodules for convenient external access.
+
+// ── Core Primitives ──────────────────────────────────────────────
+pub mod block
+pub mod chain
+pub mod transaction
+pub mod crypto
+pub mod merkle
+
+// ── Consensus Mechanisms ────────────────────────────────────────
+pub mod consensus
+pub mod pow
+pub mod pos
+pub mod dpos
+pub mod pbft
+
+// ── Mining ──────────────────────────────────────────────────────
+pub mod mining
+
+// ── Smart Contracts & Tokens ────────────────────────────────────
+pub mod smart_contract
+pub mod token
+pub mod nft
+pub mod erc20
+pub mod erc721
+pub mod erc1155
+
+// ── Networking & Wallets ────────────────────────────────────────
+pub mod network
+pub mod wallet
+
+// ── Storage & Explorer ──────────────────────────────────────────
+pub mod storage
+pub mod explorer
+
+// ── DeFi & Privacy ─────────────────────────────────────────────
+pub mod defi
+pub mod privacy
+
+// ── Governance & DAOs ───────────────────────────────────────────
+pub mod governance
+pub mod oracle
+pub mod dao
+pub mod staking
+
+// ── Cross-Chain & Layer 2 ──────────────────────────────────────
+pub mod bridge
+pub mod layer2
+pub mod interop
+
+// ── Zero-Knowledge Proofs ──────────────────────────────────────
+pub mod zkp
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Core Primitives
+// ────────────────────────────────────────────────────────────────
+pub use block::{Block, block_new, block_hash, block_mine, block_validate, block_to_json, block_from_json}
+pub use chain::{Blockchain, chain_new, chain_add_block, chain_validate, chain_get_latest, chain_get_block, chain_length, chain_to_json, chain_from_json}
+pub use transaction::{Transaction, tx_new, tx_sign, tx_verify, tx_hash, tx_to_json, tx_from_json}
+pub use crypto::{
+    crypto_hash_sha256, crypto_hash_sha512, crypto_hash_blake3,
+    crypto_sign_ed25519, crypto_verify_ed25519, crypto_keygen_ed25519,
+    crypto_encrypt_aes256, crypto_decrypt_aes256, crypto_hmac_sha256,
+    crypto_generate_address, crypto_merkle_root
+}
+pub use merkle::{MerkleTree, merkle_new, merkle_root, merkle_proof, merkle_verify, merkle_insert, merkle_size}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Consensus
+// ────────────────────────────────────────────────────────────────
+pub use consensus::{ConsensusConfig, ConsensusResult, consensus_new, consensus_validate_block, consensus_select_validator}
+pub use pow::{PowConfig, pow_new, pow_mine, pow_validate, pow_hash_block, pow_adjust_difficulty}
+pub use pos::{Validator, StakingPool, pos_new_validator, pos_stake, pos_unstake, pos_select_validator, pos_validate, pos_slash, pos_rewards}
+pub use dpos::{Delegate, DposConfig, dpos_vote, dpos_unvote, dpos_select_delegates, dpos_elect}
+pub use pbft::{PbftNode, PbftMessage, pbft_new_node, pbft_pre_prepare, pbft_prepare, pbft_commit, pbft_is_byzantine_fault_tolerant, pbft_validate_message}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Mining
+// ────────────────────────────────────────────────────────────────
+pub use mining::{Miner, MiningReward, miner_new, miner_mine, miner_calculate_reward, miner_add_reward, miner_total_earnings}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Smart Contracts & Tokens
+// ────────────────────────────────────────────────────────────────
+pub use smart_contract::{SmartContract, ContractCall, ContractEvent, contract_deploy, contract_call, contract_get_state, contract_set_state, contract_upgrade, contract_validate, contract_events}
+pub use token::{Token, TokenBalance, Approval, token_new, token_mint, token_burn, token_transfer, token_balance, token_approve, token_transfer_from}
+pub use nft::{NFT, NFTCollection, nft_new, nft_mint, nft_transfer, nft_owner, nft_metadata, collection_new, collection_add, collection_get, collection_size}
+pub use erc20::{Erc20, erc20_new, erc20_balance_of, erc20_transfer, erc20_approve, erc20_transfer_from, erc20_mint, erc20_burn, erc20_total_supply, erc20_allowance}
+pub use erc721::{Erc721, erc721_new, erc721_mint, erc721_transfer, erc721_owner_of, erc721_balance_of, erc721_token_uri, erc721_set_token_uri, erc721_total_supply}
+pub use erc1155::{Erc1155, erc1155_new, erc1155_mint, erc1155_burn, erc1155_balance_of, erc1155_transfer, erc1155_batch_transfer, erc1155_approve}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Networking & Wallets
+// ────────────────────────────────────────────────────────────────
+pub use network::{Peer, Network, BlockMessage, TxMessage, network_new, network_add_peer, network_remove_peer, network_discover_peers, network_broadcast, network_sync_chain, network_gossip, network_peer_count}
+pub use wallet::{Wallet, WalletInfo, wallet_new, wallet_from_private_key, wallet_address, wallet_balance, wallet_send, wallet_sign, wallet_verify, wallet_info, wallet_export, wallet_import}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Storage & Explorer
+// ────────────────────────────────────────────────────────────────
+pub use storage::{BlockStorage, StateStorage, storage_new, storage_save_block, storage_get_block, storage_get_all, storage_size, storage_flush, storage_load, state_new, state_get, state_set, state_delete, state_snapshot, state_revert}
+pub use explorer::{Explorer, explorer_new, explorer_get_block, explorer_get_transaction, explorer_get_balance, explorer_get_transaction_history, explorer_get_block_by_hash, explorer_search, explorer_stats}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: DeFi & Privacy
+// ────────────────────────────────────────────────────────────────
+pub use defi::{LiquidityPool, LendingPool, pool_new, pool_add_liquidity, pool_remove_liquidity, pool_swap, pool_price, pool_imbalance, lending_deposit, lending_withdraw, lending_borrow, lending_repay, lending_interest}
+pub use privacy::{StealthAddress, ConfidentialTransaction, ShieldedPool, stealth_new, stealth_derive_address, stealth_verify, confidential_new, confidential_verify, confidential_add, shielded_new, shielded_deposit, shielded_withdraw, shielded_verify}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Governance & DAOs
+// ────────────────────────────────────────────────────────────────
+pub use governance::{Proposal, Vote, GovernanceConfig, proposal_new, proposal_vote, proposal_execute, proposal_status, governance_config, governance_validate}
+pub use oracle::{Oracle, OracleRequest, OracleResponse, oracle_new, oracle_submit, oracle_query, oracle_request, oracle_respond, oracle_verify_response, oracle_aggregate}
+pub use dao::{DAO, dao_new, dao_add_member, dao_remove_member, dao_create_proposal, dao_vote, dao_execute, dao_treasury, dao_member_count, dao_active_proposals}
+pub use staking::{StakePool, StakeRecord, pool_stake, pool_unstake, pool_claim_rewards, pool_calculate_rewards, pool_apy, pool_total_staked, pool_active_stakes}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Cross-Chain & Layer 2
+// ────────────────────────────────────────────────────────────────
+pub use bridge::{Bridge, BridgeTransfer, bridge_new, bridge_lock, bridge_unlock, bridge_verify, bridge_status, bridge_add_validator, bridge_remove_validator}
+pub use layer2::{StateChannel, Rollup, channel_new, channel_open, channel_close, channel_transfer, channel_validate, rollup_new, rollup_add_batch, rollup_finalize, rollup_verify}
+pub use interop::{ChainConfig, CrossChainMessage, chain_config_new, chain_config_validate, cross_chain_send, cross_chain_receive, cross_chain_verify}
+
+// ────────────────────────────────────────────────────────────────
+// Convenience re-exports: Zero-Knowledge Proofs
+// ────────────────────────────────────────────────────────────────
+pub use zkp::{ZkProof, ZkCircuit, zk_circuit_new, zk_prove, zk_verify, zk_prove_range, zk_verify_range, zk_prove_membership, zk_verify_membership, zk_prove_balance, zk_verify_balance}

@@ -1,0 +1,43 @@
+// Guaranteed Tail-Call Optimization & Multi-Stage Programming — Fusion v2.0 Vortex
+//
+// This module provides two closely related facilities:
+//
+//   tailcall.fu  — Guaranteed TCO: detect, verify, and transform tail-recursive
+//                  functions into iterative loops so that deep recursion never
+//                  overflows the stack.
+//
+//   staging.fu   — Partial evaluation / multi-stage programming: evaluate
+//                  constants at compile time, specialize functions over known
+//                  types, and delay runtime work via staged computation.
+//
+// Both facilities operate on Fusion IR and integrate with the compiler pass
+// pipeline.
+
+module tco
+
+pub mod tailcall
+pub mod staging
+
+// Re-export core types at module level
+pub use tailcall::{
+    TailCall,
+    tco_detect,
+    tco_optimize,
+    tco_verify,
+    tail_recursive_count,
+    is_tail_position,
+    tco_transform_loop,
+    tco_transform_accumulator,
+}
+
+pub use staging::{
+    Stage,
+    stage_compile,
+    stage_load,
+    stage_runtime,
+    stage_partial_eval,
+    stage_specialize,
+    stage_is_compile_time,
+    stage_is_load_time,
+    stage_is_runtime,
+}

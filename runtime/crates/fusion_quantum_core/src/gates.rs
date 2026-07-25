@@ -30,12 +30,21 @@ impl Unitary for QuantumGate {
     }
 
     fn adjoint(&self) -> Self {
-        // Conjugate transpose
+        // Conjugate transpose: (A†)ᵢⱼ = conj(Aⱼᵢ)
         let transposed = self.matrix.clone().transpose();
-        // TODO: Conjugate each element
+        // Conjugate each element (negate imaginary part)
+        let (rows, cols) = transposed.dims();
+        let mut conjugated = transposed;
+        for i in 0..rows {
+            for j in 0..cols {
+                if let Ok(val) = conjugated.at(i, j) {
+                    let _ = conjugated.set_at(i, j, val.conj());
+                }
+            }
+        }
         Self {
             name: format!("{}†", self.name),
-            matrix: transposed,
+            matrix: conjugated,
             num_qubits: self.num_qubits,
         }
     }

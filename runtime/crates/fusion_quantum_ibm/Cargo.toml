@@ -1,0 +1,31 @@
+[package]
+name = "fusion_quantum_ibm"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "IBM Quantum backend integration for Fusion v2.0 Vortex"
+authors = ["Fusion Team"]
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+thiserror = "2.0"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[workspace]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(disabled)'] }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"

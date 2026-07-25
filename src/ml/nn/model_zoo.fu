@@ -1,0 +1,488 @@
+#![allow(dead_code)]
+use super::Module;
+use super::layers::{Linear, ReLU};
+use super::conv::Conv2d;
+use super::normalization::BatchNorm2d;
+use super::dropout::Dropout;
+use super::container::Sequential;
+use crate::ml::tensor::Tensor;
+use crate::ml::MLError;
+
+/// LeNet-5 Architecture for MNIST
+/// Input: [batch, 1, 32, 32] (MNIST padded to 32x32)
+/// Output: [batch, 10]
+struct LeNet5 {
+    conv1: Conv2d,
+    bn1: BatchNorm2d,
+    conv2: Conv2d,
+    bn2: BatchNorm2d,
+    fc1: Linear,
+    fc2: Linear,
+    fc3: Linear,
+}
+
+impl LeNet5 {
+    pub fn new() -> Self {
+        Self {
+            conv1: Conv2d::new(1, 6, 5, 1, 0),
+            bn1: BatchNorm2d::new(6),
+            conv2: Conv2d::new(6, 16, 5, 1, 0),
+            bn2: BatchNorm2d::new(16),
+            fc1: Linear::new(16 * 4 * 4, 120, true),
+            fc2: Linear::new(120, 84, true),
+            fc3: Linear::new(84, 10, true),
+        }
+    }
+}
+
+impl Module for LeNet5 {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        lenet5_forward(input)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = Vec::new();
+        params.extend(self.conv1.parameters());
+        params.extend(self.bn1.parameters());
+        params.extend(self.conv2.parameters());
+        params.extend(self.bn2.parameters());
+        params.extend(self.fc1.parameters());
+        params.extend(self.fc2.parameters());
+        params.extend(self.fc3.parameters());
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.conv1.train(mode);
+        self.bn1.train(mode);
+        self.conv2.train(mode);
+        self.bn2.train(mode);
+        self.fc1.train(mode);
+        self.fc2.train(mode);
+        self.fc3.train(mode);
+    }
+}
+
+/// ResNet Block with residual connection
+struct ResNetBlock {
+    conv1: Conv2d,
+    bn1: BatchNorm2d,
+    conv2: Conv2d,
+    bn2: BatchNorm2d,
+    downsample: Option<Sequential>,
+}
+
+impl Module for ResNetBlock {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        resnet_block_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = Vec::new();
+        params.extend(self.conv1.parameters());
+        params.extend(self.bn1.parameters());
+        params.extend(self.conv2.parameters());
+        params.extend(self.bn2.parameters());
+        if let Some(ref ds) = self.downsample {
+            params.extend(ds.parameters());
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.conv1.train(mode);
+        self.bn1.train(mode);
+        self.conv2.train(mode);
+        self.bn2.train(mode);
+        if let Some(ref mut ds) = self.downsample {
+            ds.train(mode);
+        }
+    }
+}
+
+/// ResNet-18 Configuration
+struct ResNet18 {
+    conv1: Conv2d,
+    bn1: BatchNorm2d,
+    layer1: FVec<ResNetBlock>,
+    layer2: FVec<ResNetBlock>,
+    layer3: FVec<ResNetBlock>,
+    layer4: FVec<ResNetBlock>,
+    fc: Linear,
+}
+
+impl ResNet18 {
+    pub fn new() -> Self {
+        Self {
+            conv1: Conv2d::new(3, 64, 7, 2, 3),
+            bn1: BatchNorm2d::new(64),
+            layer1: vec![
+                ResNetBlock {
+                    conv1: Conv2d::new(64, 64, 3, 1, 1),
+                    bn1: BatchNorm2d::new(64),
+                    conv2: Conv2d::new(64, 64, 3, 1, 1),
+                    bn2: BatchNorm2d::new(64),
+                    downsample: None,
+                },
+                ResNetBlock {
+                    conv1: Conv2d::new(64, 64, 3, 1, 1),
+                    bn1: BatchNorm2d::new(64),
+                    conv2: Conv2d::new(64, 64, 3, 1, 1),
+                    bn2: BatchNorm2d::new(64),
+                    downsample: None,
+                },
+            ],
+            layer2: vec![
+                ResNetBlock {
+                    conv1: Conv2d::new(64, 128, 3, 2, 1),
+                    bn1: BatchNorm2d::new(128),
+                    conv2: Conv2d::new(128, 128, 3, 1, 1),
+                    bn2: BatchNorm2d::new(128),
+                    downsample: Some(Sequential::new()
+                        .add(Box::new(Conv2d::new(64, 128, 1, 2, 0)))
+                        .add(Box::new(BatchNorm2d::new(128)))),
+                },
+                ResNetBlock {
+                    conv1: Conv2d::new(128, 128, 3, 1, 1),
+                    bn1: BatchNorm2d::new(128),
+                    conv2: Conv2d::new(128, 128, 3, 1, 1),
+                    bn2: BatchNorm2d::new(128),
+                    downsample: None,
+                },
+            ],
+            layer3: vec![
+                ResNetBlock {
+                    conv1: Conv2d::new(128, 256, 3, 2, 1),
+                    bn1: BatchNorm2d::new(256),
+                    conv2: Conv2d::new(256, 256, 3, 1, 1),
+                    bn2: BatchNorm2d::new(256),
+                    downsample: Some(Sequential::new()
+                        .add(Box::new(Conv2d::new(128, 256, 1, 2, 0)))
+                        .add(Box::new(BatchNorm2d::new(256)))),
+                },
+                ResNetBlock {
+                    conv1: Conv2d::new(256, 256, 3, 1, 1),
+                    bn1: BatchNorm2d::new(256),
+                    conv2: Conv2d::new(256, 256, 3, 1, 1),
+                    bn2: BatchNorm2d::new(256),
+                    downsample: None,
+                },
+            ],
+            layer4: vec![
+                ResNetBlock {
+                    conv1: Conv2d::new(256, 512, 3, 2, 1),
+                    bn1: BatchNorm2d::new(512),
+                    conv2: Conv2d::new(512, 512, 3, 1, 1),
+                    bn2: BatchNorm2d::new(512),
+                    downsample: Some(Sequential::new()
+                        .add(Box::new(Conv2d::new(256, 512, 1, 2, 0)))
+                        .add(Box::new(BatchNorm2d::new(512)))),
+                },
+                ResNetBlock {
+                    conv1: Conv2d::new(512, 512, 3, 1, 1),
+                    bn1: BatchNorm2d::new(512),
+                    conv2: Conv2d::new(512, 512, 3, 1, 1),
+                    bn2: BatchNorm2d::new(512),
+                    downsample: None,
+                },
+            ],
+            fc: Linear::new(512, 1000, true),
+        }
+    }
+}
+
+impl Module for ResNet18 {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        resnet18_forward(input)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = Vec::new();
+        params.extend(self.conv1.parameters());
+        params.extend(self.bn1.parameters());
+        for block in &self.layer1 {
+            params.extend(block.parameters());
+        }
+        for block in &self.layer2 {
+            params.extend(block.parameters());
+        }
+        for block in &self.layer3 {
+            params.extend(block.parameters());
+        }
+        for block in &self.layer4 {
+            params.extend(block.parameters());
+        }
+        params.extend(self.fc.parameters());
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.conv1.train(mode);
+        self.bn1.train(mode);
+        for block in &mut self.layer1 {
+            block.train(mode);
+        }
+        for block in &mut self.layer2 {
+            block.train(mode);
+        }
+        for block in &mut self.layer3 {
+            block.train(mode);
+        }
+        for block in &mut self.layer4 {
+            block.train(mode);
+        }
+        self.fc.train(mode);
+    }
+}
+
+/// VGG Configuration
+struct VGG {
+    features: Sequential,
+    classifier: Sequential,
+}
+
+impl VGG {
+    pub fn new(config: FVec<FSize>, num_classes: FSize) -> Self {
+        let mut features_layers: FVec<Box<dyn Module>> = Vec::new();
+        let mut in_channels = 3;
+
+        for &out_channels in &config {
+            features_layers.push(Box::new(Conv2d::new(in_channels, out_channels, 3, 1, 1)));
+            features_layers.push(Box::new(BatchNorm2d::new(out_channels)));
+            features_layers.push(Box::new(ReLU));
+            in_channels = out_channels;
+        }
+
+        let classifier = Sequential::new()
+            .add(Box::new(Linear::new(512 * 7 * 7, 4096, true)))
+            .add(Box::new(ReLU))
+            .add(Box::new(Dropout::new(0.5)))
+            .add(Box::new(Linear::new(4096, 4096, true)))
+            .add(Box::new(ReLU))
+            .add(Box::new(Dropout::new(0.5)))
+            .add(Box::new(Linear::new(4096, num_classes, true)));
+
+        Self {
+            features: Sequential { layers: features_layers },
+            classifier,
+        }
+    }
+}
+
+impl Module for VGG {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        vgg_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = self.features.parameters();
+        params.extend(self.classifier.parameters());
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.features.train(mode);
+        self.classifier.train(mode);
+    }
+}
+
+/// LeNet-5 forward pass
+fn lenet5_forward(input: &Tensor) -> Result<Tensor, MLError> {
+    // Conv1 -> ReLU -> MaxPool: [batch, 1, 32, 32] -> [batch, 6, 14, 14]
+    let conv1 = Conv2d::new(1, 6, 5, 1, 0);
+    let mut x = conv1.forward(input)?;
+    for val in x.data.iter_mut() {
+        *val = val.max(0.0);
+    }
+
+    // Conv2 -> ReLU -> MaxPool: [batch, 6, 14, 14] -> [batch, 16, 5, 5]
+    let conv2 = Conv2d::new(6, 16, 5, 1, 0);
+    x = conv2.forward(&x)?;
+    for val in x.data.iter_mut() {
+        *val = val.max(0.0);
+    }
+
+    // Flatten: [batch, 16 * 5 * 5]
+    let batch_size = x.shape[0];
+    let flat_size = x.shape[1] * x.shape[2] * x.shape[3];
+    let mut flat = Tensor::zeros(vec![batch_size, flat_size]);
+    for b in 0..batch_size {
+        for c in 0..x.shape[1] {
+            for h in 0..x.shape[2] {
+                for w in 0..x.shape[3] {
+                    let flat_idx = c * x.shape[2] * x.shape[3] + h * x.shape[3] + w;
+                    flat.set(&[b, flat_idx], *x.get(&[b, c, h, w]).unwrap())?;
+                }
+            }
+        }
+    }
+
+    // FC layers
+    let fc1 = Linear::new(flat_size, 120, true);
+    let fc2 = Linear::new(120, 84, true);
+    let fc3 = Linear::new(84, 10, true);
+
+    let mut out = fc1.forward(&flat)?;
+    for val in out.data.iter_mut() {
+        *val = val.max(0.0);
+    }
+
+    out = fc2.forward(&out)?;
+    for val in out.data.iter_mut() {
+        *val = val.max(0.0);
+    }
+
+    fc3.forward(&out)
+}
+
+/// Residual block forward pass
+fn resnet_block_forward(input: &Tensor, block: &ResNetBlock) -> Result<Tensor, MLError> {
+    // First conv -> BN -> ReLU
+    let mut out = block.conv1.forward(input)?;
+    out = block.bn1.forward(&out)?;
+    for val in out.data.iter_mut() {
+        *val = val.max(0.0);
+    }
+
+    // Second conv -> BN
+    out = block.conv2.forward(&out)?;
+    out = block.bn2.forward(&out)?;
+
+    // Residual connection
+    let residual = if let Some(ref ds) = block.downsample {
+        ds.forward(input)?
+    } else {
+        input.clone()
+    };
+
+    // Add residual and ReLU
+    let mut result = out.add(&residual)?;
+    for val in result.data.iter_mut() {
+        *val = val.max(0.0);
+    }
+
+    Ok(result)
+}
+
+/// ResNet-18 forward pass
+fn resnet18_forward(input: &Tensor) -> Result<Tensor, MLError> {
+    // Initial conv -> BN -> ReLU -> MaxPool
+    let conv1 = Conv2d::new(3, 64, 7, 2, 3);
+    let bn1 = BatchNorm2d::new(64);
+    let mut x = conv1.forward(input)?;
+    x = bn1.forward(&x)?;
+    for val in x.data.iter_mut() {
+        *val = val.max(0.0);
+    }
+    // MaxPool [batch, 64, H, W] -> [batch, 64, H/4, W/4]
+
+    // Layer 1: 2 blocks (64 -> 64)
+    let block1 = ResNetBlock {
+        conv1: Conv2d::new(64, 64, 3, 1, 1),
+        bn1: BatchNorm2d::new(64),
+        conv2: Conv2d::new(64, 64, 3, 1, 1),
+        bn2: BatchNorm2d::new(64),
+        downsample: None,
+    };
+    let block2 = ResNetBlock {
+        conv1: Conv2d::new(64, 64, 3, 1, 1),
+        bn1: BatchNorm2d::new(64),
+        conv2: Conv2d::new(64, 64, 3, 1, 1),
+        bn2: BatchNorm2d::new(64),
+        downsample: None,
+    };
+    x = resnet_block_forward(&x, &block1)?;
+    x = resnet_block_forward(&x, &block2)?;
+
+    // Layer 2: 2 blocks (64 -> 128)
+    let block3 = ResNetBlock {
+        conv1: Conv2d::new(64, 128, 3, 2, 1),
+        bn1: BatchNorm2d::new(128),
+        conv2: Conv2d::new(128, 128, 3, 1, 1),
+        bn2: BatchNorm2d::new(128),
+        downsample: Some(Sequential::new()
+            .add(Box::new(Conv2d::new(64, 128, 1, 2, 0)))
+            .add(Box::new(BatchNorm2d::new(128)))),
+    };
+    let block4 = ResNetBlock {
+        conv1: Conv2d::new(128, 128, 3, 1, 1),
+        bn1: BatchNorm2d::new(128),
+        conv2: Conv2d::new(128, 128, 3, 1, 1),
+        bn2: BatchNorm2d::new(128),
+        downsample: None,
+    };
+    x = resnet_block_forward(&x, &block3)?;
+    x = resnet_block_forward(&x, &block4)?;
+
+    // Layer 3: 2 blocks (128 -> 256)
+    let block5 = ResNetBlock {
+        conv1: Conv2d::new(128, 256, 3, 2, 1),
+        bn1: BatchNorm2d::new(256),
+        conv2: Conv2d::new(256, 256, 3, 1, 1),
+        bn2: BatchNorm2d::new(256),
+        downsample: Some(Sequential::new()
+            .add(Box::new(Conv2d::new(128, 256, 1, 2, 0)))
+            .add(Box::new(BatchNorm2d::new(256)))),
+    };
+    let block6 = ResNetBlock {
+        conv1: Conv2d::new(256, 256, 3, 1, 1),
+        bn1: BatchNorm2d::new(256),
+        conv2: Conv2d::new(256, 256, 3, 1, 1),
+        bn2: BatchNorm2d::new(256),
+        downsample: None,
+    };
+    x = resnet_block_forward(&x, &block5)?;
+    x = resnet_block_forward(&x, &block6)?;
+
+    // Layer 4: 2 blocks (256 -> 512)
+    let block7 = ResNetBlock {
+        conv1: Conv2d::new(256, 512, 3, 2, 1),
+        bn1: BatchNorm2d::new(512),
+        conv2: Conv2d::new(512, 512, 3, 1, 1),
+        bn2: BatchNorm2d::new(512),
+        downsample: Some(Sequential::new()
+            .add(Box::new(Conv2d::new(256, 512, 1, 2, 0)))
+            .add(Box::new(BatchNorm2d::new(512)))),
+    };
+    let block8 = ResNetBlock {
+        conv1: Conv2d::new(512, 512, 3, 1, 1),
+        bn1: BatchNorm2d::new(512),
+        conv2: Conv2d::new(512, 512, 3, 1, 1),
+        bn2: BatchNorm2d::new(512),
+        downsample: None,
+    };
+    x = resnet_block_forward(&x, &block7)?;
+    x = resnet_block_forward(&x, &block8)?;
+
+    // Global average pooling
+    let batch_size = x.shape[0];
+    let channels = x.shape[1];
+    let height = x.shape[2];
+    let width = x.shape[3];
+    let spatial_size = height * width;
+    let mut pooled = Tensor::zeros(vec![batch_size, channels]);
+    for b in 0..batch_size {
+        for c in 0..channels {
+            let mut sum = 0.0f32;
+            for h in 0..height {
+                for w in 0..width {
+                    sum += x.get(&[b, c, h, w]).unwrap();
+                }
+            }
+            pooled.set(&[b, c], sum / spatial_size as f32)?;
+        }
+    }
+
+    // Fully connected
+    let fc = Linear::new(512, 1000, true);
+    fc.forward(&pooled)
+}
+
+/// VGG forward pass
+fn vgg_forward(input: &Tensor, vgg: &VGG) -> Result<Tensor, MLError> {
+    let mut x = vgg.features.forward(input)?;
+
+    // Flatten for classifier
+    let batch_size = x.shape[0];
+    let flat_size: FSize = x.shape[1..].iter().product();
+    let mut flat = Tensor::zeros(vec![batch_size, flat_size]);
+    for b in 0..batch_size {
+        for i in 0..flat_size {
+            flat.set(&[b, i], x.data[b * flat_size + i])?;
+        }
+    }
+
+    vgg.classifier.forward(&flat)
+}

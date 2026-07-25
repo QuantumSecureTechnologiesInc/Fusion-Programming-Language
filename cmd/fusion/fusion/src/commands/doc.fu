@@ -1,5 +1,0 @@
-use anyhow::Result;
-use fusion_docgen;
-fn doc(open: FBool, private: FBool) -> Result<()> {
-    fusion_docgen::generate(open, private)
-}

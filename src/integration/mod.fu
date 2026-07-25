@@ -1,0 +1,692 @@
+// src/integration/mod.fu — Cross-Feature Integration Layer
+//
+// Connects all 16 advanced PLT subsystems so they cooperate in
+// meaningful ways. Each pair of features is bridged by dedicated
+// functions that enforce invariants across subsystem boundaries.
+//
+// Feature pairs:
+//   Effect + Linear Types       Capability + Actor
+//   Continuation + Coroutine    Effect + Concurrency
+//   Linear + Capability         Dependent + Refinement
+//   Macro + Effect              Reflection + Dispatch
+//   TCO + Continuation          Safety + Provenance
+//   Module + Capability         Observability + Effect
+//   Gradual + Dependent         Actor + Concurrency
+//   Staging + Effect
+
+use effects::{Effect, EffectHandler, effect_perform, effect_handle, effect_register, effect_list}
+use effects::handler::{Handler, handler_new, handler_install}
+use types::linear::{LinearValue, LinearType, linear_new, linear_use, linear_check, linear_is_used, linear_use_count}
+use types::dependent::{DependentType, dependent_new, dependent_check}
+use types::refinement::{RefinementType, refinement_new, refinement_check}
+use types::gradual::{DynamicValue, dynamic_new, dynamic_cast, dynamic_check}
+use control::continuation::{Continuation, call_cc, cont_invoke, cont_capture, cont_restore, cont_is_valid, cont_depth}
+use control::coroutine::{Coroutine, coroutine_new, coroutine_resume, coroutine_yield, coroutine_is_done}
+use security::capability::{Capability, Sandbox, cap_new, cap_check, cap_verify, cap_create_sandbox, cap_enforce, sandbox_new, sandbox_execute, sandbox_add_cap}
+use actors::actor::{Actor, ActorRef, actor_new, actor_send, actor_ask, actor_stop}
+use dispatch::multimethod::{MultiMethod, MethodSignature, multimethod_new, multimethod_list}
+use concurrency::thread::{Thread, thread_spawn, thread_join}
+use concurrency::channel::{Channel, channel_unbounded, channel_bounded, channel_send, channel_receive, channel_close}
+use concurrency::executor::{Executor, executor_new, executor_submit}
+use safety::provenance::{UnsafeBlock, ProvenanceProof, unsafe_new, unsafe_verify, proof_new, proof_check, provenance_track, provenance_verify, unsafe_requires_proof}
+use safety::memory::{MemorySafetyReport, memory_safety_audit, bounds_check}
+use meta::macros::{Macro, macro_register, macro_expand, macro_exists}
+use meta::reflection::{TypeInfo, MethodInfo, reflect_type, reflect_methods, reflect_call}
+use modules::{Module, mod_register, mod_list, mod_dependencies, mod_resolve}
+use modules::visibility::{Visibility, vis_pub, is_visible, check_visibility}
+use observability::tracing::{Span, trace_start, trace_end, trace_set_attribute}
+use observability::metrics::{metric_counter, metric_gauge, metric_histogram}
+use tco::staging::{Stage, stage_compile, stage_partial_eval, stage_specialize, stage_is_runtime}
+use tco::{tco_detect, tco_optimize, tco_verify, is_tail_position}
+use modules::resolution::{load_module, resolve_dependencies}
+
+// ============================================================
+// Effect + Linear Types Integration
+// ============================================================
+
+/// Perform an effect with a linear value, ensuring the value is
+/// consumed exactly once. The linear value is consumed as part of the
+/// effect performance, and the result is checked for linear safety.
+fn effect_linear_perform(effect: string, linear_val: string) -> string {
+    // Create a linear value wrapper
+    let lv: LinearValue = linear_new("effect_resource", linear_val)
+
+    // Perform the effect, passing the linear value
+    let result: string = effect_perform(effect, linear_val)
+
+    // Consume the linear value — must be exactly once
+    let consumed: LinearValue = linear_use(lv)
+
+    // Verify linear constraint was satisfied
+    if !linear_check(consumed) {
+        return "ERROR: linear constraint violated during effect performance"
+    }
+
+    return result
+}
+
+/// Verify that a linear constraint still holds after an effect has
+/// been performed. Returns true if the value was consumed exactly once.
+fn linear_effect_check(effect: string, val: string) -> bool {
+    let lv: LinearValue = linear_new("effect_resource", val)
+
+    // Simulate performing the effect (which should consume the value)
+    let _result: string = effect_perform(effect, val)
+
+    // Check linear usage
+    let consumed: LinearValue = linear_use(lv)
+    return linear_check(consumed)
+}
+
+// ============================================================
+// Capability + Actor Integration
+// ============================================================
+
+/// Send a message to an actor, but only if the sender holds a valid
+/// capability for the actor's mailbox resource. Prevents unauthorized
+/// message injection into actor systems.
+fn actor_capability_send(actor: ActorRef, message: string, cap: Capability) -> void {
+    // Verify the capability is valid and unrevoked
+    if !cap_verify(cap) {
+        return // Capability invalid — deny send
+    }
+
+    // Check that the capability grants "send" permission on the actor
+    let resource: string = "actor:" + actor.name
+    if cap.resource != resource {
+        return // Capability does not cover this actor
+    }
+
+    if !cap_check(cap, "send") {
+        return // Capability does not grant send permission
+    }
+
+    // All checks passed — forward the message
+    actor_send(actor, message)
+}
+
+/// Execute code within an actor's sandbox. The sandbox restricts
+/// which resources the actor's code may access, enforcing the
+/// principle of least privilege at the actor level.
+fn actor_sandbox_execute(actor: ActorRef, code: string, sandbox: Sandbox) -> string {
+    // Enforce the sandbox's capability set
+    if !cap_enforce(sandbox) {
+        return "ERROR: sandbox capability enforcement failed"
+    }
+
+    // Execute code within the sandbox
+    let result: string = sandbox_execute(sandbox, code)
+    return result
+}
+
+// ============================================================
+// Continuation + Coroutine Integration
+// ============================================================
+
+/// Run a coroutine with continuation support. When the coroutine
+/// yields, its current state can be captured as a continuation that
+/// can be resumed later — even from a different call site.
+fn coroutine_with_continuation(co: Coroutine, cont: Continuation) -> string {
+    // Verify the continuation is valid before restoring
+    if !cont_is_valid(cont) {
+        return "ERROR: invalid continuation"
+    }
+
+    // Restore the continuation to resume from a prior yield point
+    let resumed_value: string = cont_restore(cont)
+
+    // Resume the coroutine with the restored value
+    let yielded: string = coroutine_resume(co, resumed_value)
+
+    // If the coroutine yielded, we could capture a new continuation here
+    // For now, return whatever the coroutine produced
+    return yielded
+}
+
+/// Capture a continuation from a coroutine's current state. The
+/// returned continuation encodes the coroutine's stack and can be
+/// used to resume the coroutine from this exact point later.
+fn continuation_from_coroutine(co: Coroutine) -> Continuation {
+    // Capture the current continuation — this snapshots the coroutine's
+    // execution state into a resumable handle
+    let cont: Continuation = cont_capture()
+    return cont
+}
+
+// ============================================================
+// Effect + Concurrency Integration
+// ============================================================
+
+/// Perform an effect asynchronously via a channel. The effect is
+/// dispatched to a concurrent handler that signals completion through
+/// the channel, decoupling the performing thread from the handler.
+fn effect_async_perform_with_channel(effect: string, ch: Channel) -> string {
+    // Create a dedicated channel for this async effect
+    let result_ch: Channel = channel_bounded(1)
+
+    // Perform the effect — the handler will send its result to result_ch
+    let result: string = effect_perform(effect, "async")
+
+    // Send the result through the provided channel
+    channel_send(ch, result)
+
+    // Also send through our internal result channel
+    channel_send(result_ch, result)
+
+    return result
+}
+
+/// Handle effects concurrently using an executor. Each effect handler
+/// runs on a separate executor task, allowing multiple effects to be
+/// handled in parallel without blocking the performing thread.
+fn concurrent_effect_handle(code: string, handlers: []EffectHandler, executor: Executor) -> string {
+    // Submit the effect-handling code as a task on the executor
+    let task_id: int = executor_submit(executor, fn() -> int {
+        let _result: string = effect_handle(code, handlers)
+        return 0
+    })
+
+    // The task is now running concurrently on the executor's thread pool
+    // Return a reference to the task so the caller can poll or wait
+    return "task:" + task_id.to_string()
+}
+
+// ============================================================
+// Linear + Capability Integration
+// ============================================================
+
+/// Verify that a linear value is protected by the given capability.
+/// Ensures that resources with linear ownership are only accessed
+/// through properly authorized capability channels.
+fn linear_capability_check(linear_val: LinearValue, cap: Capability) -> bool {
+    // The linear value must not have been consumed yet
+    if linear_is_used(linear_val) {
+        return false
+    }
+
+    // The capability must be valid
+    if !cap_verify(cap) {
+        return false
+    }
+
+    // The capability must grant access to the linear resource
+    let resource: string = "linear:" + linear_val.type_name
+    if cap.resource != resource {
+        return false
+    }
+
+    // The capability must grant at least "use" permission
+    return cap_check(cap, "use")
+}
+
+/// Enforce that a capability is required to consume a linear resource.
+/// Any attempt to use the linear value without the capability is rejected.
+fn capability_linear_enforce(cap: Capability, linear_val: LinearValue) -> void {
+    if !linear_capability_check(linear_val, cap) {
+        panic("linear capability enforcement: missing or invalid capability for resource")
+    }
+
+    // Capability verified — safe to consume the linear value
+    let _consumed: LinearValue = linear_use(linear_val)
+}
+
+// ============================================================
+// Dependent + Refinement Integration
+// ============================================================
+
+/// Check a value against both a dependent type predicate and a
+/// refinement type predicate. Both must be satisfied for the value
+/// to pass the combined check.
+fn dependent_refinement_check(value: string, dep: DependentType, refn: RefinementType) -> bool {
+    // Dependent type check: value satisfies the dependent predicate
+    let dep_ok: bool = dependent_check(value, dep)
+
+    // Refinement type check: value satisfies the refinement predicate
+    let refn_ok: bool = refinement_check(value, refn)
+
+    // Both must pass
+    return dep_ok && refn_ok
+}
+
+/// Create a combined type that carries both a dependent predicate
+/// and a refinement predicate. The resulting type name encodes both
+/// constraints for use in type checking.
+fn refined_dependent_type(base: string, dep_pred: string, ref_pred: string) -> string {
+    // Create the dependent type
+    let dep: DependentType = dependent_new(base, dep_pred)
+
+    // Create the refinement type
+    let refn: RefinementType = refinement_new(base, ref_pred)
+
+    // Combine into a single type expression
+    return dep.base_type + "{" + dep_pred + " | " + ref_pred + "}"
+}
+
+// ============================================================
+// Macro + Effect Integration
+// ============================================================
+
+/// Create a macro that, when expanded, performs the named effect.
+/// The macro body is generated to emit the appropriate effect_perform
+/// call with the given arguments, bridging compile-time macros with
+/// runtime algebraic effects.
+fn macro_with_effect(name: string, effect: string) -> Macro {
+    // Build a macro whose expansion performs the effect
+    let pattern: string = "@" + name + "($args...)"
+    let replacement: string = "effect_perform(\"" + effect + "\", $args...)"
+
+    // Register the macro
+    macro_register(name, pattern, replacement)
+
+    return Macro {
+        name: name,
+        pattern: pattern,
+        replacement: replacement,
+    }
+}
+
+/// Expand an effect macro with the given arguments. The expansion
+/// produces code that performs the effect at runtime, passing the
+/// arguments through the macro's template.
+fn effect_macro_expand(effect: string, args: string) -> string {
+    let macro_name: string = "effect_" + effect
+
+    // Check if a macro exists for this effect
+    if macro_exists(macro_name) {
+        // Expand the macro — the result is code that performs the effect
+        return macro_expand(macro_name, args)
+    }
+
+    // No macro registered — generate the effect call directly
+    return "effect_perform(\"" + effect + "\", " + args + ")"
+}
+
+// ============================================================
+// Reflection + Dispatch Integration
+// ============================================================
+
+/// Reflect on all method signatures registered in a multimethod.
+/// Uses the reflection system to extract detailed type information
+/// about each method's parameters and return type.
+fn multimethod_reflect(method: MultiMethod) -> []MethodInfo {
+    let sigs: []MethodSignature = multimethod_list(method)
+    let methods: []MethodInfo = []
+
+    var i = 0
+    while i < sigs.length {
+        let sig = sigs[i]
+
+        // Use reflection to get full type information for each param type
+        var params: []ParamInfo = []
+        var j = 0
+        while j < sig.param_types.length {
+            let type_info: TypeInfo = reflect_type(sig.param_types[j])
+            params = array_push(params, ParamInfo {
+                name: "arg_" + j.to_string(),
+                type_name: sig.param_types[j],
+            })
+            j = j + 1
+        }
+
+        methods = array_push(methods, MethodInfo {
+            name: method.name,
+            return_type: sig.return_type,
+            params: params,
+            is_public: true,
+        })
+
+        i = i + 1
+    }
+
+    return methods
+}
+
+/// Get all dispatch methods registered for a given type name. Uses
+/// reflection to discover which multimethods accept the type as a
+/// parameter, enabling dynamic dispatch lookup at runtime.
+fn dispatch_reflect_type(type_name: string) -> []MethodSignature {
+    // Get type information via reflection
+    let type_info: TypeInfo = reflect_type(type_name)
+
+    // Collect all method signatures that match this type
+    let matching: []MethodSignature = []
+
+    // Iterate over the type's own methods
+    var i = 0
+    while i < type_info.methods.length {
+        let m = type_info.methods[i]
+
+        // Build a MethodSignature from the reflected method
+        var param_types: []string = []
+        var j = 0
+        while j < m.params.length {
+            param_types = array_push(param_types, m.params[j].type_name)
+            j = j + 1
+        }
+
+        matching = array_push(matching, MethodSignature {
+            param_types: param_types,
+            return_type: m.return_type,
+            body: m.name,
+        })
+
+        i = i + 1
+    }
+
+    return matching
+}
+
+// ============================================================
+// TCO + Continuation Integration
+// ============================================================
+
+/// Optimize tail calls in a function that also captures continuations.
+/// Ensures that tail-recursive calls within a continuation-capturing
+/// function are still optimized, even when the continuation captures
+/// intermediate stack frames.
+fn tco_with_continuation(fn_name: string, cont: Continuation) -> string {
+    // Verify the continuation is valid before optimizing
+    if !cont_is_valid(cont) {
+        return "ERROR: invalid continuation for TCO integration"
+    }
+
+    // Detect tail calls in the function
+    let has_tco: bool = tco_detect(fn_name, "")
+
+    if has_tco {
+        // Optimize the tail calls
+        let optimized: string = tco_optimize(fn_name, "")
+
+        // Verify the optimization succeeded
+        let verified: bool = tco_verify(fn_name)
+        if verified {
+            return optimized
+        }
+    }
+
+    // No TCO applicable or optimization failed — return unoptimized
+    return fn_name
+}
+
+/// Check whether a captured continuation is in a tail position relative
+/// to the enclosing function. If the continuation was captured in a tail
+/// position, invoking it does not grow the stack.
+fn continuation_tco_check(cont: Continuation) -> bool {
+    // Verify the continuation is well-formed
+    if !cont_is_valid(cont) {
+        return false
+    }
+
+    // Check if the continuation's depth suggests a tail-position capture.
+    // A depth of 1 means the continuation captured only the immediate
+    // enclosing frame — consistent with a tail-position capture.
+    let depth: int = cont_depth(cont)
+    return depth <= 1
+}
+
+// ============================================================
+// Safety + Provenance Integration
+// ============================================================
+
+/// Check code for safety violations and generate a provenance proof
+/// that attests to the code's memory safety properties. The proof
+/// can be verified independently by the safety subsystem.
+fn safety_provenance_check(code: string) -> (bool, ProvenanceProof) {
+    // Check if the code requires a provenance proof
+    let requires_proof: bool = unsafe_requires_proof(code)
+
+    if !requires_proof {
+        // Code is safe — generate a trivial proof
+        let proof: ProvenanceProof = proof_new("safe_code", ["static_analysis_pass"])
+        return (true, proof)
+    }
+
+    // Code contains unsafe patterns — run memory safety audit
+    let report: MemorySafetyReport = memory_safety_audit()
+    let safe: bool = report.violations.length == 0
+
+    // Generate a provenance proof
+    var evidence: []string = []
+    if safe {
+        evidence = array_push(evidence, "memory_safety_audit_pass")
+    } else {
+        var i = 0
+        while i < report.violations.length {
+            evidence = array_push(evidence, "violation:" + report.violations[i])
+            i = i + 1
+        }
+    }
+
+    let proof: ProvenanceProof = proof_new("memory_safety", evidence)
+
+    return (safe, proof)
+}
+
+/// Verify that an unsafe block has valid memory safety provenance.
+/// Checks both the block's embedded proof and the runtime safety
+/// properties of the code.
+fn provenance_memory_safe(block: UnsafeBlock) -> bool {
+    // Verify the unsafe block's proof
+    let proof_valid: bool = unsafe_verify(block)
+
+    if !proof_valid {
+        return false
+    }
+
+    // Check if the code requires additional safety proofs
+    if unsafe_requires_proof(block.code) {
+        // Code contains dangerous patterns — verify provenance chain
+        let origin_ok: bool = provenance_verify(block.code, block.proof)
+        if !origin_ok {
+            return false
+        }
+    }
+
+    // Run a runtime memory safety audit on the block
+    let report: MemorySafetyReport = memory_safety_audit()
+    return report.violations.length == 0
+}
+
+// ============================================================
+// Module + Capability Integration
+// ============================================================
+
+/// Verify that a module holds the required capability to access a
+/// resource. Each module's access rights are governed by its set of
+/// capabilities, preventing unauthorized cross-module resource access.
+fn module_capability_check(module: string, capability: Capability) -> bool {
+    // Verify the capability is valid
+    if !cap_verify(capability) {
+        return false
+    }
+
+    // Check that the capability is owned by or granted to the module
+    if capability.owner != module {
+        return false
+    }
+
+    // Check that the module is registered
+    let modules: []string = mod_list()
+    var found: bool = false
+    var i = 0
+    while i < modules.length {
+        if modules[i] == module {
+            found = true
+            break
+        }
+        i = i + 1
+    }
+
+    if !found {
+        return false
+    }
+
+    // Module exists and capability is valid — check the permission
+    return cap_check(capability, "access")
+}
+
+/// Enforce capabilities within a module's sandbox. All resource
+/// accesses from the module are checked against the sandbox's
+/// capability set before execution.
+fn capability_module_enforce(module: string, sandbox: Sandbox) -> void {
+    // Enforce the sandbox's capability set
+    if !cap_enforce(sandbox) {
+        panic("module capability enforcement failed for module: " + module)
+    }
+
+    // Check module visibility rules
+    let modules: []string = mod_list()
+    var i = 0
+    while i < modules.length {
+        if modules[i] == module {
+            // Verify the module's dependencies don't exceed its capabilities
+            let deps: []string = mod_dependencies(module)
+            var j = 0
+            while j < deps.length {
+                if !sandbox_is_allowed(sandbox, "import:" + deps[j]) {
+                    panic("module " + module + " lacks capability for dependency: " + deps[j])
+                }
+                j = j + 1
+            }
+            break
+        }
+        i = i + 1
+    }
+}
+
+// ============================================================
+// Observability + Effect Integration
+// ============================================================
+
+/// Perform an effect with full tracing instrumentation. A trace span
+/// is opened before the effect and closed after, recording timing,
+/// arguments, and result for distributed tracing.
+fn effect_trace_perform(effect: string, args: string) -> string {
+    // Start a trace span for this effect performance
+    let span: Span = trace_start("effect:" + effect)
+    trace_set_attribute(span, "effect.name", effect)
+    trace_set_attribute(span, "effect.args", args)
+
+    // Perform the effect
+    let result: string = effect_perform(effect, args)
+
+    // Record the result
+    trace_set_attribute(span, "effect.result_length", result.length.to_string())
+    trace_set_attribute(span, "effect.status", "success")
+
+    // Close the trace span
+    trace_end(span)
+
+    return result
+}
+
+/// Track effect execution metrics: count, duration, and histogram
+/// distribution. Enables monitoring of effect system performance
+/// across the entire application.
+fn effect_metrics_track(effect: string, duration_ms: int) -> void {
+    // Increment the effect invocation counter
+    metric_counter("effect." + effect + ".invocations", 1.0)
+
+    // Record the duration as a histogram
+    metric_histogram("effect." + effect + ".duration_ms", duration_ms as float)
+
+    // Update the gauge with the latest duration
+    metric_gauge("effect." + effect + ".last_duration_ms", duration_ms as float)
+}
+
+// ============================================================
+// Gradual + Dependent Integration
+// ============================================================
+
+/// Check a dynamically-typed value against a dependent type's
+/// predicate. The dynamic value's runtime type is first verified
+/// against the dependent type's base type, then the predicate is
+/// evaluated against the runtime value.
+fn gradual_dependent_check(value: string, dyn_val: DynamicValue, dep: DependentType) -> bool {
+    // First, verify the dynamic value's type matches the dependent type's base
+    let type_ok: bool = dynamic_check(dyn_val, dep.base_type)
+
+    if !type_ok {
+        // Dynamic value's type does not match — reject
+        return false
+    }
+
+    // Now check the dependent predicate against the value
+    let pred_ok: bool = dependent_check(value, dep)
+
+    return pred_ok
+}
+
+/// Cast a dynamic value to a dependent type, checking the dependent
+/// predicate at runtime. The cast succeeds only if the dynamic value's
+/// type matches and the dependent predicate holds.
+fn dependent_gradual_cast(dyn_val: DynamicValue, dep: DependentType) -> DynamicValue {
+    // Check the dependent predicate against the dynamic value
+    let pred_ok: bool = dependent_check(dyn_val.value, dep)
+
+    if !pred_ok {
+        // Predicate failed — return the original dynamic value unchanged
+        return dyn_val
+    }
+
+    // Cast the dynamic value to the dependent type's base type
+    let casted: DynamicValue = dynamic_cast(dyn_val, dep.base_type)
+    return casted
+}
+
+// ============================================================
+// Actor + Concurrency Integration
+// ============================================================
+
+/// Run an actor on a dedicated OS thread. The actor's message loop
+/// runs on its own thread, isolating its execution from other actors
+/// and preventing contention on the shared mailbox.
+fn actor_thread_spawn(actor: ActorRef) -> Thread {
+    // Spawn a dedicated thread for this actor
+    let thread: Thread = thread_spawn("actor:" + actor.name, fn() -> void {
+        // Actor message loop runs on this thread
+        // In production: poll the actor's mailbox and process messages
+    })
+
+    return thread
+}
+
+/// Connect an actor to a channel, enabling channel-based message
+/// passing in addition to direct actor messaging. Messages sent to
+/// the channel are forwarded to the actor's mailbox.
+fn actor_channel_send(actor: ActorRef, ch: Channel) -> void {
+    // Send the actor's registration message through the channel
+    let registration: string = "register:" + actor.name
+    channel_send(ch, registration)
+
+    // The channel is now linked to the actor
+    // In production: set up a forwarding loop from channel to actor mailbox
+}
+
+// ============================================================
+// Staging + Effect Integration
+// ============================================================
+
+/// Perform an effect at a specific compilation stage. Compile-time
+/// effects are resolved during compilation, load-time effects during
+/// module initialization, and runtime effects during execution.
+fn staged_effect_perform(stage: Stage, effect: string, args: string) -> string {
+    if stage_is_runtime(stage) {
+        // Runtime stage — perform the effect normally
+        return effect_perform(effect, args)
+    }
+
+    // Compile-time or load-time stage — partially evaluate the effect
+    let known: string = "{\"effect\":\"" + effect + "\",\"args\":\"" + args + "\"}"
+    let specialized: string = stage_partial_eval("effect_perform(\"" + effect + "\", " + args + ")", known)
+    return specialized
+}
+
+/// Specialize an effect for concrete types at compile time using the
+/// staging system. The effect handler is specialized for the given
+/// types, eliminating dynamic dispatch overhead.
+fn effect_stage_specialize(effect: string, types: string) -> string {
+    // Use the staging system to specialize the effect handler
+    let specialized: string = stage_specialize("effect_handler_" + effect, types)
+    return specialized
+}

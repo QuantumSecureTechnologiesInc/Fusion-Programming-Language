@@ -1,0 +1,20 @@
+[package]
+name = "fusion_supernova"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion"
+authors = ["Quantum Secure Technologies Inc."]
+description = "Tribrid execution engine with CPU/GPU/QPU dispatch, work-stealing scheduler, and zero-copy memory transfers"
+
+[dependencies]
+parking_lot = "0.12"
+crossbeam = "0.8"
+crossbeam-deque = "0.8"
+tracing = "0.1"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1.4", features = ["v4"] }
+num_cpus = "1.16"
+
+[dev-dependencies]

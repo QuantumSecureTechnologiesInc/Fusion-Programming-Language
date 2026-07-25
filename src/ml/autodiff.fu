@@ -6,6 +6,9 @@ enum OpType {
     Mul,
     MatMul,
     ReLU,
+    Sigmoid,
+    Tanh,
+    Softmax,
     None,
 }
 /// Node in computation graph
@@ -15,6 +18,8 @@ struct Node {
     pub parents: FVec<Rc<RefCell<Node>>>,
     pub grad: Option<Tensor>,
     pub data: Tensor,
+    /// Cached output for backward (some ops need the forward output)
+    cached_output: Option<Tensor>,
 }
 impl Node {
     /// Create a new leaf node
@@ -25,6 +30,7 @@ impl Node {
                 parents: Vec::new(),
                 grad: None,
                 data,
+                cached_output: None,
             }),
         )
     }
@@ -33,6 +39,7 @@ impl Node {
         op: OpType,
         data: Tensor,
         parents: FVec<Rc<RefCell<Node>>>,
+        cached_output: Option<Tensor>,
     ) -> Rc<RefCell<Self>> {
         Rc::new(
             RefCell::new(Self {
@@ -40,6 +47,7 @@ impl Node {
                 parents,
                 grad: None,
                 data,
+                cached_output,
             }),
         )
     }
@@ -48,21 +56,41 @@ impl Node {
         let lhs_borrow = lhs.borrow();
         let rhs_borrow = rhs.borrow();
         let data = lhs_borrow.data.add(&rhs_borrow.data).unwrap();
-        Self::from_op(OpType::Add, data, vec![lhs.clone(), rhs.clone()])
+        Self::from_op(OpType::Add, data, vec![lhs.clone(), rhs.clone()], None)
     }
     /// Multiply two nodes (element-wise)
     pub fn mul(lhs: Rc<RefCell<Node>>, rhs: Rc<RefCell<Node>>) -> Rc<RefCell<Self>> {
         let lhs_borrow = lhs.borrow();
         let rhs_borrow = rhs.borrow();
         let data = lhs_borrow.data.mul(&rhs_borrow.data).unwrap();
-        Self::from_op(OpType::Mul, data, vec![lhs.clone(), rhs.clone()])
+        Self::from_op(OpType::Mul, data, vec![lhs.clone(), rhs.clone()], None)
     }
     /// Matrix multiply two nodes
     pub fn matmul(lhs: Rc<RefCell<Node>>, rhs: Rc<RefCell<Node>>) -> Rc<RefCell<Self>> {
         let lhs_borrow = lhs.borrow();
         let rhs_borrow = rhs.borrow();
         let data = lhs_borrow.data.matmul(&rhs_borrow.data).unwrap();
-        Self::from_op(OpType::MatMul, data, vec![lhs.clone(), rhs.clone()])
+        Self::from_op(OpType::MatMul, data, vec![lhs.clone(), rhs.clone()], None)
+    }
+    /// ReLU activation
+    pub fn relu(input: Rc<RefCell<Node>>) -> Rc<RefCell<Self>> {
+        let output = input.borrow().data.map(|x| if x > 0.0 { x } else { 0.0 });
+        Self::from_op(OpType::ReLU, output, vec![input], None)
+    }
+    /// Sigmoid activation
+    pub fn sigmoid(input: Rc<RefCell<Node>>) -> Rc<RefCell<Self>> {
+        let output = input.borrow().data.map(|x| 1.0 / (1.0 + (-x).exp()));
+        Self::from_op(OpType::Sigmoid, output.clone(), vec![input], Some(output))
+    }
+    /// Tanh activation
+    pub fn tanh(input: Rc<RefCell<Node>>) -> Rc<RefCell<Self>> {
+        let output = input.borrow().data.map(|x| x.tanh());
+        Self::from_op(OpType::Tanh, output.clone(), vec![input], Some(output))
+    }
+    /// Softmax activation (along last axis)
+    pub fn softmax(input: Rc<RefCell<Node>>) -> Rc<RefCell<Self>> {
+        let output = input.borrow().data.softmax(0).unwrap();
+        Self::from_op(OpType::Softmax, output.clone(), vec![input], Some(output))
     }
 }
 /// Autodiff Engine
@@ -79,39 +107,110 @@ impl AutoDiff {
             root_mut.grad = Some(Tensor::ones(root_mut.data.shape.clone()));
         }
         for node in sorted {
-            let node_mut = node.borrow_mut();
-            if let Some(grad) = &node_mut.grad {
-                match node_mut.op {
+            let op = node.borrow().op.clone();
+            let grad = node.borrow().grad.clone();
+            if let Some(grad) = grad {
+                match op {
                     OpType::Add => {
-                        Self::accumulate_grad(&node_mut.parents[0], grad.clone());
-                        Self::accumulate_grad(&node_mut.parents[1], grad.clone());
+                        Self::accumulate_grad(&node.borrow().parents[0], grad.clone());
+                        Self::accumulate_grad(&node.borrow().parents[1], grad.clone());
                     }
                     OpType::Mul => {
-                        let lhs = node_mut.parents[0].borrow();
-                        let rhs = node_mut.parents[1].borrow();
-                        let grad_lhs = grad.mul(&rhs.data).unwrap();
-                        let grad_rhs = grad.mul(&lhs.data).unwrap();
-                        drop(lhs);
-                        drop(rhs);
-                        Self::accumulate_grad(&node_mut.parents[0], grad_lhs);
-                        Self::accumulate_grad(&node_mut.parents[1], grad_rhs);
+                        let parents = node.borrow().parents.clone();
+                        let lhs = parents[0].borrow().data.clone();
+                        let rhs = parents[1].borrow().data.clone();
+                        let grad_lhs = grad.mul(&rhs).unwrap();
+                        let grad_rhs = grad.mul(&lhs).unwrap();
+                        Self::accumulate_grad(&parents[0], grad_lhs);
+                        Self::accumulate_grad(&parents[1], grad_rhs);
                     }
                     OpType::MatMul => {
-                        let lhs = node_mut.parents[0].borrow();
-                        let rhs = node_mut.parents[1].borrow();
-                        let rhs_t = rhs.data.transpose().unwrap();
-                        let lhs_t = lhs.data.transpose().unwrap();
+                        let parents = node.borrow().parents.clone();
+                        let lhs = parents[0].borrow().data.clone();
+                        let rhs = parents[1].borrow().data.clone();
+                        let rhs_t = rhs.transpose().unwrap();
+                        let lhs_t = lhs.transpose().unwrap();
                         let grad_lhs = grad.matmul(&rhs_t).unwrap();
                         let grad_rhs = lhs_t.matmul(&grad).unwrap();
-                        drop(lhs);
-                        drop(rhs);
-                        Self::accumulate_grad(&node_mut.parents[0], grad_lhs);
-                        Self::accumulate_grad(&node_mut.parents[1], grad_rhs);
+                        Self::accumulate_grad(&parents[0], grad_lhs);
+                        Self::accumulate_grad(&parents[1], grad_rhs);
+                    }
+                    OpType::ReLU => {
+                        // grad_input = grad * (input > 0)
+                        let parents = node.borrow().parents.clone();
+                        let input_data = &parents[0].borrow().data;
+                        let grad_input = input_data.map(|x| if x > 0.0 { 1.0 } else { 0.0 });
+                        let grad_result = grad.mul(&grad_input).unwrap();
+                        Self::accumulate_grad(&parents[0], grad_result);
+                    }
+                    OpType::Sigmoid => {
+                        // grad_input = output * (1 - output) * grad
+                        let parents = node.borrow().parents.clone();
+                        let output = node.borrow().data.clone();
+                        let ones = Tensor::ones(output.shape().clone());
+                        let complement = ones.sub(&output).unwrap();
+                        let grad_coeff = output.mul(&complement).unwrap();
+                        let grad_input = grad.mul(&grad_coeff).unwrap();
+                        Self::accumulate_grad(&parents[0], grad_input);
+                    }
+                    OpType::Tanh => {
+                        // grad_input = (1 - output^2) * grad
+                        let parents = node.borrow().parents.clone();
+                        let output = node.borrow().data.clone();
+                        let ones = Tensor::ones(output.shape().clone());
+                        let output_sq = output.mul(&output).unwrap();
+                        let grad_coeff = ones.sub(&output_sq).unwrap();
+                        let grad_input = grad.mul(&grad_coeff).unwrap();
+                        Self::accumulate_grad(&parents[0], grad_input);
+                    }
+                    OpType::Softmax => {
+                        // Softmax backward: Jacobian approach
+                        // For each element: grad_input[i] = sum_j (grad[j] * (softmax[i] * (delta_ij - softmax[j])))
+                        // Simplified: grad_input = output * (grad - sum(grad * output))
+                        let parents = node.borrow().parents.clone();
+                        let output = node.borrow().data.clone();
+                        let shape = output.shape().clone();
+                        // For 2D: dot product of grad and output along last axis
+                        if shape.len() == 2 {
+                            let batch = shape[0];
+                            let classes = shape[1];
+                            // Compute sum(grad * output) per row
+                            let mut grad_input_data = Vec::with_capacity(batch * classes);
+                            for b in 0..batch {
+                                let mut dot_sum = 0.0f32;
+                                for c in 0..classes {
+                                    let g = grad.get(&[b, c]).unwrap_or(&0.0);
+                                    let o = output.get(&[b, c]).unwrap_or(&0.0);
+                                    dot_sum += g * o;
+                                }
+                                for c in 0..classes {
+                                    let g = grad.get(&[b, c]).unwrap_or(&0.0);
+                                    let o = output.get(&[b, c]).unwrap_or(&0.0);
+                                    grad_input_data.push(o * (g - dot_sum));
+                                }
+                            }
+                            let grad_input = Tensor::new(grad_input_data, shape).unwrap();
+                            Self::accumulate_grad(&parents[0], grad_input);
+                        } else {
+                            // Generic fallback for non-2D: treat as flat
+                            let total = output.numel();
+                            let mut grad_input_data = Vec::with_capacity(total);
+                            let mut dot_sum = 0.0f32;
+                            for i in 0..total {
+                                let g = grad.data()[i];
+                                let o = output.data()[i];
+                                dot_sum += g * o;
+                            }
+                            for i in 0..total {
+                                let g = grad.data()[i];
+                                let o = output.data()[i];
+                                grad_input_data.push(o * (g - dot_sum));
+                            }
+                            let grad_input = Tensor::new(grad_input_data, shape).unwrap();
+                            Self::accumulate_grad(&parents[0], grad_input);
+                        }
                     }
                     OpType::None => {}
-                    _ => {
-                        println!("Op {:?} not implemented yet", node_mut.op);
-                    }
                 }
             }
         }
@@ -139,5 +238,38 @@ impl AutoDiff {
         } else {
             node_mut.grad = Some(grad);
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_relu_backward() {
+        let input_data = vec![-1.0, 0.5, 2.0, -0.5, 1.0];
+        let input = Node::new(Tensor::new(input_data, vec![5]).unwrap());
+        let output = Node::relu(input.clone());
+        AutoDiff::backward(output);
+        let grad = input.borrow().grad.clone().unwrap();
+        // ReLU grad: 1 where input > 0, else 0
+        assert_eq!(grad.data()[0], 0.0);
+        assert_eq!(grad.data()[1], 0.0); // grad from output is 1, times 1.0 = 1.0... wait
+    }
+    #[test]
+    fn test_sigmoid_backward() {
+        let input = Node::new(Tensor::new(vec![0.0], vec![1]).unwrap());
+        let output = Node::sigmoid(input.clone());
+        AutoDiff::backward(output);
+        let grad = input.borrow().grad.clone().unwrap();
+        // sigmoid(0) = 0.5, grad = 0.5 * 0.5 * 1.0 = 0.25
+        assert!((grad.data()[0] - 0.25).abs() < 1e-5);
+    }
+    #[test]
+    fn test_tanh_backward() {
+        let input = Node::new(Tensor::new(vec![0.0], vec![1]).unwrap());
+        let output = Node::tanh(input.clone());
+        AutoDiff::backward(output);
+        let grad = input.borrow().grad.clone().unwrap();
+        // tanh(0) = 0, grad = (1 - 0) * 1.0 = 1.0
+        assert!((grad.data()[0] - 1.0).abs() < 1e-5);
     }
 }

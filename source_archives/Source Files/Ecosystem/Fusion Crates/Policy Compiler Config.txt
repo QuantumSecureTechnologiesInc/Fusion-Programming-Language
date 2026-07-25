@@ -1,9 +1,0 @@
-[package]
-name = "fusion_sec_policy_compiler"
-version = "0.1.0"
-edition = "2021"
-description = "Compiles declarative security policies (Rego/Datalog) into runtime bytecode"
-license = "MIT"
-
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" } # Compiles logic

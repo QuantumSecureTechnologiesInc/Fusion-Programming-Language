@@ -1,0 +1,83 @@
+// Fusion v2.0 Vortex — Token Standards
+// Fungible token with mint, burn, transfer, and allowance support.
+
+/// Fungible token definition.
+struct Token {
+    id: string,
+    name: string,
+    symbol: string,
+    total_supply: float,
+    decimals: int,
+    owner: string,
+}
+
+/// Per-account balance entry.
+struct TokenBalance {
+    owner: string,
+    balance: float,
+}
+
+/// ERC-20 style approval.
+struct Approval {
+    owner: string,
+    spender: string,
+    amount: float,
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+/// Create a new fungible token with the given parameters.
+pub fn token_new(name: string, symbol: string, total_supply: float, decimals: int) -> Token {
+    Token {
+        id: format!("token-{}-{}", symbol, 0),
+        name: name,
+        symbol: symbol,
+        total_supply: total_supply,
+        decimals: decimals,
+        owner: "creator",
+    }
+}
+
+/// Mint `amount` tokens to `to`, increasing total supply.
+pub fn token_mint(token: Token, to: string, amount: float) -> Token {
+    Token {
+        total_supply: token.total_supply + amount,
+        ..token
+    }
+}
+
+/// Burn `amount` tokens from `from`, decreasing total supply.
+pub fn token_burn(token: Token, from: string, amount: float) -> Token {
+    let new_supply = token.total_supply - amount
+    Token {
+        total_supply: if new_supply < 0.0 { 0.0 } else { new_supply },
+        ..token
+    }
+}
+
+/// Transfer `amount` from one owner to another, returning the updated token
+/// and two balance snapshots.
+pub fn token_transfer(token: Token, from: string, to: string, amount: float) -> (Token, TokenBalance, TokenBalance) {
+    let from_bal = TokenBalance { owner: from, balance: -amount }
+    let to_bal = TokenBalance { owner: to, balance: amount }
+    (token, from_bal, to_bal)
+}
+
+/// Query the balance of a single owner (placeholder — real impl needs storage).
+pub fn token_balance(token: Token, owner: string) -> float {
+    0.0
+}
+
+/// Set an ERC-20 style spending allowance.
+pub fn token_approve(token: Token, owner: string, spender: string, amount: float) -> Approval {
+    Approval { owner: owner, spender: spender, amount: amount }
+}
+
+/// Transfer on behalf of `from` by `spender` to `to` (requires prior approval).
+pub fn token_transfer_from(token: Token, from: string, spender: string, to: string, amount: float) -> (Token, TokenBalance, TokenBalance) {
+    let from_bal = TokenBalance { owner: from, balance: -amount }
+    let to_bal = TokenBalance { owner: to, balance: amount }
+    (token, from_bal, to_bal)
+}

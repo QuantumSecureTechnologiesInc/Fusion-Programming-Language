@@ -1,0 +1,462 @@
+#![allow(dead_code)]
+use super::Module;
+use crate::ml::tensor::Tensor;
+use crate::ml::MLError;
+use std::f32::consts::PI;
+
+/// Embedding Layer
+/// Looks up vectors from a weight matrix by index with Xavier initialization
+struct Embedding {
+    pub vocab_size: FSize,
+    pub embedding_dim: FSize,
+    pub weights: Tensor,
+    training: FBool,
+}
+
+impl Embedding {
+    pub fn new(vocab_size: FSize, embedding_dim: FSize) -> Self {
+        let weights = xavier_init(vocab_size, embedding_dim);
+        Self {
+            vocab_size,
+            embedding_dim,
+            weights,
+            training: true,
+        }
+    }
+}
+
+impl Module for Embedding {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        embedding_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.weights]
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// Positional Embedding using sinusoidal encoding
+/// Adds fixed positional encodings to the input
+struct PositionalEmbedding {
+    pub max_len: FSize,
+    pub d_model: FSize,
+    pub weights: Tensor,
+}
+
+impl PositionalEmbedding {
+    pub fn new(max_len: FSize, d_model: FSize) -> Self {
+        let weights = sinusoidal_embedding(max_len, d_model).unwrap();
+        Self {
+            max_len,
+            d_model,
+            weights,
+        }
+    }
+}
+
+impl Module for PositionalEmbedding {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let shape = input.shape();
+        if shape.len() < 2 {
+            return Err(MLError::InvalidShape(
+                "PositionalEmbedding requires at least 2D input [seq_len, d_model] or [batch, seq_len, d_model]".to_string(),
+            ));
+        }
+        if shape[shape.len() - 1] != self.d_model {
+            return Err(MLError::DimensionMismatch {
+                expected: vec![self.d_model],
+                actual: vec![shape[shape.len() - 1]],
+            });
+        }
+        let seq_len = shape[shape.len() - 2];
+        if seq_len > self.max_len {
+            return Err(MLError::InvalidShape(
+                format!("Sequence length {} exceeds max_len {}", seq_len, self.max_len),
+            ));
+        }
+        if shape.len() == 2 {
+            // [seq_len, d_model] + [seq_len, d_model]
+            let mut result = input.clone();
+            for s in 0..seq_len {
+                for d in 0..self.d_model {
+                    let val = result.get(&[s, d]).unwrap();
+                    let pe_val = self.weights.get(&[s, d]).unwrap();
+                    result.set(&[s, d], val + pe_val)?;
+                }
+            }
+            Ok(result)
+        } else {
+            // [batch, seq_len, d_model] + [seq_len, d_model]
+            let batch_size = shape[0];
+            let mut result = input.clone();
+            for b in 0..batch_size {
+                for s in 0..seq_len {
+                    for d in 0..self.d_model {
+                        let val = result.get(&[b, s, d]).unwrap();
+                        let pe_val = self.weights.get(&[s, d]).unwrap();
+                        result.set(&[b, s, d], val + pe_val)?;
+                    }
+                }
+            }
+            Ok(result)
+        }
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.weights]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Token Embedding
+/// Embeds token IDs and scales by sqrt(d_model)
+struct TokenEmbedding {
+    pub vocab_size: FSize,
+    pub d_model: FSize,
+    pub weights: Tensor,
+    training: FBool,
+}
+
+impl TokenEmbedding {
+    pub fn new(vocab_size: FSize, d_model: FSize) -> Self {
+        let weights = xavier_init(vocab_size, d_model);
+        Self {
+            vocab_size,
+            d_model,
+            weights,
+            training: true,
+        }
+    }
+}
+
+impl Module for TokenEmbedding {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let shape = input.shape();
+        if shape.is_empty() {
+            return Err(MLError::InvalidShape(
+                "TokenEmbedding indices must have at least 1 dimension".to_string(),
+            ));
+        }
+        let scale = (self.d_model as f32).sqrt();
+        let seq_len = if shape.len() == 1 { shape[0] } else { shape[shape.len() - 1] };
+        let batch_size = if shape.len() == 2 { shape[0] } else if shape.len() == 3 { shape[0] } else { 1 };
+
+        if shape.len() == 1 {
+            let mut output = Tensor::zeros(vec![seq_len, self.d_model]);
+            for s in 0..seq_len {
+                let idx = *input.get(&[s]).unwrap() as usize;
+                if idx >= self.vocab_size as usize {
+                    return Err(MLError::InvalidShape(
+                        format!("Index {} out of vocabulary range [0, {})", idx, self.vocab_size),
+                    ));
+                }
+                for d in 0..self.d_model {
+                    let val = self.weights.get(&[idx, d]).unwrap();
+                    output.set(&[s, d], val * scale)?;
+                }
+            }
+            Ok(output)
+        } else if shape.len() == 2 {
+            let mut output = Tensor::zeros(vec![batch_size, seq_len, self.d_model]);
+            for b in 0..batch_size {
+                for s in 0..seq_len {
+                    let idx = *input.get(&[b, s]).unwrap() as usize;
+                    if idx >= self.vocab_size as usize {
+                        return Err(MLError::InvalidShape(
+                            format!("Index {} out of vocabulary range [0, {})", idx, self.vocab_size),
+                        ));
+                    }
+                    for d in 0..self.d_model {
+                        let val = self.weights.get(&[idx, d]).unwrap();
+                        output.set(&[b, s, d], val * scale)?;
+                    }
+                }
+            }
+            Ok(output)
+        } else {
+            Err(MLError::InvalidShape(
+                "TokenEmbedding indices must be 1D or 2D".to_string(),
+            ))
+        }
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.weights]
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// Learned Positional Embedding
+/// Uses learned (trainable) position embeddings
+struct LearnedPositionalEmbedding {
+    pub max_len: FSize,
+    pub d_model: FSize,
+    pub weights: Tensor,
+}
+
+impl LearnedPositionalEmbedding {
+    pub fn new(max_len: FSize, d_model: FSize) -> Self {
+        let weights = xavier_init(max_len, d_model);
+        Self {
+            max_len,
+            d_model,
+            weights,
+        }
+    }
+}
+
+impl Module for LearnedPositionalEmbedding {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let shape = input.shape();
+        if shape.len() < 2 {
+            return Err(MLError::InvalidShape(
+                "LearnedPositionalEmbedding requires at least 2D input".to_string(),
+            ));
+        }
+        if shape[shape.len() - 1] != self.d_model {
+            return Err(MLError::DimensionMismatch {
+                expected: vec![self.d_model],
+                actual: vec![shape[shape.len() - 1]],
+            });
+        }
+        let seq_len = shape[shape.len() - 2];
+        if seq_len > self.max_len {
+            return Err(MLError::InvalidShape(
+                format!("Sequence length {} exceeds max_len {}", seq_len, self.max_len),
+            ));
+        }
+        if shape.len() == 2 {
+            let mut result = input.clone();
+            for s in 0..seq_len {
+                for d in 0..self.d_model {
+                    let val = result.get(&[s, d]).unwrap();
+                    let pos_val = self.weights.get(&[s, d]).unwrap();
+                    result.set(&[s, d], val + pos_val)?;
+                }
+            }
+            Ok(result)
+        } else {
+            let batch_size = shape[0];
+            let mut result = input.clone();
+            for b in 0..batch_size {
+                for s in 0..seq_len {
+                    for d in 0..self.d_model {
+                        let val = result.get(&[b, s, d]).unwrap();
+                        let pos_val = self.weights.get(&[s, d]).unwrap();
+                        result.set(&[b, s, d], val + pos_val)?;
+                    }
+                }
+            }
+            Ok(result)
+        }
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.weights]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// WordPiece Embedding
+struct WordPieceEmbedding {
+    pub vocab: FVec<FString>,
+    pub embedding_dim: FSize,
+    pub weights: Tensor,
+    pub token_to_id: std::collections::HashMap<FString, FSize>,
+}
+
+impl WordPieceEmbedding {
+    pub fn new(vocab: FVec<FString>, embedding_dim: FSize) -> Self {
+        let vocab_size = vocab.len();
+        let mut token_to_id = std::collections::HashMap::new();
+        for (i, token) in vocab.iter().enumerate() {
+            token_to_id.insert(token.clone(), i);
+        }
+        Self {
+            vocab,
+            embedding_dim,
+            weights: Tensor::zeros(vec![vocab_size as FSize, embedding_dim]),
+            token_to_id,
+        }
+    }
+
+    pub fn lookup(&self, token: &str) -> Option<Tensor> {
+        if let Some(&id) = self.token_to_id.get(token) {
+            let mut result = Tensor::zeros(vec![self.embedding_dim]);
+            for d in 0..self.embedding_dim {
+                result.set(&[d], *self.weights.get(&[id, d]).unwrap())?;
+            }
+            Some(result)
+        } else {
+            None
+        }
+    }
+}
+
+/// Embedding forward pass
+fn embedding_forward(indices: &Tensor, layer: &Embedding) -> Result<Tensor, MLError> {
+    if indices.shape.is_empty() {
+        return Err(MLError::InvalidShape(
+            "Embedding indices must have at least 1 dimension".to_string(),
+        ));
+    }
+    let embedding_dim = layer.embedding_dim;
+    if indices.shape.len() == 1 {
+        let seq_len = indices.shape[0];
+        let mut output = Tensor::zeros(vec![seq_len, embedding_dim]);
+        for s in 0..seq_len {
+            let idx = *indices.get(&[s]).unwrap() as usize;
+            if idx >= layer.vocab_size {
+                return Err(MLError::InvalidShape(
+                    format!("Index {} out of vocabulary range [0, {})", idx, layer.vocab_size),
+                ));
+            }
+            for d in 0..embedding_dim {
+                output.set(&[s, d], *layer.weights.get(&[idx, d]).unwrap())?;
+            }
+        }
+        Ok(output)
+    } else if indices.shape.len() == 2 {
+        let batch_size = indices.shape[0];
+        let seq_len = indices.shape[1];
+        let mut output = Tensor::zeros(vec![batch_size, seq_len, embedding_dim]);
+        for b in 0..batch_size {
+            for s in 0..seq_len {
+                let idx = *indices.get(&[b, s]).unwrap() as usize;
+                if idx >= layer.vocab_size {
+                    return Err(MLError::InvalidShape(
+                        format!("Index {} out of vocabulary range [0, {})", idx, layer.vocab_size),
+                    ));
+                }
+                for d in 0..embedding_dim {
+                    output.set(&[b, s, d], *layer.weights.get(&[idx, d]).unwrap())?;
+                }
+            }
+        }
+        Ok(output)
+    } else {
+        Err(MLError::InvalidShape(
+            "Embedding indices must be 1D or 2D".to_string(),
+        ))
+    }
+}
+
+/// Embedding backward pass - scatter gradients to weight matrix
+fn embedding_backward(grad_output: &Tensor, indices: &Tensor, vocab_size: FSize) -> Result<Tensor, MLError> {
+    let embedding_dim = grad_output.shape[grad_output.shape.len() - 1];
+    let mut grad_weights = Tensor::zeros(vec![vocab_size, embedding_dim]);
+    if indices.shape.len() == 1 {
+        let seq_len = indices.shape[0];
+        for s in 0..seq_len {
+            let idx = *indices.get(&[s]).unwrap() as usize;
+            if idx < vocab_size {
+                for d in 0..embedding_dim {
+                    let current = grad_weights.get(&[idx, d]).unwrap();
+                    let grad_val = grad_output.get(&[s, d]).unwrap();
+                    grad_weights.set(&[idx, d], current + grad_val)?;
+                }
+            }
+        }
+    } else if indices.shape.len() == 2 {
+        let batch_size = indices.shape[0];
+        let seq_len = indices.shape[1];
+        for b in 0..batch_size {
+            for s in 0..seq_len {
+                let idx = *indices.get(&[b, s]).unwrap() as usize;
+                if idx < vocab_size {
+                    for d in 0..embedding_dim {
+                        let current = grad_weights.get(&[idx, d]).unwrap();
+                        let grad_val = grad_output.get(&[b, s, d]).unwrap();
+                        grad_weights.set(&[idx, d], current + grad_val)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(grad_weights)
+}
+
+/// Xavier initialization
+fn xavier_init(rows: FSize, cols: FSize) -> Tensor {
+    let fan_in = rows as f32;
+    let fan_out = cols as f32;
+    let std_dev = (2.0 / (fan_in + fan_out)).sqrt();
+    let total = (rows * cols) as usize;
+    let mut data = Vec::with_capacity(total);
+    for i in 0..total {
+        let hash = (i as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let r = ((hash % 2000) as f32 / 1000.0) - 1.0;
+        data.push(r * std_dev);
+    }
+    Tensor::new(data, vec![rows, cols]).unwrap()
+}
+
+/// Generate sinusoidal embeddings
+fn sinusoidal_embedding(max_len: FSize, dim: FSize) -> Result<Tensor, MLError> {
+    let mut pe = Tensor::zeros(vec![max_len, dim]);
+    for pos in 0..max_len {
+        for i in 0..dim / 2 {
+            let angle = pos as f32 / (10000.0_f32).powf((2 * i) as f32 / dim as f32);
+            pe.set(&[pos, 2 * i], angle.sin())?;
+            pe.set(&[pos, 2 * i + 1], angle.cos())?;
+        }
+    }
+    Ok(pe)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_embedding_xavier_init() {
+        let emb = Embedding::new(10, 8);
+        assert_eq!(emb.weights.shape(), &vec![10, 8]);
+        // Xavier init should produce non-zero values
+        let mut has_nonzero = false;
+        for i in 0..80 {
+            if emb.weights.data()[i] != 0.0 {
+                has_nonzero = true;
+                break;
+            }
+        }
+        assert!(has_nonzero);
+    }
+
+    #[test]
+    fn test_embedding_forward_1d() {
+        let mut emb = Embedding::new(5, 4);
+        let indices = Tensor::new(vec![0.0, 2.0, 4.0], vec![3]).unwrap();
+        let output = emb.forward(&indices).unwrap();
+        assert_eq!(output.shape(), &vec![3, 4]);
+    }
+
+    #[test]
+    fn test_positional_embedding() {
+        let pe = PositionalEmbedding::new(100, 16);
+        let input = Tensor::zeros(vec![10, 16]);
+        let output = pe.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![10, 16]);
+    }
+
+    #[test]
+    fn test_token_embedding_scale() {
+        let te = TokenEmbedding::new(5, 8);
+        let ids = Tensor::new(vec![0.0], vec![1]).unwrap();
+        let output = te.forward(&ids).unwrap();
+        let scale = 8.0_f32.sqrt();
+        // Verify scaling
+        let w0 = te.weights.get(&[0, 0]).unwrap();
+        let out0 = output.get(&[0, 0]).unwrap();
+        assert!((out0 - w0 * scale).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_learned_positional_embedding() {
+        let lpe = LearnedPositionalEmbedding::new(50, 16);
+        let input = Tensor::zeros(vec![5, 16]);
+        let output = lpe.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![5, 16]);
+    }
+}

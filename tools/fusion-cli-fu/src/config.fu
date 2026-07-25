@@ -1,0 +1,82 @@
+// config.fu — Load and parse Fusion.toml project configuration.
+
+struct CliConfig {
+    json_output: bool,
+    verbose: bool,
+    quiet: bool,
+}
+
+struct ProjectConfig {
+    name: string,
+    version: string,
+    language: string,
+    runtime_target: string,
+}
+
+fn config_default() -> CliConfig {
+    let c: CliConfig = CliConfig {
+        json_output: false,
+        verbose: false,
+        quiet: false,
+    };
+    return c;
+}
+
+fn project_config_load(path: string) -> ProjectConfig {
+    let content = read_file(path);
+    let name = config_extract_field(content, "name");
+    let version = config_extract_field(content, "version");
+    let language = config_extract_field(content, "language");
+    let runtime_target = config_extract_field(content, "runtime_target");
+
+    let pc: ProjectConfig = ProjectConfig {
+        name: name,
+        version: version,
+        language: language,
+        runtime_target: runtime_target,
+    };
+    return pc;
+}
+
+fn config_extract_field(content: string, field: string) -> string {
+    // Scan for key = "value" pattern in TOML content
+    let needle = field;
+    needle = needle + " = \"";
+    let start = str_find(content, needle);
+    if start < 0 {
+        return "";
+    }
+    let val_start = start + str_len(needle);
+    let rest = str_sub(content, val_start);
+    let end = str_find(rest, "\"");
+    if end < 0 {
+        return "";
+    }
+    return str_sub(rest, end);
+}
+
+fn config_has_manifest() -> bool {
+    return file_exists("Fusion.toml");
+}
+
+fn config_load_or_die() -> ProjectConfig {
+    if !config_has_manifest() {
+        print_error("Fusion.toml not found. Are you in a Fusion project?");
+        exit(1);
+    }
+    return project_config_load("Fusion.toml");
+}
+
+// ── Minimal string search helpers ─────────────────────────────────────
+
+fn str_find(haystack: string, needle: string) -> int {
+    // Delegates to C strstr; returns index or -1
+    return fusion_str_find(haystack, needle);
+}
+
+fn str_sub(s: string, len: int) -> string {
+    return fusion_str_sub(s, len);
+}
+
+extern fn fusion_str_find(haystack: string, needle: string) -> int;
+extern fn fusion_str_sub(s: string, len: int) -> string;

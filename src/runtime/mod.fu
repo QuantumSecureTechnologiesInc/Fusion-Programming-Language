@@ -2,5 +2,13 @@
 // Fusion Core Runtime Interfaces
 
 pub mod hal;
+pub mod supernova;
+pub mod cortex;
+pub mod intent;
+pub mod haft;
 
 pub use hal::HardwareInterface;
+pub use supernova::{SupernovaConfig, Task, supernova_init, supernova_submit};
+pub use cortex::{CortexConfig, cortex_init, cortex_schedule, cortex_record, cortex_train};
+pub use intent::{Intent, intent_parse, intent_from_string, intent_to_string};
+pub use haft::{HaftBuffer, haft_allocate, haft_free, haft_migrate, haft_stats};

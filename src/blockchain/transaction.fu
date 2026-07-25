@@ -1,0 +1,103 @@
+// Fusion v2.0 Vortex — Transaction
+// Represents a transfer of value between addresses on the blockchain.
+
+use crate::blockchain::crypto::{
+    crypto_hash_sha256,
+    crypto_sign_ed25519,
+    crypto_verify_ed25519,
+    crypto_generate_address
+}
+
+struct Transaction {
+    id: string,
+    from: string,
+    to: string,
+    amount: float,
+    fee: float,
+    timestamp: int,
+    signature: string,
+    nonce: int,
+    data: string
+}
+
+/// Create a new unsigned transaction.
+fn tx_new(from: string, to: string, amount: float, fee: float) -> Transaction {
+    let timestamp = now()
+    let payload = from + to + amount.to_string() + fee.to_string() + timestamp.to_string()
+    let id = crypto_hash_sha256(payload)
+    return Transaction {
+        id,
+        from,
+        to,
+        amount,
+        fee,
+        timestamp,
+        signature: "",
+        nonce: 0,
+        data: ""
+    }
+}
+
+/// Sign a transaction with a private key.
+fn tx_sign(tx: Transaction, private_key: string) -> Transaction {
+    let message = tx.id + tx.from + tx.to + tx.amount.to_string() + tx.fee.to_string() + tx.nonce.to_string()
+    let sig = crypto_sign_ed25519(message, private_key)
+    return Transaction {
+        id: tx.id,
+        from: tx.from,
+        to: tx.to,
+        amount: tx.amount,
+        fee: tx.fee,
+        timestamp: tx.timestamp,
+        signature: sig,
+        nonce: tx.nonce,
+        data: tx.data
+    }
+}
+
+/// Verify a transaction signature against a public key.
+fn tx_verify(tx: Transaction, public_key: string) -> bool {
+    let message = tx.id + tx.from + tx.to + tx.amount.to_string() + tx.fee.to_string() + tx.nonce.to_string()
+    return crypto_verify_ed25519(message, tx.signature, public_key)
+}
+
+/// Compute a deterministic hash for this transaction.
+fn tx_hash(tx: Transaction) -> string {
+    let payload = tx.id + tx.from + tx.to + tx.amount.to_string() + tx.fee.to_string() + tx.timestamp.to_string() + tx.nonce.to_string() + tx.data
+    return crypto_hash_sha256(payload)
+}
+
+/// Serialize transaction to JSON.
+fn tx_to_json(tx: Transaction) -> string {
+    return "{" +
+        "\"id\":\"" + tx.id + "\"," +
+        "\"from\":\"" + tx.from + "\"," +
+        "\"to\":\"" + tx.to + "\"," +
+        "\"amount\":" + tx.amount.to_string() + "," +
+        "\"fee\":" + tx.fee.to_string() + "," +
+        "\"timestamp\":" + tx.timestamp.to_string() + "," +
+        "\"signature\":\"" + tx.signature + "\"," +
+        "\"nonce\":" + tx.nonce.to_string() + "," +
+        "\"data\":\"" + tx.data + "\"" +
+        "}"
+}
+
+/// Deserialize transaction from JSON.
+fn tx_from_json(json: string) -> Transaction {
+    let id = json_extract_string(json, "id")
+    let from = json_extract_string(json, "from")
+    let to = json_extract_string(json, "to")
+    let amount = json_extract_float(json, "amount")
+    let fee = json_extract_float(json, "fee")
+    let timestamp = json_extract_int(json, "timestamp")
+    let signature = json_extract_string(json, "signature")
+    let nonce = json_extract_int(json, "nonce")
+    let data = json_extract_string(json, "data")
+    return Transaction { id, from, to, amount, fee, timestamp, signature, nonce, data }
+}
+
+// JSON helpers (provided by Fusion runtime)
+extern fn json_extract_string(json: string, key: string) -> string
+extern fn json_extract_float(json: string, key: string) -> float
+extern fn json_extract_int(json: string, key: string) -> int
+extern fn now() -> int

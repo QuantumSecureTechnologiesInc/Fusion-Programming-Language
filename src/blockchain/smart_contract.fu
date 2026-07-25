@@ -1,0 +1,97 @@
+// Fusion v2.0 Vortex — Smart Contract System
+// Deploy, call, upgrade, and validate on-chain smart contracts.
+
+/// Core smart contract representation.
+struct SmartContract {
+    id: string,
+    address: string,
+    code: string,
+    state: string,
+    owner: string,
+    balance: float,
+    deployed_at: int,
+    version: int,
+}
+
+/// Represents a single function call against a contract.
+struct ContractCall {
+    contract: string,
+    function: string,
+    args: string,
+    sender: string,
+    value: float,
+}
+
+/// An event emitted by a contract during execution.
+struct ContractEvent {
+    contract: string,
+    event: string,
+    data: string,
+    timestamp: int,
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+/// Deploy a new contract from bytecode, assigning a fresh address.
+pub fn contract_deploy(code: string, owner: string) -> SmartContract {
+    let now = 0  // placeholder — replaced by runtime timestamp
+    SmartContract {
+        id: format!("sc-{}-{}", owner, now),
+        address: format!("0x{}", crypto_generate_address(code)),
+        code: code,
+        state: "{}",
+        owner: owner,
+        balance: 0.0,
+        deployed_at: now,
+        version: 1,
+    }
+}
+
+/// Execute a contract call, returning the (possibly updated) contract and
+/// the serialised result of the function.
+pub fn contract_call(contract: SmartContract, call: ContractCall) -> (SmartContract, string) {
+    // In a real VM this would interpret `call.function` against `contract.code`.
+    // Here we simulate a state transition.
+    let result = format!(
+        "{{\"contract\":\"{}\",\"function\":\"{}\",\"args\":\"{}\",\"status\":\"ok\"}}",
+        call.contract, call.function, call.args,
+    )
+    let updated = SmartContract {
+        balance: contract.balance + call.value,
+        ..contract
+    }
+    (updated, result)
+}
+
+/// Return the current serialised state of a contract.
+pub fn contract_get_state(contract: SmartContract) -> string {
+    contract.state
+}
+
+/// Replace the contract state wholesale.
+pub fn contract_set_state(contract: SmartContract, state: string) -> SmartContract {
+    SmartContract { state: state, ..contract }
+}
+
+/// Upgrade contract bytecode, bumping the version counter.
+pub fn contract_upgrade(contract: SmartContract, new_code: string) -> SmartContract {
+    SmartContract {
+        code: new_code,
+        version: contract.version + 1,
+        ..contract
+    }
+}
+
+/// Basic structural validation — non-empty address, owner, and code.
+pub fn contract_validate(contract: SmartContract) -> bool {
+    contract.address.len() > 0
+        && contract.owner.len() > 0
+        && contract.code.len() > 0
+}
+
+/// Return all events emitted by this contract (placeholder — populated at runtime).
+pub fn contract_events(contract: SmartContract) -> []ContractEvent {
+    []
+}

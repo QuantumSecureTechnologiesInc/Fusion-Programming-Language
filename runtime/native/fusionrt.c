@@ -710,24 +710,32 @@ void fusion_rt_set_args(int argc, char **argv) {
   g_argc = argc;
   g_argv = argv;
 }
-  size_t suffix_len = strlen(pos + from_len);
-  size_t total = prefix_len + to_len + suffix_len;
-  char* buf = (char*)malloc(total + 1);
-  if (!buf) return pool_intern(s);
-  memcpy(buf, s, prefix_len);
-  memcpy(buf + prefix_len, to_str, to_len);
-  memcpy(buf + prefix_len + to_len, pos + from_len, suffix_len);
-  buf[total] = '\0';
-  const char* result = pool_intern(buf);
-  free(buf);
-  return result;
+
+// ========================================
+// Concatenation Helpers (3 and 4 args)
+// ========================================
+const char* fusion_str_concat3(const char* a, const char* b, const char* c) {
+  if (!a) a = "";
+  if (!b) b = "";
+  if (!c) c = "";
+  return pool_sprintf("%s%s%s", a, b, c);
+}
+
+const char* fusion_str_concat4(const char* a, const char* b, const char* c, const char* d) {
+  if (!a) a = "";
+  if (!b) b = "";
+  if (!c) c = "";
+  if (!d) d = "";
+  return pool_sprintf("%s%s%s%s", a, b, c, d);
 }
 
 // ========================================
-// Runtime Entry Point Shim
+// Memory Aliases (stdlib/memory.fu compatibility)
 // ========================================
-// This allows C runtime to capture argc/argv before Fusion main
-void fusion_rt_set_args(int argc, char **argv) {
-  g_argc = argc;
-  g_argv = argv;
+int64_t fu_malloc(int64_t size_bytes) {
+  return fusion_malloc(size_bytes);
+}
+
+void fu_free(int64_t ptr) {
+  fusion_free(ptr);
 }

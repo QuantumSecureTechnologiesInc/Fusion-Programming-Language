@@ -1,0 +1,13 @@
+// Web runtime integration for Fusion V2.0 Vortex
+
+struct DomElement {
+    tag: string,
+    attributes: string,
+    children: string
+}
+
+extern fn dom_create(tag: string) -> DomElement
+extern fn dom_set_attribute(element: DomElement, key: string, value: string) -> void
+extern fn dom_append_child(parent: DomElement, child: DomElement) -> void
+extern fn dom_render(root: DomElement) -> void
+extern fn dom_on_event(element: DomElement, event: string, handler: fn() -> void) -> void

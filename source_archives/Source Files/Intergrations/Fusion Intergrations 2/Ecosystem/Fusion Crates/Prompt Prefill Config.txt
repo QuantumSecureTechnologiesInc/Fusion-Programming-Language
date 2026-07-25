@@ -1,9 +1,0 @@
-[package]
-name = "fusion_llm_prompt_prefill"
-version = "0.1.0"
-edition = "2021"
-description = "Optimized kernel for processing long input prompts (pre-filling KV Cache)"
-license = "MIT"
-
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" }

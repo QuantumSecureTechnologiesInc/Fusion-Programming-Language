@@ -1,6 +1,0 @@
-use anyhow::Result;
-use fusion_formatter;
-fn fmt(check: FBool, all: FBool) -> Result<()> {
-    fusion_formatter::format(check, all)?;
-    Ok(())
-}

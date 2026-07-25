@@ -1,0 +1,160 @@
+// Proof of Stake implementation for Fusion v2.0 Vortex
+
+import Block from blockchain
+
+struct Validator {
+    address: string,
+    stake: float,
+    reputation: int,
+    uptime: float
+}
+
+struct StakingPool {
+    validators: []Validator,
+    total_stake: float
+}
+
+fn pos_new_validator(address: string, stake: float) -> Validator {
+    Validator {
+        address: address,
+        stake: stake,
+        reputation: 100,
+        uptime: 1.0
+    }
+}
+
+fn pos_stake(pool: StakingPool, address: string, amount: float) -> StakingPool {
+    let mut found = false
+    let mut new_validators = pool.validators
+
+    for i in 0..new_validators.len() {
+        if new_validators[i].address == address {
+            new_validators[i].stake = new_validators[i].stake + amount
+            found = true
+            break
+        }
+    }
+
+    if !found {
+        new_validators.push(pos_new_validator(address, amount))
+    }
+
+    StakingPool {
+        validators: new_validators,
+        total_stake: pool.total_stake + amount
+    }
+}
+
+fn pos_unstake(pool: StakingPool, address: string, amount: float) -> StakingPool {
+    let mut new_validators = pool.validators
+    let mut removed_amount = 0.0
+
+    for i in 0..new_validators.len() {
+        if new_validators[i].address == address {
+            let available = new_validators[i].stake
+            let to_remove = if amount > available { available } else { amount }
+
+            new_validators[i].stake = new_validators[i].stake - to_remove
+            removed_amount = to_remove
+
+            if new_validators[i].stake <= 0.0 {
+                new_validators.remove(i)
+            }
+            break
+        }
+    }
+
+    StakingPool {
+        validators: new_validators,
+        total_stake: pool.total_stake - removed_amount
+    }
+}
+
+fn pos_select_validator(pool: StakingPool) -> Validator {
+    if pool.validators.len() == 0 {
+        panic("No validators in pool")
+    }
+
+    let total_stake = pool.validators.fold(0.0, |acc, v| acc + v.stake)
+    let mut random_value = random() * total_stake
+
+    for validator in pool.validators {
+        random_value = random_value - validator.stake
+        if random_value <= 0.0 {
+            return validator
+        }
+    }
+
+    pool.validators[0]
+}
+
+fn pos_validate(pool: StakingPool, block: Block) -> bool {
+    let validator = pos_select_validator(pool)
+
+    if validator.stake < 100.0 {
+        return false
+    }
+
+    if validator.reputation < 50 {
+        return false
+    }
+
+    true
+}
+
+fn pos_slash(pool: StakingPool, address: string, penalty: float) -> StakingPool {
+    let mut new_validators = pool.validators
+    let mut slashed_amount = 0.0
+
+    for i in 0..new_validators.len() {
+        if new_validators[i].address == address {
+            let actual_penalty = if penalty > new_validators[i].stake {
+                new_validators[i].stake
+            } else {
+                penalty
+            }
+
+            new_validators[i].stake = new_validators[i].stake - actual_penalty
+            new_validators[i].reputation = max(0, new_validators[i].reputation - 25)
+            slashed_amount = actual_penalty
+
+            if new_validators[i].stake <= 0.0 {
+                new_validators.remove(i)
+            }
+            break
+        }
+    }
+
+    StakingPool {
+        validators: new_validators,
+        total_stake: pool.total_stake - slashed_amount
+    }
+}
+
+struct Reward {
+    validator: string,
+    amount: float,
+    block_index: int,
+    timestamp: int
+}
+
+fn pos_rewards(pool: StakingPool, block: Block) -> []Reward {
+    let mut rewards = []
+
+    for validator in pool.validators {
+        let reward_share = if pool.total_stake > 0.0 {
+            validator.stake / pool.total_stake * 10.0
+        } else {
+            0.0
+        }
+
+        rewards.push(Reward {
+            validator: validator.address,
+            amount: reward_share,
+            block_index: block.index,
+            timestamp: block.timestamp
+        })
+    }
+
+    rewards
+}

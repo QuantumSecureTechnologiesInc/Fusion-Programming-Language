@@ -1,0 +1,32 @@
+[package]
+name = "fusion-cli"
+version = "2.0.0"
+edition = "2021"
+authors = ["QuantumSecure Technologies Ltd"]
+description = "Fusion Programming Language CLI Tool"
+license = "MIT"
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language"
+
+[[bin]]
+name = "fusion"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+colored = "2"
+dialoguer = { version = "0.11", features = ["password"] }
+indicatif = "0.17"
+toml = "0.8"
+anyhow = "1"
+thiserror = "2"
+chrono = "0.4"
+walkdir = "2"
+regex = "1"
+which = "6"
+dirs-next = "2"
+
+[workspace]

@@ -1,0 +1,409 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+
+use crate::config::FusionConfig
+
+/// Get a config value by section.key path (e.g. "build.optimization_level")
+fn config_get(key: String, json: bool) -> Result {
+    let config_path = FusionConfig::find_config_file()?
+    let config = FusionConfig::load_from(config_path)?
+
+    let parts = key.split(".")
+    let section = parts[0]
+    let field = parts.get(1)
+
+    let value = match section {
+        "package" => {
+            if let Some(pkg) = config["package"] {
+                match field {
+                    Some("name") => pkg["name"],
+                    Some("version") => pkg["version"],
+                    Some("description") => pkg["description"],
+                    Some("type") => pkg["type"],
+                    _ => return Err("Unknown package field: {field}. Valid: name, version, description, type"),
+                }
+            } else {
+                return Err("[package] section not found in Fusion.toml")
+            }
+        }
+        "build" => {
+            if let Some(build) = config["build"] {
+                match field {
+                    Some("optimization_level") => build["optimization_level"],
+                    Some("debug_info") => build["debug_info"],
+                    Some("lto") => build["lto"],
+                    Some("incremental") => build["incremental"],
+                    _ => return Err("Unknown build field: {field}. Valid: optimization_level, debug_info, lto, incremental"),
+                }
+            } else {
+                return Err("[build] section not found in Fusion.toml")
+            }
+        }
+        "runtime" => {
+            if let Some(runtime) = config["runtime"] {
+                match field {
+                    Some("profile") => runtime["profile"],
+                    Some("target") => runtime["target"],
+                    _ => return Err("Unknown runtime field: {field}. Valid: profile, target"),
+                }
+            } else {
+                return Err("[runtime] section not found in Fusion.toml")
+            }
+        }
+        "features" => {
+            if let Some(features) = config["features"] {
+                match field {
+                    Some("default") => features["default"],
+                    _ => {
+                        // Return all features
+                        features
+                    }
+                }
+            } else {
+                return Err("[features] section not found in Fusion.toml")
+            }
+        }
+        "test" => {
+            if let Some(test) = config["test"] {
+                match field {
+                    Some("parallel") => test["parallel"],
+                    Some("timeout") => test["timeout"],
+                    Some("coverage") => test["coverage"],
+                    _ => return Err("Unknown test field: {field}. Valid: parallel, timeout, coverage"),
+                }
+            } else {
+                return Err("[test] section not found in Fusion.toml")
+            }
+        }
+        "deploy" => {
+            if let Some(deploy) = config["deploy"] {
+                match field {
+                    Some("target") => deploy["target"],
+                    Some("registry") => deploy["registry"],
+                    _ => return Err("Unknown deploy field: {field}. Valid: target, registry"),
+                }
+            } else {
+                return Err("[deploy] section not found in Fusion.toml")
+            }
+        }
+        "ai" => {
+            if let Some(ai) = config["ai"] {
+                match field {
+                    Some("provider") => ai["provider"],
+                    Some("default_device") => ai["default_device"],
+                    _ => {
+                        // Return the entire section or sub-section
+                        if let Some(subsection) = field {
+                            ai[subsection]
+                        } else {
+                            ai
+                        }
+                    }
+                }
+            } else {
+                return Err("[ai] section not found in Fusion.toml")
+            }
+        }
+        "quantum" => {
+            if let Some(quantum) = config["quantum"] {
+                match field {
+                    Some("default_backend") => quantum["default_backend"],
+                    Some("max_qubits") => quantum["max_qubits"],
+                    Some("shots") => quantum["shots"],
+                    _ => {
+                        if let Some(subsection) = field {
+                            quantum[subsection]
+                        } else {
+                            quantum
+                        }
+                    }
+                }
+            } else {
+                return Err("[quantum] section not found in Fusion.toml")
+            }
+        }
+        _ => return Err("Unknown section: {section}. Valid: package, build, runtime, features, test, deploy, ai, quantum"),
+    }
+
+    if json {
+        io::println("{\"key\":\"{key}\",\"value\":{value}}")
+    } else {
+        io::println("{key} = {value}")
+    }
+
+    return Ok(())
+}
+
+/// Set a config value by section.key path (e.g. "build.optimization_level 3")
+fn config_set(key: String, value: String, json: bool) -> Result {
+    let config_path = FusionConfig::find_config_file()?
+    let mut content = fs::read_to_string(config_path)
+
+    let parts = key.split(".")
+    let section = parts[0]
+    let field = parts.get(1)
+
+    if field.is_none() {
+        return Err("Key must be in format 'section.key' (e.g. 'build.optimization_level')")
+    }
+
+    // Determine the TOML key to update
+    let toml_key = format!("[{section}]\n{field} = ")
+    let new_line = format!("{field} = {value}")
+
+    // Check if the section exists
+    if !content.contains("[{section}]") {
+        // Append new section
+        content = content + "\n[{section}]\n{new_line}\n"
+    } else {
+        // Find and replace the existing key
+        let lines = content.split("\n")
+        let mut new_lines = []
+        let mut in_section = false
+
+        for line in lines {
+            if line.trim() == "[{section}]" {
+                in_section = true
+                new_lines.push(line)
+            } else if line.starts_with("[") && in_section {
+                // Hit next section, insert before it
+                new_lines.push("{new_line}")
+                in_section = false
+                new_lines.push(line)
+            } else if in_section && line.trim().starts_with("{field} ") {
+                // Replace existing key
+                new_lines.push("{new_line}")
+            } else {
+                new_lines.push(line)
+            }
+        }
+
+        // If we were still in the section at EOF
+        if in_section {
+            new_lines.push("{new_line}")
+        }
+
+        content = new_lines.join("\n")
+    }
+
+    fs::write(config_path, content)
+
+    if json {
+        io::println("{\"action\":\"set\",\"key\":\"{key}\",\"value\":\"{value}\",\"status\":\"ok\"}")
+    } else {
+        io::println("OK: {key} = {value}")
+    }
+
+    return Ok(())
+}
+
+/// List all config sections
+fn config_list(json: bool) -> Result {
+    let config_path = FusionConfig::find_config_file()?
+    let config = FusionConfig::load_from(config_path)?
+
+    let sections = []
+
+    if config["package"].is_some() {
+        sections.push({"name": "package", "description": "Package metadata (name, version, description, type)"})
+    }
+    if config["build"].is_some() {
+        sections.push({"name": "build", "description": "Build settings (optimization_level, debug_info, lto, incremental)"})
+    }
+    if config["runtime"].is_some() {
+        sections.push({"name": "runtime", "description": "Runtime configuration (profile, target)"})
+    }
+    if config["features"].is_some() {
+        sections.push({"name": "features", "description": "Feature flags for conditional compilation"})
+    }
+    if config["test"].is_some() {
+        sections.push({"name": "test", "description": "Test settings (parallel, timeout, coverage)"})
+    }
+    if config["deploy"].is_some() {
+        sections.push({"name": "deploy", "description": "Deployment settings (target, registry, kubernetes, docker)"})
+    }
+    if config["ai"].is_some() {
+        sections.push({"name": "ai", "description": "AI provider settings (provider, ollama, mistral, deepseek)"})
+    }
+    if config["quantum"].is_some() {
+        sections.push({"name": "quantum", "description": "Quantum computing settings (backend, aws_braket, ibm_quantum)"})
+    }
+    if config["dependencies"].is_some() {
+        sections.push({"name": "dependencies", "description": "Project dependencies"})
+    }
+    if config["gui"].is_some() {
+        sections.push({"name": "gui", "description": "GUI framework settings"})
+    }
+
+    if json {
+        io::println("{\"config_file\":\"{config_path}\",\"sections\":{sections}}")
+    } else {
+        io::println("Config: {config_path}")
+        io::println("")
+        io::println("Sections:")
+        for section in sections {
+            io::println("  [{section[\"name\"]}] - {section[\"description\"]}")
+        }
+        io::println("")
+        io::println("Use 'fusion config get <section.key>' to view a value")
+        io::println("Use 'fusion config set <section.key> <value>' to set a value")
+    }
+
+    return Ok(())
+}
+
+/// Validate the Fusion.toml configuration
+fn config_validate(json: bool) -> Result {
+    let config_path = FusionConfig::find_config_file()?
+    let mut errors = []
+    let mut warnings = []
+
+    match FusionConfig::load_from(config_path) {
+        Ok(config) => {
+            // Validate [package] section
+            if let Some(pkg) = config["package"] {
+                if pkg["name"].is_none() || pkg["name"].unwrap().len() == 0 {
+                    errors.push("[package] name is required")
+                }
+                if pkg["version"].is_none() {
+                    warnings.push("[package] version not set, defaulting to 0.1.0")
+                }
+            } else {
+                errors.push("[package] section is required")
+            }
+
+            // Validate [build] section
+            if let Some(build) = config["build"] {
+                if let Some(opt) = build["optimization_level"] {
+                    if opt > 3 {
+                        errors.push("[build] optimization_level must be 0-3, got {opt}")
+                    }
+                }
+            }
+
+            // Validate [features] section
+            if let Some(features) = config["features"] {
+                if let Some(default) = features["default"] {
+                    for feat in default {
+                        if !features.has(feat) && feat != "default" {
+                            warnings.push("[features] default includes '{feat}' but it is not defined")
+                        }
+                    }
+                }
+            }
+
+            // Validate [test] section
+            if let Some(test) = config["test"] {
+                if let Some(timeout) = test["timeout"] {
+                    let timeout_str = timeout.to_string()
+                    if !timeout_str.ends_with("ms") && !timeout_str.ends_with("s") && !timeout_str.ends_with("m") {
+                        warnings.push("[test] timeout should end with 'ms', 's', or 'm' (e.g. '30s', '5m')")
+                    }
+                }
+            }
+
+            // Validate [deploy] section
+            if let Some(deploy) = config["deploy"] {
+                if let Some(target) = deploy["target"] {
+                    let valid_targets = ["k8s", "kubernetes", "docker", "faas", "cloud", "edge"]
+                    if !valid_targets.contains(target) {
+                        warnings.push("[deploy] target '{target}' is not a standard target. Valid: {valid_targets.join(\", \")}")
+                    }
+                }
+            }
+
+            // Validate [quantum] section
+            if let Some(quantum) = config["quantum"] {
+                if let Some(shots) = quantum["shots"] {
+                    if shots == 0 {
+                        errors.push("[quantum] shots must be greater than 0")
+                    }
+                    if shots > 100000 {
+                        warnings.push("[quantum] shots value {shots} is very high, may cause slow execution")
+                    }
+                }
+                if let Some(max_qubits) = quantum["max_qubits"] {
+                    if max_qubits > 1000 {
+                        warnings.push("[quantum] max_qubits value {max_qubits} is very high")
+                    }
+                }
+            }
+
+            // Validate [ai] section
+            if let Some(ai) = config["ai"] {
+                if let Some(provider) = ai["provider"] {
+                    let valid_providers = ["ollama", "mistral", "deepseek", "openai", "anthropic"]
+                    if !valid_providers.contains(provider) {
+                        warnings.push("[ai] provider '{provider}' is not a standard provider. Valid: {valid_providers.join(\", \")}")
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            errors.push("Failed to parse Fusion.toml: {e}")
+        }
+    }
+
+    let valid = errors.len() == 0
+
+    if json {
+        io::println("{\"valid\":{valid},\"errors\":{errors},\"warnings\":{warnings}}")
+    } else {
+        if valid {
+            io::println("OK: Fusion.toml is valid")
+        } else {
+            io::println("FAIL: Fusion.toml has errors")
+        }
+
+        if errors.len() > 0 {
+            io::println("")
+            io::println("Errors:")
+            for err in errors {
+                io::println("  x {err}")
+            }
+        }
+
+        if warnings.len() > 0 {
+            io::println("")
+            io::println("Warnings:")
+            for warn in warnings {
+                io::println("  ! {warn}")
+            }
+        }
+    }
+
+    if !valid {
+        return Err("Configuration validation failed")
+    }
+
+    return Ok(())
+}
+
+/// Display the full Fusion.toml configuration
+fn config_show(json: bool) -> Result {
+    let config_path = FusionConfig::find_config_file()?
+    let content = fs::read_to_string(config_path)
+
+    if json {
+        let config = FusionConfig::load_from(config_path)?
+        io::println(toml::to_string_pretty(config))
+    } else {
+        io::println("Config: {config_path}")
+        io::println("")
+        io::println(content)
+    }
+
+    return Ok(())
+}
+
+/// Run the config command
+pub async fn run(command: ConfigCommands, json: bool) -> Result {
+    match command {
+        ConfigCommands::Get { key } => config_get(key, json),
+        ConfigCommands::Set { key, value } => config_set(key, value, json),
+        ConfigCommands::List => config_list(json),
+        ConfigCommands::Validate => config_validate(json),
+        ConfigCommands::Show => config_show(json),
+    }
+}

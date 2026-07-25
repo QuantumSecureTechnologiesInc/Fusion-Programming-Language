@@ -1,0 +1,104 @@
+// Fusion v2.0 Vortex — Blockchain
+// An ordered chain of blocks with difficulty control and pending transactions.
+
+use crate::blockchain::block::{Block, block_new, block_mine, block_validate, block_to_json, block_from_json}
+use crate::blockchain::transaction::Transaction
+
+struct Blockchain {
+    blocks: []Block,
+    difficulty: int,
+    pending_transactions: []Transaction
+}
+
+/// Create a new blockchain with a genesis block.
+fn chain_new(difficulty: int) -> Blockchain {
+    let genesis = block_new(0, "0", "Genesis Block")
+    let blocks: []Block = [genesis]
+    let pending: []Transaction = []
+    return Blockchain { blocks, difficulty, pending }
+}
+
+/// Add a new block with the given data payload to the chain.
+fn chain_add_block(chain: Blockchain, data: string) -> Blockchain {
+    let latest = chain.blocks[chain.blocks.len() - 1]
+    let new_block = block_new(latest.index + 1, latest.hash, data)
+    let mined = block_mine(new_block, chain.difficulty)
+    chain.blocks.push(mined)
+    return chain
+}
+
+/// Validate the entire chain from genesis.
+fn chain_validate(chain: Blockchain) -> bool {
+    if chain.blocks.len() < 2 {
+        return true
+    }
+
+    let i = 1
+    while i < chain.blocks.len() {
+        if !block_validate(chain.blocks[i], chain.blocks[i - 1]) {
+            return false
+        }
+        i += 1
+    }
+    return true
+}
+
+/// Return the most recent block in the chain.
+fn chain_get_latest(chain: Blockchain) -> Block {
+    return chain.blocks[chain.blocks.len() - 1]
+}
+
+/// Get a block by its index. Returns the genesis block if index is out of range.
+fn chain_get_block(chain: Blockchain, index: int) -> Block {
+    if index < 0 || index >= chain.blocks.len() {
+        return chain.blocks[0]
+    }
+    return chain.blocks[index]
+}
+
+/// Return the number of blocks in the chain.
+fn chain_length(chain: Blockchain) -> int {
+    return chain.blocks.len()
+}
+
+/// Serialize the entire blockchain to JSON.
+fn chain_to_json(chain: Blockchain) -> string {
+    let parts: []string = []
+    parts.push("{")
+    parts.push("\"difficulty\":" + chain.difficulty.to_string() + ",")
+    parts.push("\"blocks\":[")
+
+    let i = 0
+    while i < chain.blocks.len() {
+        parts.push(block_to_json(chain.blocks[i]))
+        if i < chain.blocks.len() - 1 {
+            parts.push(",")
+        }
+        i += 1
+    }
+    parts.push("]")
+    parts.push("}")
+
+    let result = ""
+    for p in parts {
+        result = result + p
+    }
+    return result
+}
+
+/// Deserialize a blockchain from JSON.
+fn chain_from_json(json: string) -> Blockchain {
+    let difficulty = json_extract_int(json, "difficulty")
+    let blocks_json = json_extract_array(json, "blocks")
+    let blocks: []Block = []
+    for bj in blocks_json {
+        blocks.push(block_from_json(bj))
+    }
+    let pending: []Transaction = []
+    return Blockchain { blocks, difficulty, pending }
+}
+
+// JSON helpers (provided by Fusion runtime)
+extern fn json_extract_string(json: string, key: string) -> string
+extern fn json_extract_int(json: string, key: string) -> int
+extern fn json_extract_array(json: string, key: string) -> []string

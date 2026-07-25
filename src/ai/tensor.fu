@@ -1,0 +1,26 @@
+// Tensor operations for Fusion AI compute graphs
+
+struct Tensor {
+    data: []float
+    shape: []int
+}
+
+extern fn tensor_new(data: []float, shape: []int) -> Tensor
+
+extern fn tensor_zeros(shape: []int) -> Tensor
+
+extern fn tensor_ones(shape: []int) -> Tensor
+
+extern fn tensor_matmul(a: Tensor, b: Tensor) -> Tensor
+
+extern fn tensor_add(a: Tensor, b: Tensor) -> Tensor
+
+extern fn tensor_mul(a: Tensor, b: Tensor) -> Tensor
+
+extern fn tensor_relu(t: Tensor) -> Tensor
+
+extern fn tensor_softmax(t: Tensor, axis: int) -> Tensor
+
+extern fn tensor_shape(t: Tensor) -> []int
+
+extern fn tensor_to_string(t: Tensor) -> string

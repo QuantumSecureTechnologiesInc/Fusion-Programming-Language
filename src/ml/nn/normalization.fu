@@ -1,0 +1,459 @@
+#![allow(dead_code)]
+use super::Module;
+use crate::ml::tensor::Tensor;
+use crate::ml::MLError;
+
+/// Batch Normalization for 1D input [batch, features]
+struct BatchNorm1d {
+    pub num_features: FSize,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    pub running_mean: Tensor,
+    pub running_var: Tensor,
+    pub momentum: f32,
+    pub eps: f32,
+    training: FBool,
+}
+
+impl BatchNorm1d {
+    pub fn new(num_features: FSize) -> Self {
+        Self {
+            num_features,
+            gamma: Tensor::ones(vec![num_features]),
+            beta: Tensor::zeros(vec![num_features]),
+            running_mean: Tensor::zeros(vec![num_features]),
+            running_var: Tensor::ones(vec![num_features]),
+            momentum: 0.1,
+            eps: 1e-5,
+            training: true,
+        }
+    }
+}
+
+impl Module for BatchNorm1d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        batch_norm1d_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// Batch Normalization for 2D input [batch, channels, height, width]
+struct BatchNorm2d {
+    pub num_features: FSize,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    pub running_mean: Tensor,
+    pub running_var: Tensor,
+    pub momentum: f32,
+    pub eps: f32,
+    training: FBool,
+}
+
+impl BatchNorm2d {
+    pub fn new(num_features: FSize) -> Self {
+        Self {
+            num_features,
+            gamma: Tensor::ones(vec![num_features]),
+            beta: Tensor::zeros(vec![num_features]),
+            running_mean: Tensor::zeros(vec![num_features]),
+            running_var: Tensor::ones(vec![num_features]),
+            momentum: 0.1,
+            eps: 1e-5,
+            training: true,
+        }
+    }
+}
+
+impl Module for BatchNorm2d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        batch_norm2d_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// Layer Normalization
+struct LayerNorm {
+    pub normalized_shape: FVec<FSize>,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    pub eps: f32,
+}
+
+impl LayerNorm {
+    pub fn new(normalized_shape: FVec<FSize>) -> Self {
+        let size: FSize = normalized_shape.iter().product();
+        Self {
+            normalized_shape,
+            gamma: Tensor::ones(vec![size]),
+            beta: Tensor::zeros(vec![size]),
+            eps: 1e-5,
+        }
+    }
+}
+
+impl Module for LayerNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        layer_norm_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Instance Normalization
+struct InstanceNorm {
+    pub num_features: FSize,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    pub eps: f32,
+}
+
+impl InstanceNorm {
+    pub fn new(num_features: FSize) -> Self {
+        Self {
+            num_features,
+            gamma: Tensor::ones(vec![num_features]),
+            beta: Tensor::zeros(vec![num_features]),
+            eps: 1e-5,
+        }
+    }
+}
+
+impl Module for InstanceNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        instance_norm_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Group Normalization
+struct GroupNorm {
+    pub num_groups: FSize,
+    pub num_channels: FSize,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    pub eps: f32,
+}
+
+impl GroupNorm {
+    pub fn new(num_groups: FSize, num_channels: FSize) -> Self {
+        Self {
+            num_groups,
+            num_channels,
+            gamma: Tensor::ones(vec![num_channels]),
+            beta: Tensor::zeros(vec![num_channels]),
+            eps: 1e-5,
+        }
+    }
+}
+
+impl Module for GroupNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        group_norm_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Batch normalization forward for 1D input [batch, features]
+fn batch_norm1d_forward(input: &Tensor, layer: &BatchNorm1d) -> Result<Tensor, MLError> {
+    if input.shape.len() != 2 {
+        return Err(MLError::InvalidShape(
+            "BatchNorm1d expects 2D input [batch, features]".to_string(),
+        ));
+    }
+    if input.shape[1] != layer.num_features {
+        return Err(MLError::DimensionMismatch {
+            expected: vec![input.shape[0], layer.num_features],
+            actual: input.shape.clone(),
+        });
+    }
+
+    let batch_size = input.shape[0];
+    let num_features = layer.num_features;
+    let mut output = Tensor::zeros(input.shape.clone());
+
+    if layer.training {
+        // Compute batch statistics
+        let mut means = vec![0.0f32; num_features];
+        let mut variances = vec![0.0f32; num_features];
+
+        for f in 0..num_features {
+            let mut sum = 0.0f32;
+            for b in 0..batch_size {
+                sum += input.get(&[b, f]).unwrap();
+            }
+            means[f] = sum / batch_size as f32;
+
+            let mut var_sum = 0.0f32;
+            for b in 0..batch_size {
+                let diff = input.get(&[b, f]).unwrap() - means[f];
+                var_sum += diff * diff;
+            }
+            variances[f] = var_sum / batch_size as f32;
+        }
+
+        // Normalize
+        for b in 0..batch_size {
+            for f in 0..num_features {
+                let x = input.get(&[b, f]).unwrap();
+                let normalized = (x - means[f]) / (variances[f] + layer.eps).sqrt();
+                let gamma_val = layer.gamma.get(&[f]).unwrap();
+                let beta_val = layer.beta.get(&[f]).unwrap();
+                output.set(&[b, f], gamma_val * normalized + beta_val)?;
+            }
+        }
+    } else {
+        // Use running statistics
+        for b in 0..batch_size {
+            for f in 0..num_features {
+                let x = input.get(&[b, f]).unwrap();
+                let mean = layer.running_mean.get(&[f]).unwrap();
+                let var = layer.running_var.get(&[f]).unwrap();
+                let normalized = (x - mean) / (var + layer.eps).sqrt();
+                let gamma_val = layer.gamma.get(&[f]).unwrap();
+                let beta_val = layer.beta.get(&[f]).unwrap();
+                output.set(&[b, f], gamma_val * normalized + beta_val)?;
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Batch normalization forward for 2D input [batch, channels, height, width]
+fn batch_norm2d_forward(input: &Tensor, layer: &BatchNorm2d) -> Result<Tensor, MLError> {
+    if input.shape.len() != 4 {
+        return Err(MLError::InvalidShape(
+            "BatchNorm2d expects 4D input [batch, channels, height, width]".to_string(),
+        ));
+    }
+    if input.shape[1] != layer.num_features {
+        return Err(MLError::DimensionMismatch {
+            expected: vec![input.shape[0], layer.num_features, input.shape[2], input.shape[3]],
+            actual: input.shape.clone(),
+        });
+    }
+
+    let batch_size = input.shape[0];
+    let num_features = layer.num_features;
+    let height = input.shape[2];
+    let width = input.shape[3];
+    let spatial_size = height * width;
+    let mut output = Tensor::zeros(input.shape.clone());
+
+    if layer.training {
+        let mut means = vec![0.0f32; num_features];
+        let mut variances = vec![0.0f32; num_features];
+
+        for f in 0..num_features {
+            let mut sum = 0.0f32;
+            for b in 0..batch_size {
+                for h in 0..height {
+                    for w in 0..width {
+                        sum += input.get(&[b, f, h, w]).unwrap();
+                    }
+                }
+            }
+            means[f] = sum / (batch_size * spatial_size) as f32;
+
+            let mut var_sum = 0.0f32;
+            for b in 0..batch_size {
+                for h in 0..height {
+                    for w in 0..width {
+                        let diff = input.get(&[b, f, h, w]).unwrap() - means[f];
+                        var_sum += diff * diff;
+                    }
+                }
+            }
+            variances[f] = var_sum / (batch_size * spatial_size) as f32;
+        }
+
+        for b in 0..batch_size {
+            for f in 0..num_features {
+                for h in 0..height {
+                    for w in 0..width {
+                        let x = input.get(&[b, f, h, w]).unwrap();
+                        let normalized = (x - means[f]) / (variances[f] + layer.eps).sqrt();
+                        let gamma_val = layer.gamma.get(&[f]).unwrap();
+                        let beta_val = layer.beta.get(&[f]).unwrap();
+                        output.set(&[b, f, h, w], gamma_val * normalized + beta_val)?;
+                    }
+                }
+            }
+        }
+    } else {
+        for b in 0..batch_size {
+            for f in 0..num_features {
+                for h in 0..height {
+                    for w in 0..width {
+                        let x = input.get(&[b, f, h, w]).unwrap();
+                        let mean = layer.running_mean.get(&[f]).unwrap();
+                        let var = layer.running_var.get(&[f]).unwrap();
+                        let normalized = (x - mean) / (var + layer.eps).sqrt();
+                        let gamma_val = layer.gamma.get(&[f]).unwrap();
+                        let beta_val = layer.beta.get(&[f]).unwrap();
+                        output.set(&[b, f, h, w], gamma_val * normalized + beta_val)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Layer normalization forward pass
+fn layer_norm_forward(input: &Tensor, layer: &LayerNorm) -> Result<Tensor, MLError> {
+    let shape = &input.shape;
+    let last_dim = shape[shape.len() - 1];
+    let outer: FSize = shape[..shape.len() - 1].iter().product();
+    let mut output = Tensor::zeros(shape.clone());
+
+    for o in 0..outer {
+        let mut sum = 0.0f32;
+        for d in 0..last_dim {
+            sum += input.data[o * last_dim + d];
+        }
+        let mean = sum / last_dim as f32;
+
+        let mut var_sum = 0.0f32;
+        for d in 0..last_dim {
+            let diff = input.data[o * last_dim + d] - mean;
+            var_sum += diff * diff;
+        }
+        let var = var_sum / last_dim as f32;
+
+        for d in 0..last_dim {
+            let normalized = (input.data[o * last_dim + d] - mean) / (var + layer.eps).sqrt();
+            let gamma_val = layer.gamma.get(&[d]).unwrap();
+            let beta_val = layer.beta.get(&[d]).unwrap();
+            output.data[o * last_dim + d] = gamma_val * normalized + beta_val;
+        }
+    }
+    Ok(output)
+}
+
+/// Instance normalization forward pass
+/// input shape: [batch, channels, height, width]
+fn instance_norm_forward(input: &Tensor, layer: &InstanceNorm) -> Result<Tensor, MLError> {
+    if input.shape.len() != 4 {
+        return Err(MLError::InvalidShape(
+            "InstanceNorm expects 4D input [batch, channels, height, width]".to_string(),
+        ));
+    }
+
+    let batch_size = input.shape[0];
+    let channels = input.shape[1];
+    let height = input.shape[2];
+    let width = input.shape[3];
+    let spatial_size = height * width;
+    let mut output = Tensor::zeros(input.shape.clone());
+
+    for b in 0..batch_size {
+        for c in 0..channels {
+            // Compute per-instance mean and variance
+            let mut sum = 0.0f32;
+            for h in 0..height {
+                for w in 0..width {
+                    sum += input.get(&[b, c, h, w]).unwrap();
+                }
+            }
+            let mean = sum / spatial_size as f32;
+
+            let mut var_sum = 0.0f32;
+            for h in 0..height {
+                for w in 0..width {
+                    let diff = input.get(&[b, c, h, w]).unwrap() - mean;
+                    var_sum += diff * diff;
+                }
+            }
+            let var = var_sum / spatial_size as f32;
+
+            // Normalize and apply affine
+            for h in 0..height {
+                for w in 0..width {
+                    let x = input.get(&[b, c, h, w]).unwrap();
+                    let normalized = (x - mean) / (var + layer.eps).sqrt();
+                    let gamma_val = layer.gamma.get(&[c]).unwrap();
+                    let beta_val = layer.beta.get(&[c]).unwrap();
+                    output.set(&[b, c, h, w], gamma_val * normalized + beta_val)?;
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Group normalization forward pass
+/// input shape: [batch, channels, height, width]
+fn group_norm_forward(input: &Tensor, layer: &GroupNorm) -> Result<Tensor, MLError> {
+    if input.shape.len() != 4 {
+        return Err(MLError::InvalidShape(
+            "GroupNorm expects 4D input [batch, channels, height, width]".to_string(),
+        ));
+    }
+
+    let batch_size = input.shape[0];
+    let channels = input.shape[1];
+    let height = input.shape[2];
+    let width = input.shape[3];
+    let channels_per_group = channels / layer.num_groups;
+    let spatial_size = height * width;
+    let group_size = channels_per_group * spatial_size;
+    let mut output = Tensor::zeros(input.shape.clone());
+
+    for b in 0..batch_size {
+        for g in 0..layer.num_groups {
+            // Compute group mean and variance
+            let mut sum = 0.0f32;
+            for c in g * channels_per_group..(g + 1) * channels_per_group {
+                for h in 0..height {
+                    for w in 0..width {
+                        sum += input.get(&[b, c, h, w]).unwrap();
+                    }
+                }
+            }
+            let mean = sum / group_size as f32;
+
+            let mut var_sum = 0.0f32;
+            for c in g * channels_per_group..(g + 1) * channels_per_group {
+                for h in 0..height {
+                    for w in 0..width {
+                        let diff = input.get(&[b, c, h, w]).unwrap() - mean;
+                        var_sum += diff * diff;
+                    }
+                }
+            }
+            let var = var_sum / group_size as f32;
+
+            // Normalize and apply affine
+            for c in g * channels_per_group..(g + 1) * channels_per_group {
+                for h in 0..height {
+                    for w in 0..width {
+                        let x = input.get(&[b, c, h, w]).unwrap();
+                        let normalized = (x - mean) / (var + layer.eps).sqrt();
+                        let gamma_val = layer.gamma.get(&[c]).unwrap();
+                        let beta_val = layer.beta.get(&[c]).unwrap();
+                        output.set(&[b, c, h, w], gamma_val * normalized + beta_val)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(output)
+}

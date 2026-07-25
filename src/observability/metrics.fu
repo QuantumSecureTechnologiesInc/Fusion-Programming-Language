@@ -1,0 +1,18 @@
+module observability.metrics
+
+struct Metric {
+    name: string
+    value: float
+    timestamp: int
+    tags: string
+}
+
+extern fn metric_counter(name: string, value: float) -> void
+extern fn metric_gauge(name: string, value: float) -> void
+extern fn metric_histogram(name: string, value: float) -> void
+extern fn metric_timer_start(name: string) -> int
+extern fn metric_timer_end(name: string, start: int) -> void
+extern fn metric_get(name: string) -> Metric
+extern fn metric_get_all() -> []Metric
+extern fn metric_reset(name: string) -> void
+extern fn metric_export(format: string) -> string

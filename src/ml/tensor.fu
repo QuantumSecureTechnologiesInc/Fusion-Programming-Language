@@ -93,6 +93,182 @@ impl Tensor {
         }
         self.data.get(offset)
     }
+    /// Set value at indices
+    pub fn set(&mut self, indices: &[FSize], value: f32) -> Result<(), MLError> {
+        if indices.len() != self.shape.len() {
+            return Err(MLError::InvalidShape(
+                format!("Index has {} dimensions but tensor has {}", indices.len(), self.shape.len()),
+            ));
+        }
+        let mut offset = 0;
+        for (i, &idx) in indices.iter().enumerate() {
+            if idx >= self.shape[i] {
+                return Err(MLError::InvalidShape(
+                    format!("Index {} out of bounds for dimension {} (size {})", idx, i, self.shape[i]),
+                ));
+            }
+            offset += idx * self.strides[i];
+        }
+        self.data[offset] = value;
+        Ok(())
+    }
+    /// Reshape tensor to new shape (total elements must match)
+    pub fn reshape(&self, new_shape: FVec<FSize>) -> Result<Tensor, MLError> {
+        let old_total: FSize = self.shape.iter().product();
+        let new_total: FSize = new_shape.iter().product();
+        if old_total != new_total {
+            return Err(MLError::InvalidShape(
+                format!(
+                    "Cannot reshape tensor of size {} into shape {:?} (size {})",
+                    old_total, new_shape, new_total
+                ),
+            ));
+        }
+        let strides = Self::compute_strides(&new_shape);
+        Ok(Self {
+            data: self.data.clone(),
+            shape: new_shape,
+            strides,
+            device: self.device.clone(),
+            grad: None,
+            requires_grad: self.requires_grad,
+        })
+    }
+    /// Softmax along given axis (numerically stable)
+    pub fn softmax(&self, axis: usize) -> Result<Tensor, MLError> {
+        if axis >= self.shape.len() {
+            return Err(MLError::InvalidShape(
+                format!("Axis {} is out of bounds for tensor with {} dimensions", axis, self.shape.len()),
+            ));
+        }
+        let mut result = Tensor::zeros(self.shape.clone());
+        let axis_size = self.shape[axis];
+        // Compute outer and inner loop counts
+        let outer: FSize = self.shape[..axis].iter().product();
+        let inner: FSize = self.shape[axis + 1..].iter().product();
+        for o in 0..outer {
+            for i in 0..inner {
+                // Find max for numerical stability
+                let mut max_val = f32::NEG_INFINITY;
+                for a in 0..axis_size {
+                    let mut idx = Vec::with_capacity(self.shape.len());
+                    // Compute multi-dimensional index
+                    let mut temp_o = o;
+                    for d in 0..axis {
+                        let dim_size: FSize = self.shape[d..axis].iter().product();
+                        idx.push(temp_o / (dim_size / self.shape[d]));
+                        temp_o %= dim_size / self.shape[d];
+                    }
+                    idx.push(a);
+                    let mut temp_i = i;
+                    for d in (axis + 1..self.shape.len()).rev() {
+                        let dim_size: FSize = self.shape[axis + 1..=d].iter().product();
+                        idx.push(temp_i % self.shape[d]);
+                        temp_i /= self.shape[d];
+                    }
+                    // Rebuild flat index for original
+                    let mut flat = 0;
+                    for (d, &idx_val) in idx.iter().enumerate() {
+                        flat += idx_val * self.strides[d];
+                    }
+                    let val = self.data[flat];
+                    if val > max_val {
+                        max_val = val;
+                    }
+                }
+                // Compute exp(x - max) and sum
+                let mut sum_exp = 0.0;
+                for a in 0..axis_size {
+                    let mut idx = Vec::with_capacity(self.shape.len());
+                    let mut temp_o = o;
+                    for d in 0..axis {
+                        let dim_size: FSize = self.shape[d..axis].iter().product();
+                        idx.push(temp_o / (dim_size / self.shape[d]));
+                        temp_o %= dim_size / self.shape[d];
+                    }
+                    idx.push(a);
+                    let mut temp_i = i;
+                    for d in (axis + 1..self.shape.len()).rev() {
+                        let dim_size: FSize = self.shape[axis + 1..=d].iter().product();
+                        idx.push(temp_i % self.shape[d]);
+                        temp_i /= self.shape[d];
+                    }
+                    let mut flat = 0;
+                    for (d, &idx_val) in idx.iter().enumerate() {
+                        flat += idx_val * self.strides[d];
+                    }
+                    let exp_val = (self.data[flat] - max_val).exp();
+                    sum_exp += exp_val;
+                    result.data[flat] = exp_val;
+                }
+                // Normalize
+                for a in 0..axis_size {
+                    let mut idx = Vec::with_capacity(self.shape.len());
+                    let mut temp_o = o;
+                    for d in 0..axis {
+                        let dim_size: FSize = self.shape[d..axis].iter().product();
+                        idx.push(temp_o / (dim_size / self.shape[d]));
+                        temp_o %= dim_size / self.shape[d];
+                    }
+                    idx.push(a);
+                    let mut temp_i = i;
+                    for d in (axis + 1..self.shape.len()).rev() {
+                        let dim_size: FSize = self.shape[axis + 1..=d].iter().product();
+                        idx.push(temp_i % self.shape[d]);
+                        temp_i /= self.shape[d];
+                    }
+                    let mut flat = 0;
+                    for (d, &idx_val) in idx.iter().enumerate() {
+                        flat += idx_val * self.strides[d];
+                    }
+                    result.data[flat] /= sum_exp;
+                }
+            }
+        }
+        Ok(result)
+    }
+    /// Cross-entropy loss: NLL loss applied after log-softmax
+    /// targets: shape [batch_size] containing class indices
+    pub fn cross_entropy_loss(&self, targets: &Tensor) -> Result<f32, MLError> {
+        if self.shape.len() != 2 {
+            return Err(MLError::InvalidShape(
+                "Cross-entropy predictions must be 2D [batch, classes]".to_string(),
+            ));
+        }
+        if targets.shape.len() != 1 || targets.shape[0] != self.shape[0] {
+            return Err(MLError::DimensionMismatch {
+                expected: vec![self.shape[0]],
+                actual: targets.shape.clone(),
+            });
+        }
+        let batch_size = self.shape[0];
+        let num_classes = self.shape[1];
+        let mut total_loss = 0.0;
+        for b in 0..batch_size {
+            let class_idx = targets.data[b] as usize;
+            if class_idx >= num_classes {
+                return Err(MLError::InvalidShape(
+                    format!("Target class {} exceeds number of classes {}", class_idx, num_classes),
+                ));
+            }
+            // Log-softmax numerically stable
+            let mut max_val = f32::NEG_INFINITY;
+            for c in 0..num_classes {
+                let val = self.data[b * num_classes + c];
+                if val > max_val {
+                    max_val = val;
+                }
+            }
+            let mut log_sum_exp = 0.0;
+            for c in 0..num_classes {
+                log_sum_exp += (self.data[b * num_classes + c] - max_val).exp();
+            }
+            log_sum_exp = log_sum_exp.ln() + max_val;
+            let nll = -(self.data[b * num_classes + class_idx] - log_sum_exp);
+            total_loss += nll;
+        }
+        Ok(total_loss / batch_size as f32)
+    }
     /// Matrix multiplication
     pub fn matmul(&self, other: &Tensor) -> Result<Tensor, MLError> {
         if self.shape.len() != 2 || other.shape.len() != 2 {
@@ -133,6 +309,22 @@ impl Tensor {
             .iter()
             .zip(other.data.iter())
             .map(|(a, b)| a + b)
+            .collect();
+        Tensor::new(data, self.shape.clone())
+    }
+    /// Subtract two tensors
+    pub fn sub(&self, other: &Tensor) -> Result<Tensor, MLError> {
+        if self.shape != other.shape {
+            return Err(MLError::DimensionMismatch {
+                expected: self.shape.clone(),
+                actual: other.shape.clone(),
+            });
+        }
+        let data: FVec<f32> = self
+            .data
+            .iter()
+            .zip(other.data.iter())
+            .map(|(a, b)| a - b)
             .collect();
         Tensor::new(data, self.shape.clone())
     }
@@ -208,6 +400,155 @@ impl Tensor {
             requires_grad: self.requires_grad,
         }
     }
+    /// Get total number of elements
+    pub fn numel(&self) -> FSize {
+        self.shape.iter().product()
+    }
+    /// Get raw data slice
+    pub fn data(&self) -> &[f32] {
+        &self.data
+    }
+    /// Get mutable data slice
+    pub fn data_mut(&mut self) -> &mut [f32] {
+        &mut self.data
+    }
+    /// Create from raw data without validation (internal use)
+    pub fn from_raw(data: FVec<f32>, shape: FVec<FSize>, strides: FVec<FSize>, device: Device) -> Self {
+        Self {
+            data,
+            shape,
+            strides,
+            device,
+            grad: None,
+            requires_grad: false,
+        }
+    }
+}
+/// Conv2d: simplified 2D convolution placeholder
+/// Performs basic convolution with given kernel size, stride, and padding
+struct Conv2d {
+    /// Weight tensor [out_channels, in_channels, kernel_h, kernel_w]
+    pub weight: Tensor,
+    /// Bias tensor [out_channels]
+    pub bias: Option<Tensor>,
+    /// Stride (height, width)
+    stride: (FSize, FSize),
+    /// Padding
+    padding: FSize,
+    /// Training mode
+    training: FBool,
+}
+impl Conv2d {
+    /// Create new Conv2d layer
+    pub fn new(
+        in_channels: FSize,
+        out_channels: FSize,
+        kernel_size: (FSize, FSize),
+        stride: (FSize, FSize),
+        padding: FSize,
+        use_bias: FBool,
+    ) -> Self {
+        let fan_in = in_channels * kernel_size.0 * kernel_size.1;
+        let std_dev = (2.0 / fan_in as f32).sqrt();
+        // Xavier-like init: use deterministic pseudo-random based on index
+        let total = out_channels * in_channels * kernel_size.0 * kernel_size.1;
+        let mut weight_data = Vec::with_capacity(total);
+        for i in 0..total {
+            // Simple LCG pseudo-random in [-1, 1]
+            let hash = (i as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let r = ((hash % 2000) as f32 / 1000.0) - 1.0;
+            weight_data.push(r * std_dev);
+        }
+        let weight = Tensor::new(
+            weight_data,
+            vec![out_channels, in_channels, kernel_size.0, kernel_size.1],
+        ).unwrap();
+        let bias = if use_bias {
+            Some(Tensor::zeros(vec![out_channels]))
+        } else {
+            None
+        };
+        Self {
+            weight,
+            bias,
+            stride,
+            padding,
+            training: true,
+        }
+    }
+    /// Forward pass: simplified convolution
+    /// Input: [batch, in_channels, height, width]
+    /// Output: [batch, out_channels, out_h, out_w]
+    pub fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        if input.shape.len() != 4 {
+            return Err(MLError::InvalidShape(
+                "Conv2d input must be 4D [batch, channels, height, width]".to_string(),
+            ));
+        }
+        let batch = input.shape[0];
+        let in_channels = input.shape[1];
+        let in_h = input.shape[2];
+        let in_w = input.shape[3];
+        let out_channels = self.weight.shape[0];
+        let kh = self.weight.shape[2];
+        let kw = self.weight.shape[3];
+        let (sh, sw) = self.stride;
+        let p = self.padding;
+        let out_h = (in_h + 2 * p - kh) / sh + 1;
+        let out_w = (in_w + 2 * p - kw) / sw + 1;
+        if out_h <= 0 || out_w <= 0 {
+            return Err(MLError::InvalidShape(
+                format!("Output spatial dimensions too small: {}x{}", out_h, out_w),
+            ));
+        }
+        if in_channels != self.weight.shape[1] {
+            return Err(MLError::DimensionMismatch {
+                expected: vec![self.weight.shape[1]],
+                actual: vec![in_channels],
+            });
+        }
+        let mut output_data = vec![0.0f32; batch * out_channels * out_h * out_w];
+        for b in 0..batch {
+            for oc in 0..out_channels {
+                for oh in 0..out_h {
+                    for ow in 0..out_w {
+                        let mut sum = 0.0f32;
+                        for ic in 0..in_channels {
+                            for kh_i in 0..kh {
+                                for kw_i in 0..kw {
+                                    let ih = oh * sh + kh_i;
+                                    let iw = ow * sw + kw_i;
+                                    // Check padding
+                                    if ih >= p && ih < in_h + p && iw >= p && iw < in_w + p {
+                                        let ih_adj = ih - p;
+                                        let iw_adj = iw - p;
+                                        let in_idx = b * in_channels * in_h * in_w
+                                            + ic * in_h * in_w
+                                            + ih_adj * in_w
+                                            + iw_adj;
+                                        let w_idx = oc * in_channels * kh * kw
+                                            + ic * kh * kw
+                                            + kh_i * kw
+                                            + kw_i;
+                                        sum += input.data()[in_idx] * self.weight.data()[w_idx];
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(ref b_tensor) = self.bias {
+                            sum += b_tensor.data()[oc];
+                        }
+                        let out_idx = b * out_channels * out_h * out_w
+                            + oc * out_h * out_w
+                            + oh * out_w
+                            + ow;
+                        output_data[out_idx] = sum;
+                    }
+                }
+            }
+        }
+        Tensor::new(output_data, vec![batch, out_channels, out_h, out_w])
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -217,5 +558,42 @@ mod tests {
         let t = Tensor::zeros(vec![2, 3]);
         assert_eq!(t.shape, vec![2, 3]);
         assert_eq!(t.data.len(), 6);
+    }
+    #[test]
+    fn test_reshape() {
+        let t = Tensor::ones(vec![2, 3]);
+        let r = t.reshape(vec![3, 2]).unwrap();
+        assert_eq!(r.shape, vec![3, 2]);
+        assert_eq!(r.data.len(), 6);
+    }
+    #[test]
+    fn test_reshape_mismatch() {
+        let t = Tensor::ones(vec![2, 3]);
+        let r = t.reshape(vec![4, 2]);
+        assert!(r.is_err());
+    }
+    #[test]
+    fn test_softmax() {
+        let t = Tensor::new(vec![1.0, 2.0, 3.0], vec![3]).unwrap();
+        let s = t.softmax(0).unwrap();
+        let sum: f32 = s.data().iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+    #[test]
+    fn test_cross_entropy_loss() {
+        let preds = Tensor::new(
+            vec![2.0, 1.0, 0.5, 0.5, 1.5, 2.0],
+            vec![2, 3],
+        ).unwrap();
+        let targets = Tensor::new(vec![0.0, 2.0], vec![2]).unwrap();
+        let loss = preds.cross_entropy_loss(&targets).unwrap();
+        assert!(loss > 0.0);
+    }
+    #[test]
+    fn test_conv2d_forward() {
+        let conv = Conv2d::new(1, 1, (3, 3), (1, 1), 1, false);
+        let input = Tensor::ones(vec![1, 1, 5, 5]);
+        let output = conv.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 1, 5, 5]);
     }
 }

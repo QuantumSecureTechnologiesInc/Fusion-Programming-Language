@@ -1,0 +1,79 @@
+// commands/init.fu — Project initialization.
+// Creates a new Fusion project with standard directory structure.
+
+fn cmd_init(args: CliArgs) -> void {
+    let name = args.arg1;
+
+    if str_eq(name, "") {
+        print_error("Error: project name required");
+        puts("Usage: fusion init <project-name>");
+        exit(1);
+    }
+
+    print_info("Creating Fusion project: ");
+    puts(name);
+
+    // Create project directory
+    create_dir(name);
+
+    // Create src directory
+    let src_dir = name;
+    src_dir = src_dir + "/src";
+    create_dir(src_dir);
+
+    // Create tests directory
+    let tests_dir = name;
+    tests_dir = tests_dir + "/tests";
+    create_dir(tests_dir);
+
+    // Create docs directory
+    let docs_dir = name;
+    docs_dir = docs_dir + "/docs";
+    create_dir(docs_dir);
+
+    // Create Fusion.toml
+    let toml_path = name;
+    toml_path = toml_path + "/Fusion.toml";
+    let toml_content = "[package]\nname = \"";
+    toml_content = toml_content + name;
+    toml_content = toml_content + "\"\nversion = \"0.1.0\"\nlanguage = \"fusion\"\nruntime_target = \"supernova\"\n\n[dependencies]\n";
+    write_file(toml_path, toml_content);
+
+    // Create src/main.fu
+    let main_path = name;
+    main_path = main_path + "/src/main.fu";
+    let main_content = "// src/main.fu\n// Entry point for ";
+    main_content = main_content + name;
+    main_content = main_content + "\n\nfn main() {\n    println!(\"Hello from Fusion!\");\n}\n";
+    write_file(main_path, main_content);
+
+    // Create src/lib.fu
+    let lib_path = name;
+    lib_path = lib_path + "/src/lib.fu";
+    let lib_content = "// src/lib.fu\n// Library root for ";
+    lib_content = lib_content + name;
+    lib_content = lib_content + "\n";
+    write_file(lib_path, lib_content);
+
+    // Create .gitignore
+    let gitignore_path = name;
+    gitignore_path = gitignore_path + "/.gitignore";
+    let gitignore_content = "/target\n/build\n*.o\n*.so\n*.dll\n*.dylib\n*.exe\n.fusion-cache/\n";
+    write_file(gitignore_path, gitignore_content);
+
+    // Create README.md
+    let readme_path = name;
+    readme_path = readme_path + "/README.md";
+    let readme_content = "# ";
+    readme_content = readme_content + name;
+    readme_content = readme_content + "\n\nA new Fusion project.\n\n## Quick Start\n\n```bash\nfusion build\nfusion run\n```\n";
+    write_file(readme_path, readme_content);
+
+    print_success("Project created: ");
+    puts(name);
+    puts("");
+    puts("Next steps:");
+    puts("  cd " + name);
+    puts("  fusion build");
+    puts("  fusion run");
+}

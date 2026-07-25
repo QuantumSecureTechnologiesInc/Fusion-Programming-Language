@@ -241,6 +241,79 @@ cat .fusion/build-audit.log
 2025-12-12T13:40:01 [INFO] Build complete (1.2s)
 ```
 
+## --no-verify Bypass Auditing
+
+`git commit --no-verify` skips the pre-commit hook entirely. That is sometimes
+necessary for emergencies, but a silent bypass on production-impacting code is a
+risk. Fusion therefore **audits every `--no-verify` commit** and **requires
+explicit approval** when the bypass touches a high-risk area.
+
+### High-risk areas
+
+| Area | Path prefix | Why it is production-impacting |
+| --- | --- | --- |
+| Compiler crate | `crates/fuc/` | Compiler changes can affect every Fusion program |
+| Runtime | `runtime/` | Runtime changes affect program execution |
+| Standard library | `stdlib/` | Stdlib changes ship to every downstream consumer |
+
+### How it works
+
+Because `--no-verify` skips pre-commit, the bypass cannot be caught from inside
+pre-commit. Detection happens in a **post-commit** hook using a freshness marker:
+
+1. On a **successful** pre-commit run, the hook writes a marker
+   (`<git-dir>/fusion_precommit_marker`) bound to the current HEAD **and** the
+   staged tree hash (`git write-tree`).
+2. The **post-commit** hook (`.githooks/post-commit`) compares that marker
+   against the new commit's parent and committed tree. A missing or non-matching
+   marker means pre-commit did not run for this commit, i.e. `--no-verify` was
+   used. Binding the tree hash prevents a stale marker (from an aborted commit)
+   from masking a later bypass with different content.
+3. The bypass is appended to the audit trail. If any changed file is high-risk,
+   the record is marked `PENDING_APPROVAL` and an escalation notice is printed.
+4. The **pre-commit escalation gate** refuses to start any new commit while an
+   unapproved high-risk bypass is pending — enforcing explicit approval.
+
+The hooks work under both Git for Windows (bash `.githooks/pre-commit` /
+`post-commit`) and manual PowerShell runs (`.ps1` variants). Enable them with:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+### Reviewing the audit trail
+
+The trail is a JSON-lines file (matched by the repo's `*.log` ignore rule, so it
+stays a local, reviewable record and is never committed by the hook that writes
+it):
+
+```bash
+cat .fusion/audit/no-verify-bypass.log
+```
+
+Each line is one event. `event=bypass` records the commit, branch, author,
+changed files, the high-risk files, and status (`LOGGED` or `PENDING_APPROVAL`).
+`event=approval` records the reviewer and justification.
+
+### Approving a high-risk bypass (owner only)
+
+Until a pending high-risk bypass is approved, further commits are blocked. Record
+an explicit approval with the full commit SHA shown in the trail:
+
+```powershell
+# Windows / PowerShell
+powershell -ExecutionPolicy Bypass -File scripts\approve_bypass.ps1 `
+    -Commit <full-sha> -Justification "Emergency hotfix, reviewed by @owner"
+```
+
+```bash
+# Linux / macOS / Git Bash
+bash scripts/bypass_audit.sh approve <full-sha> "Emergency hotfix, reviewed by @owner"
+```
+
+Approval is itself recorded in the audit trail, so every production-impacting
+bypass has a reviewable who/why entry.
+
 ## Troubleshooting
 
 ### "Fusion Flux Engine not found"

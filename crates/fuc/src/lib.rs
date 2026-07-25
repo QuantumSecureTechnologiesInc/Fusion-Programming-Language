@@ -28,6 +28,12 @@ pub mod ssa;
 pub mod optimizer;
 pub mod optimizer_cfg;
 
+// Feature toggle engine
+pub mod feature_toggle;
+
+// Interaction witness system (cross-feature compatibility verification)
+pub mod interaction_witness;
+
 // Code generation
 pub mod codegen;
 pub mod wasm;

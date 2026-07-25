@@ -41,6 +41,8 @@ pub struct TypedExternFunction {
     pub return_type: Type,
     /// Whether the function is variadic.
     pub is_variadic: FBool,
+    /// Calling convention (e.g., "C", "stdcall", "fastcall", "system").
+    pub calling_convention: FString,
 }
 /// Typed struct definition.
 #[derive(Clone, Debug)]
@@ -581,6 +583,7 @@ impl Analyzer {
                         params,
                         return_type,
                         is_variadic: ext.is_variadic,
+                        calling_convention: ext.calling_convention,
                     }
                 })
                 .collect();

@@ -1,0 +1,100 @@
+// src/security/capability.fu
+// Capability-Based Security — Object Capabilities and Sandboxing
+//
+// Capability-based security replaces ambient authority (global permissions
+// checked by name) with explicit, unforgeable tokens (capabilities) that
+// must be presented to access a resource. A capability encodes the resource
+// it grants access to, the set of permitted operations, and the owning
+// principal. Capabilities can be granted to other principals or revoked,
+// and entire sandboxes can be composed from sets of capabilities to
+// confine untrusted code.
+
+/// An unforgeable token granting access to a specific resource under
+/// a defined set of permissions, owned by a particular principal.
+struct Capability {
+    /// Unique identifier for this capability instance
+    id: int,
+    /// The resource this capability grants access to (e.g. "fs:/tmp/data")
+    resource: string,
+    /// Set of permitted operations (e.g. ["read", "write", "execute"])
+    permissions: []string,
+    /// The principal (user, module, or sandbox) that owns this capability
+    owner: string,
+}
+
+/// A confined execution environment composed of a set of capabilities.
+/// Code running inside a sandbox may only access resources for which the
+/// sandbox holds a valid capability.
+struct Sandbox {
+    /// Capabilities granted to this sandbox
+    capabilities: []Capability,
+    /// When true, the sandbox denies all operations not explicitly allowed
+    restricted: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Capability operations (extern — implemented in the runtime)
+// ---------------------------------------------------------------------------
+
+/// Create a new capability for `resource` with the given `permissions`.
+/// The capability is owned by the caller's principal. Returns a fully
+/// initialized capability with a unique id.
+extern fn cap_new(resource: string, permissions: []string) -> Capability
+
+/// Derive a copy of `cap` and transfer ownership to `target`. The
+/// returned capability carries the same resource and permissions but
+/// is bound to the new owner. The original capability remains valid.
+extern fn cap_grant(cap: Capability, target: string) -> Capability
+
+/// Revoke a previously granted capability. After revocation, `target`
+/// can no longer use `cap` to access its resource. Returns a new
+/// capability with an empty permission set indicating revocation.
+extern fn cap_revoke(cap: Capability, target: string) -> Capability
+
+/// Check whether `cap` grants the specified `permission` for its
+/// resource. Returns false if the permission is not in the capability's
+/// permission set or if the capability has been revoked.
+extern fn cap_check(cap: Capability, permission: string) -> bool
+
+/// Verify that `cap` is well-formed and has not been tampered with.
+/// Checks the internal integrity token embedded at creation time.
+/// Returns true if the capability is valid and unforgeable.
+extern fn cap_verify(cap: Capability) -> bool
+
+/// Create a sandbox that is confined to the union of capabilities in
+/// `caps`. All other resource access is denied.
+extern fn cap_create_sandbox(caps: []Capability) -> Sandbox
+
+/// Enforce the capability set of a sandbox: verify that all held
+/// capabilities are valid and unrevoked. Returns true if the sandbox
+/// passes all checks.
+extern fn cap_enforce(sandbox: Sandbox) -> bool
+
+// ---------------------------------------------------------------------------
+// Sandbox operations (extern — implemented in the runtime)
+// ---------------------------------------------------------------------------
+
+/// Create an empty, fully-restricted sandbox with no capabilities.
+/// Nothing can be executed until capabilities are added.
+extern fn sandbox_new() -> Sandbox
+
+/// Add a capability to a sandbox. Returns a new sandbox with the
+/// capability appended to the existing set.
+extern fn sandbox_add_cap(sandbox: Sandbox, cap: Capability) -> Sandbox
+
+/// Remove a capability from a sandbox by id. Returns a new sandbox
+/// with the capability filtered out. If no capability matches the id,
+/// the sandbox is returned unchanged.
+extern fn sandbox_remove_cap(sandbox: Sandbox, cap_id: int) -> Sandbox
+
+/// Execute arbitrary `code` within the confines of `sandbox`. The
+/// runtime checks every resource access against the sandbox's capability
+/// set. Returns the output of the executed code, or an error string if
+/// a capability violation occurs.
+extern fn sandbox_execute(sandbox: Sandbox, code: string) -> string
+
+/// Check whether a sandbox's capability set includes the given
+/// `permission` for at least one resource. This is a static check and
+/// does not account for revocation at runtime — use `cap_enforce` for
+/// full verification.
+extern fn sandbox_is_allowed(sandbox: Sandbox, permission: string) -> bool

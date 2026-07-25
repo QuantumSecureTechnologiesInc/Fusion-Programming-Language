@@ -1,1 +1,0 @@
-/usr/bin/cc CMakeFiles/secure_dashboard.dir/tools/secure_dashboard.c.o -o secure_dashboard  -Wl,-rpath,"/mnt/c/Users/Matth/.gemini/antigravity/scratch/HyperCycle/v2.0 Vortex/build_bench" libhypercycle_pqc.so /usr/lib/x86_64-linux-gnu/libcrypto.so -lm -lpthread 

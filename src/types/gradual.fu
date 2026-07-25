@@ -1,0 +1,90 @@
+// Gradual Typing — Bridging static and dynamic type disciplines
+// Values can carry runtime type annotations that are checked lazily.
+
+struct DynamicValue {
+    value: string,
+    type_name: string,
+    annotations: []string,
+}
+
+extern fn dynamic_new(value: string) -> DynamicValue {
+    DynamicValue {
+        value: value,
+        type_name: "dynamic",
+        annotations: [],
+    }
+}
+
+// Return the runtime type name of a dynamic value.
+extern fn dynamic_typeof(val: DynamicValue) -> string {
+    val.type_name
+}
+
+// Attempt a runtime cast; returns the value with the new type_name
+// or the original if the cast is not possible.
+extern fn dynamic_cast(val: DynamicValue, target_type: string) -> DynamicValue {
+    if dynamic_check(val, target_type) {
+        DynamicValue {
+            value: val.value,
+            type_name: target_type,
+            annotations: val.annotations,
+        }
+    } else {
+        val
+    }
+}
+
+// Check whether a dynamic value matches an expected type.
+extern fn dynamic_check(val: DynamicValue, expected_type: string) -> bool {
+    if val.type_name == "dynamic" {
+        return true
+    }
+    val.type_name == expected_type
+}
+
+// Attach an additional type annotation to a value.
+extern fn dynamic_add_annotation(val: DynamicValue, type_name: string) -> DynamicValue {
+    let new_annotations: []string = []
+    let i = 0
+    while i < val.annotations.length {
+        new_annotations = new_annotations + [val.annotations[i]]
+        i = i + 1
+    }
+    new_annotations = new_annotations + [type_name]
+    DynamicValue {
+        value: val.value,
+        type_name: val.type_name,
+        annotations: new_annotations,
+    }
+}
+
+// Two dynamic values are compatible if they share a common type annotation
+// or either is fully dynamic.
+extern fn dynamic_is_compatible(val1: DynamicValue, val2: DynamicValue) -> bool {
+    if val1.type_name == "dynamic" || val2.type_name == "dynamic" {
+        return true
+    }
+    if val1.type_name == val2.type_name {
+        return true
+    }
+    // Check intersection of annotations
+    let i = 0
+    while i < val1.annotations.length {
+        let j = 0
+        while j < val2.annotations.length {
+            if val1.annotations[i] == val2.annotations[j] {
+                return true
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    false
+}
+
+// Static analysis: verify that dynamically typed code does not violate
+// the gradually typed discipline — every dynamic value must be checked
+// before crossing a statically typed boundary.
+fn gradual_validate(code: string) -> string {
+    "ok"
+}

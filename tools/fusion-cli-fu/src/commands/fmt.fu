@@ -1,0 +1,21 @@
+// commands/fmt.fu — Format command.
+// Formats all .fu source files using fuc.exe fmt.
+
+fn cmd_fmt(args: CliArgs) -> void {
+    print_info("Formatting source files...");
+
+    let cmd = "fuc.exe fmt --path src/";
+
+    if args.verbose_flag {
+        cmd = cmd + " --verbose";
+    }
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Formatting complete");
+    } else {
+        print_error("Formatting failed");
+        exit(1);
+    }
+}

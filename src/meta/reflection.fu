@@ -1,0 +1,49 @@
+// Reflection and Introspection
+// Provides runtime type information, dynamic dispatch, and serialization
+
+struct TypeInfo {
+    name: string
+    kind: string
+    fields: []FieldInfo
+    methods: []MethodInfo
+}
+
+struct FieldInfo {
+    name: string
+    type_name: string
+    offset: int
+    size: int
+}
+
+struct MethodInfo {
+    name: string
+    return_type: string
+    params: []ParamInfo
+    is_public: bool
+}
+
+struct ParamInfo {
+    name: string
+    type_name: string
+}
+
+// Get full type information by name
+extern fn reflect_type(type_name: string) -> TypeInfo
+
+// Get type information from a runtime value
+extern fn reflect_value(value: string, type_name: string) -> TypeInfo
+
+// List all methods of a type
+extern fn reflect_methods(type_name: string) -> []MethodInfo
+
+// List all fields of a type
+extern fn reflect_fields(type_name: string) -> []FieldInfo
+
+// Dynamically invoke a method by name
+extern fn reflect_call(method: string, args: string) -> string
+
+// Serialize a value to JSON
+extern fn reflect_serialize(value: string, type_name: string) -> string
+
+// Deserialize JSON to a typed value
+extern fn reflect_deserialize(json: string, type_name: string) -> string

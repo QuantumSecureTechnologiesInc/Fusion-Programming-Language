@@ -5,15 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "High-performance networking leveraging fusion_runtime_core"
+description = "High-performance networking with connection pooling"
 
 [dependencies]
-fusion_core = { path = "../../../registry/crates/fusion_core/" }
-fusion_runtime_core = { path = "../../../registry/crates/fusion_runtime_core/" }
-fusion_runtime_hal = { path = "../../../registry/crates/fusion_runtime_hal/" }
-socket2 = { workspace = true }
-futures = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }

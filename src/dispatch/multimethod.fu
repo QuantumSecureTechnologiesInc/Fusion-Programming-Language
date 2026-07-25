@@ -1,0 +1,71 @@
+// Multiple Dispatch
+// Provides runtime method dispatch based on argument types
+
+struct MethodSignature {
+    param_types: []string
+    return_type: string
+    body: string
+}
+
+struct MultiMethod {
+    name: string
+    signatures: []MethodSignature
+}
+
+// Create a new empty multimethod with the given name
+extern fn multimethod_new(name: string) -> MultiMethod
+
+// Add a new method signature to the multimethod
+extern fn multimethod_add(mm: MultiMethod, param_types: []string, return_type: string, body: string) -> MultiMethod
+
+// Dispatch to the most specific method based on argument types
+extern fn multimethod_dispatch(mm: MultiMethod, args_types: []string, args: string) -> string
+
+// List all registered method signatures
+extern fn multimethod_list(mm: MultiMethod) -> []MethodSignature
+
+// Check if the multimethod is compatible with the given argument types
+extern fn multimethod_is_compatible(mm: MultiMethod, arg_types: []string) -> bool
+
+// Compare two signatures to determine which is more specific
+// Returns negative if sig1 is more specific, positive if sig2 is more specific, 0 if equal
+fn multimethod_precedence(sig1: MethodSignature, sig2: MethodSignature) -> int {
+    let param_count_diff = sig1.param_types.length - sig2.param_types.length
+    if param_count_diff != 0 {
+        return param_count_diff
+    }
+
+    var score = 0
+    var i = 0
+    while i < sig1.param_types.length {
+        let t1 = sig1.param_types[i]
+        let t2 = sig2.param_types[i]
+        if t1 == t2 {
+            score += 0
+        } else if t1 == "any" || t1 == "*" {
+            score += 1
+        } else if t2 == "any" || t2 == "*" {
+            score -= 1
+        }
+        i += 1
+    }
+    return score
+}
+
+// Find the most specific method for the given argument types
+fn multimethod_most_specific(mm: MultiMethod, arg_types: []string) -> MethodSignature {
+    var best: MethodSignature
+    var best_set = false
+    var i = 0
+    while i < mm.signatures.length {
+        let sig = mm.signatures[i]
+        if sig.param_types.length == arg_types.length {
+            if !best_set || multimethod_precedence(sig, best) < 0 {
+                best = sig
+                best_set = true
+            }
+        }
+        i += 1
+    }
+    return best
+}

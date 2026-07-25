@@ -1,0 +1,241 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+import fusion::cmd
+import fusion::http
+
+use crate::config::FusionConfig
+
+const QUANTUM_API: String = "https://quantum.fusion-lang.org/api"
+
+/// Read quantum configuration from Fusion.toml [quantum] section
+fn read_quantum_config(config: FusionConfig) -> Dict {
+    let quantum_config = {}
+
+    if let Some(quantum) = config["quantum"] {
+        if let Some(backend) = quantum["default_backend"] {
+            quantum_config["default_backend"] = backend
+        }
+        if let Some(shots) = quantum["shots"] {
+            quantum_config["shots"] = shots
+        }
+        if let Some(max_qubits) = quantum["max_qubits"] {
+            quantum_config["max_qubits"] = max_qubits
+        }
+        // Read AWS Braket cloud backend config
+        if let Some(aws) = quantum["aws_braket"] {
+            quantum_config["aws_braket"] = aws
+        }
+        // Read IBM Quantum cloud backend config
+        if let Some(ibm) = quantum["ibm_quantum"] {
+            quantum_config["ibm_quantum"] = ibm
+        }
+    }
+
+    return quantum_config
+}
+
+/// Read AWS Braket specific settings from [quantum.aws_braket]
+fn read_aws_braket_config(quantum_config: Dict) -> Dict {
+    let aws_config = {}
+
+    if let Some(aws) = quantum_config["aws_braket"] {
+        if let Some(region) = aws["region"] {
+            aws_config["region"] = region
+        }
+        if let Some(device_arn) = aws["device_arn"] {
+            aws_config["device_arn"] = device_arn
+        }
+        if let Some(bucket) = aws["s3_bucket"] {
+            aws_config["s3_bucket"] = bucket
+        }
+        if let Some(provider) = aws["provider"] {
+            aws_config["provider"] = provider
+        }
+    }
+
+    return aws_config
+}
+
+/// Read IBM Quantum specific settings from [quantum.ibm_quantum]
+fn read_ibm_quantum_config(quantum_config: Dict) -> Dict {
+    let ibm_config = {}
+
+    if let Some(ibm) = quantum_config["ibm_quantum"] {
+        if let Some(channel) = ibm["channel"] {
+            ibm_config["channel"] = channel
+        }
+        if let Some(token) = ibm["token"] {
+            ibm_config["token"] = token
+        }
+        if let Some(instance) = ibm["instance"] {
+            ibm_config["instance"] = instance
+        }
+        if let Some(device) = ibm["device"] {
+            ibm_config["device"] = device
+        }
+    }
+
+    return ibm_config
+}
+
+/// Simulate a quantum circuit
+async fn simulate(circuit: String, shots: u32, json: bool) -> Result {
+    let root = FusionConfig::project_root().unwrap_or_else(|| fs::current_dir())
+    let circuit_path = root.join(circuit)
+
+    if !fs::exists(circuit_path) {
+        return Err("Circuit file not found: {circuit_path.display()}")
+    }
+
+    // Load Fusion.toml for quantum configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let quantum_config = read_quantum_config(config)
+
+    // Use shots from config if not overridden by CLI
+    let resolved_shots = if shots != 1024 {
+        shots
+    } else {
+        quantum_config.get("shots").unwrap_or(1024).to_u32()
+    }
+
+    let args = [
+        "quantum",
+        "simulate",
+        circuit_path.display(),
+        "--shots={resolved_shots}",
+    ]
+
+    let output = cmd::Command::new("fuc.exe")
+        .args(args)
+        .current_dir(root)
+        .output()
+
+    let stdout = output.stdout
+    let stderr = output.stderr
+    let success = output.status.success()
+
+    if json {
+        io::println("{\"action\":\"simulate\",\"circuit\":\"{circuit}\",\"shots\":{resolved_shots},\"success\":{success},\"output\":\"{stdout.trim()}\"}")
+    } else {
+        io::println("Quantum: Circuit '{circuit}' ({resolved_shots} shots)")
+        if stdout.len() > 0 {
+            io::println(stdout)
+        }
+        if stderr.len() > 0 {
+            io::eprintln(stderr)
+        }
+    }
+
+    if !success {
+        return Err("Quantum simulation failed")
+    }
+
+    return Ok(())
+}
+
+/// Run a circuit on a real quantum backend
+async fn run_circuit(circuit: String, backend: String, json: bool) -> Result {
+    let root = FusionConfig::project_root().unwrap_or_else(|| fs::current_dir())
+    let circuit_path = root.join(circuit)
+
+    if !fs::exists(circuit_path) {
+        return Err("Circuit file not found: {circuit_path.display()}")
+    }
+
+    let circuit_content = fs::read_to_string(circuit_path)
+
+    // Load Fusion.toml for quantum backend configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let quantum_config = read_quantum_config(config)
+
+    // Resolve backend: CLI arg > [quantum] default_backend
+    let resolved_backend = if backend == "auto" {
+        quantum_config.get("default_backend").unwrap_or("simulator").to_string()
+    } else {
+        backend
+    }
+
+    // Build payload with backend-specific config
+    let mut payload = {
+        "circuit": circuit_content,
+        "backend": resolved_backend,
+        "shots": "1024",
+    }
+
+    // Include backend-specific settings from Fusion.toml
+    if resolved_backend == "aws" || resolved_backend == "aws_braket" {
+        let aws_config = read_aws_braket_config(quantum_config)
+        if aws_config.len() > 0 {
+            payload["aws_config"] = aws_config
+        }
+    } else if resolved_backend == "ibm" || resolved_backend == "ibm_quantum" {
+        let ibm_config = read_ibm_quantum_config(quantum_config)
+        if ibm_config.len() > 0 {
+            payload["ibm_config"] = ibm_config
+        }
+    }
+
+    let client = http::Client::new()
+    let resp = client
+        .post("{QUANTUM_API}/quantum/run")
+        .json(payload)
+        .send()
+
+    let body = resp.json()
+
+    if json {
+        io::println(toml::to_string_pretty(body))
+    } else {
+        io::println("Quantum: Running on {resolved_backend}")
+        if let Some(results) = body["results"] {
+            io::println(toml::to_string_pretty(results))
+        } else if let Some(error) = body["error"] {
+            io::eprintln("error: {error}")
+        } else {
+            io::println(toml::to_string_pretty(body))
+        }
+    }
+
+    return Ok(())
+}
+
+/// List available quantum devices
+async fn devices(provider: Option<String>, json: bool) -> Result {
+    let client = http::Client::new()
+    let url = match provider {
+        Some(p) => "{QUANTUM_API}/quantum/devices?provider={p}",
+        None => "{QUANTUM_API}/quantum/devices",
+    }
+
+    let resp = client.get(url).send()
+    let body = resp.json()
+
+    if json {
+        io::println(toml::to_string_pretty(body))
+    } else {
+        io::println("Quantum: Available quantum devices:")
+        if let Some(devices_list) = body["devices"] {
+            for dev in devices_list {
+                let name = dev["name"].unwrap_or("?")
+                let prov = dev["provider"].unwrap_or("?")
+                let qubits = dev["qubits"].unwrap_or(0)
+                let status = dev["status"].unwrap_or("unknown")
+                io::println("  {name} ({prov}) - {qubits} qubits [{status}]")
+            }
+        } else {
+            io::println("  No devices available.")
+        }
+    }
+
+    return Ok(())
+}
+
+/// Run the quantum command
+pub async fn run(command: QuantumCommands, json: bool) -> Result {
+    match command {
+        QuantumCommands::Simulate { circuit, shots } => simulate(circuit, shots, json).await,
+        QuantumCommands::Run { circuit, backend } => run_circuit(circuit, backend, json).await,
+        QuantumCommands::Devices { provider } => devices(provider, json).await,
+    }
+}

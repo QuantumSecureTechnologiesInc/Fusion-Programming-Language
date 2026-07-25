@@ -1,0 +1,45 @@
+//! Channel-based message passing.
+//!
+//! Channels provide a typed, asynchronous conduit for communicating
+//! between threads. A channel is a single-producer / single-consumer
+//! (MPSC) queue backed by a lock-free ring buffer.
+
+struct Channel {
+    handle: int,
+    capacity: int,
+}
+
+/// Create an unbounded channel. Messages are buffered without limit
+/// (until memory is exhausted).
+extern fn channel_unbounded() -> Channel
+
+/// Create a bounded channel with the given buffer capacity.
+/// `channel_send` will block (or `channel_try_send` will fail) when
+/// the buffer is full.
+extern fn channel_bounded(capacity: int) -> Channel
+
+/// Send `message` into the channel, blocking if the buffer is full.
+extern fn channel_send(ch: Channel, message: string) -> void
+
+/// Non-blocking variant of `channel_send`.
+/// Returns `true` on success, `false` if the buffer is full or the
+/// channel has been closed.
+extern fn channel_try_send(ch: Channel, message: string) -> bool
+
+/// Receive the next message from the channel, blocking until one is
+/// available. Returns an empty string if the channel is closed.
+extern fn channel_receive(ch: Channel) -> string
+
+/// Non-blocking receive. Returns the next message if available, or an
+/// empty string otherwise.
+extern fn channel_try_receive(ch: Channel) -> string
+
+/// Close the channel. No further messages can be sent; pending
+/// receivers will drain the remaining buffer before seeing EOF.
+extern fn channel_close(ch: Channel) -> void
+
+/// Return the number of messages currently buffered in the channel.
+extern fn channel_len(ch: Channel) -> int
+
+/// Returns `true` if the channel buffer is empty.
+extern fn channel_is_empty(ch: Channel) -> bool

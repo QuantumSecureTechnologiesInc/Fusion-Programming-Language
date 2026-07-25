@@ -1,8 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/crates/debugger/src/lib.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-
-fn start(target: Option<&str>) -> Result<()> {
-    println!("Starting debugger for target: {:?}", target);
-    Ok(())
-}

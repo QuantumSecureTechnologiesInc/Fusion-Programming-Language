@@ -1,0 +1,9 @@
+[package]
+name = "fusion-cli-fu"
+version = "2.0.0"
+language = "fusion"
+runtime_target = "supernova"
+description = "Fusion CLI toolchain — written entirely in Fusion"
+
+[dependencies]
+fusion_std = "2.0.0"

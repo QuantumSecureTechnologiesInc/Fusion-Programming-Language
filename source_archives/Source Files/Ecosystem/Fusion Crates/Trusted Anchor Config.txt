@@ -1,9 +1,0 @@
-[package]
-name = "fusion_sec_trust_anchor"
-version = "0.1.0"
-edition = "2021"
-description = "Logic for establishing a measured boot and hardware root of trust"
-license = "MIT"
-
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" }

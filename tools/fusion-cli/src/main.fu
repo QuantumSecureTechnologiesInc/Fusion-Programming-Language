@@ -1,0 +1,228 @@
+import fusion::io
+import fusion::cli
+
+mod commands
+mod config
+
+use commands::{
+    AiCommands, CryptoCommands, DeployCommands, NeuralSealSubcommand, ProviderSubcommand,
+    PkgCommands, QuantumCommands, SourceSubcommand, ConfigCommands,
+}
+
+/// CLI argument parser
+struct Cli {
+    json: bool,
+    verbose: bool,
+    command: Commands,
+}
+
+/// Top-level commands
+enum Commands {
+    Init { name: String, template: String },
+    Build { target: String, release: bool },
+    Run { file: Option<String>, lang: Option<String>, polyglot: bool },
+    Test { filter: Option<String>, parallel: bool },
+    Fmt { check: bool },
+    Lint { fix: bool },
+    Doc { open: bool },
+    Clean { cache: bool },
+    Ai { command: AiCommands },
+    Pkg { command: PkgCommands },
+    Quantum { command: QuantumCommands },
+    Deploy { command: DeployCommands },
+    Crypto { command: CryptoCommands },
+    Source { command: SourceSubcommand },
+    Neuralseal { command: NeuralSealSubcommand },
+    Providers { command: ProviderSubcommand },
+    Config { command: ConfigCommands },
+    Info,
+    Version,
+}
+
+fn main() -> Result {
+    let cli = cli::Parser::parse("fusion", "Fusion v2.0 Vortex - Build, Run, and Manage Fusion Projects")
+
+    // Global flags
+    cli.flag("json", "Output as JSON")
+    cli.flag("verbose", "Verbose output")
+
+    // Subcommands
+    cli.subcommand("init", "Create a new Fusion project")
+        .arg("name", "Project name")
+        .arg("template", "Template to use (default, gui, cli, lib)", default = "default")
+
+    cli.subcommand("build", "Build the project")
+        .arg("target", "Target: native or wasm", default = "native")
+        .flag("release", "Build in release mode")
+
+    cli.subcommand("run", "Compile and run a file")
+        .arg("file", "File to run", optional = true)
+        .arg("lang", "Language runtime (python, javascript, java, rust, c, cpp, fusion)", optional = true)
+        .flag("polyglot", "Auto-detect language and run with appropriate runtime")
+
+    cli.subcommand("test", "Run tests")
+        .arg("filter", "Specific test name filter", optional = true)
+        .flag("parallel", "Run tests in parallel", default = true)
+
+    cli.subcommand("fmt", "Format code")
+        .flag("check", "Check only, don't modify")
+
+    cli.subcommand("lint", "Lint code")
+        .flag("fix", "Fix auto-fixable issues")
+
+    cli.subcommand("doc", "Generate documentation")
+        .flag("open", "Open in browser after generating")
+
+    cli.subcommand("clean", "Clean build artifacts")
+        .flag("cache", "Also clean cache")
+
+    cli.subcommand("ai", "AI-powered commands")
+        .subcommand("chat", "Interactive chat with an AI model")
+            .arg("model", "Model name (e.g. llama3, mistral)")
+        .subcommand("complete", "Code completion")
+            .arg("model", "Model name")
+            .arg("prompt", "Prompt for completion")
+        .subcommand("explain", "Explain code in a file")
+            .arg("file", "File path")
+        .subcommand("review", "Review code")
+            .arg("file", "File path")
+        .subcommand("generate", "Generate code from a description")
+            .arg("description", "Description of code to generate", trailing = true)
+        .subcommand("models", "List available AI models")
+        .subcommand("pull", "Pull a model via Ollama")
+            .arg("model", "Model name")
+
+    cli.subcommand("pkg", "Package management")
+        .subcommand("add", "Add a dependency")
+            .arg("package", "Package name (name@version)")
+        .subcommand("remove", "Remove a dependency")
+            .arg("package", "Package name")
+        .subcommand("search", "Search packages")
+            .arg("query", "Search query")
+        .subcommand("publish", "Publish package to registry")
+            .flag("dry-run", "Dry run without publishing")
+        .subcommand("update", "Update dependencies")
+            .arg("package", "Specific package to update", optional = true)
+
+    cli.subcommand("quantum", "Quantum computing commands")
+        .subcommand("simulate", "Simulate a quantum circuit")
+            .arg("circuit", "Circuit file path (.qasm or .qcl)")
+            .arg("shots", "Number of shots", default = 1024)
+        .subcommand("run", "Run on a real quantum backend")
+            .arg("circuit", "Circuit file path")
+            .arg("backend", "Backend provider", values = ["ibm", "aws", "azure", "google", "rigetti"])
+        .subcommand("devices", "List available quantum devices")
+            .arg("provider", "Filter by provider", optional = true)
+
+    cli.subcommand("deploy", "Deploy commands")
+        .subcommand("target", "Deploy to a target")
+            .arg("target", "Deployment target: k8s, faas, cloud")
+            .arg("env", "Environment (dev, staging, prod)", default = "dev")
+        .subcommand("status", "Check deployment status")
+            .arg("id", "Deployment ID", optional = true)
+        .subcommand("rollback", "Rollback deployment")
+            .arg("to", "Deployment ID to rollback to", optional = true)
+
+    cli.subcommand("crypto", "Post-quantum cryptography commands")
+        .subcommand("keygen", "Generate a hybrid PQC keypair")
+            .arg("output", "Output directory", default = ".")
+            .arg("algorithm", "Algorithm", default = "mlkem-mldsa")
+        .subcommand("sign", "Sign a file with hybrid signature")
+            .arg("file", "File to sign")
+            .arg("key", "Private key file", default = "fusion.key.secret")
+        .subcommand("verify", "Verify a signature")
+            .arg("file", "File to verify")
+            .arg("sig", "Signature file")
+            .arg("key", "Public key file", default = "fusion.key.public")
+        .subcommand("encrypt", "Encrypt a file with hybrid PQC")
+            .arg("file", "File to encrypt")
+            .arg("key", "Public key file", default = "fusion.key.public")
+        .subcommand("decrypt", "Decrypt a file")
+            .arg("file", "File to decrypt")
+            .arg("key", "Private key file", default = "fusion.key.secret")
+
+    cli.subcommand("source", "Source Files management commands")
+        .subcommand("list", "List all .fu files in Source Files/")
+        .subcommand("compile", "Compile a Source Files .fu file")
+            .arg("file", "File path relative to Source Files/")
+        .subcommand("test", "Run all Source Files tests")
+            .arg("filter", "Filter tests by name", optional = true)
+        .subcommand("audit", "Check which files are stubs vs real implementations")
+
+    cli.subcommand("neuralseal", "NeuralSeal post-quantum cryptography commands")
+        .subcommand("keygen", "Generate a NeuralSeal keypair")
+            .arg("level", "Security level: low, medium, or high", default = "medium")
+        .subcommand("encrypt", "Encrypt a file with NeuralSeal")
+            .arg("key", "Path to secret key file")
+            .arg("input", "Input file to encrypt")
+            .arg("output", "Output file path", optional = true)
+        .subcommand("decrypt", "Decrypt a NeuralSeal encrypted file")
+            .arg("key", "Path to secret key file")
+            .arg("input", "Input file to decrypt")
+            .arg("output", "Output file path", optional = true)
+        .subcommand("sign", "Sign a file with NeuralSeal")
+            .arg("key", "Path to signing key file")
+            .arg("input", "Input file to sign")
+        .subcommand("verify", "Verify a NeuralSeal signature")
+            .arg("key", "Path to verification key file")
+            .arg("input", "Input file to verify")
+            .arg("signature", "Path to signature file")
+
+    cli.subcommand("providers", "AI model provider management")
+        .subcommand("list", "List all 26 AI model providers")
+        .subcommand("status", "Check provider status and configuration")
+            .arg("provider", "Provider ID (e.g. ollama, openai, anthropic)")
+        .subcommand("pull", "Pull a model via Ollama")
+            .arg("model", "Model name (e.g. llama3, mistral)")
+        .subcommand("test", "Test model inference")
+            .arg("model", "Model name to test")
+
+    // NEW: Config command for Fusion.toml management
+    cli.subcommand("config", "View and edit Fusion.toml configuration")
+        .subcommand("get", "Get a config value")
+            .arg("key", "Section.key path (e.g. build.optimization_level)")
+        .subcommand("set", "Set a config value")
+            .arg("key", "Section.key path (e.g. build.optimization_level)")
+            .arg("value", "Value to set")
+        .subcommand("list", "List all config sections")
+        .subcommand("validate", "Validate the Fusion.toml configuration")
+        .subcommand("show", "Display full Fusion.toml config")
+
+    cli.subcommand("info", "Show project info")
+    cli.subcommand("version", "Show Fusion version and environment")
+
+    // Parse and execute
+    let matches = cli.parse()
+
+    let result = match matches.command {
+        Commands::Init { name, template } => commands::init::run(name, template, matches.json).await,
+        Commands::Build { target, release } => commands::build::run(target, release, matches.verbose, matches.json).await,
+        Commands::Run { file, lang, polyglot } => commands::run::run(file, lang, polyglot, matches.verbose).await,
+        Commands::Test { filter, parallel } => commands::test::run(filter, parallel, matches.json).await,
+        Commands::Fmt { check } => commands::fmt::run(check, matches.json).await,
+        Commands::Lint { fix } => commands::lint::run(fix, matches.json).await,
+        Commands::Doc { open } => commands::doc::run(open, matches.json).await,
+        Commands::Clean { cache } => commands::clean::run(cache, matches.json).await,
+        Commands::Ai { command } => commands::ai::run(command, matches.json).await,
+        Commands::Pkg { command } => commands::pkg::run(command, matches.json).await,
+        Commands::Quantum { command } => commands::quantum::run(command, matches.json).await,
+        Commands::Deploy { command } => commands::deploy::run(command, matches.json).await,
+        Commands::Crypto { command } => commands::crypto::run(command, matches.json).await,
+        Commands::Source { command } => commands::source::run(command, matches.json).await,
+        Commands::Neuralseal { command } => commands::neuralseal::run(command, matches.json).await,
+        Commands::Providers { command } => commands::providers::run(command, matches.json).await,
+        Commands::Config { command } => commands::config::run(command, matches.json).await,
+        Commands::Info => commands::info::run(matches.json).await,
+        Commands::Version => {
+            io::println("fusion v2.0.0")
+            io::println("  Runtime: Fusion v2.0 Vortex")
+            Ok(())
+        }
+    }
+
+    if let Err(e) = result {
+        io::eprintln("error: {e}")
+    }
+
+    result
+}

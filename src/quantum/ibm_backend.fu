@@ -1,0 +1,63 @@
+// src/quantum/ibm_backend.fu
+// IBM Quantum Backend Interface
+// Wraps the IBM Quantum Runtime Rust crate with Fusion-native API
+
+class IBMConfig {
+    token: string;
+    url: string;
+    instance: string;
+}
+
+impl IBMConfig {
+    fn new(token: string, url: string, instance: string) -> IBMConfig {
+        return IBMConfig {
+            token: token,
+            url: url,
+            instance: instance
+        };
+    }
+}
+
+// External FFI bindings to ibm-quantum-runtime crate
+extern fn ibm_connect(config: IBMConfig) -> int;
+extern fn ibm_submit_circuit(handle: int, circuit: string) -> int;
+extern fn ibm_get_result(handle: int, job_id: int) -> string;
+extern fn ibm_list_devices(handle: int) -> string;
+
+// High-level wrapper: connect, submit, poll, return result
+fn ibm_run(config: IBMConfig, circuit: string) -> string {
+    let handle = ibm_connect(config);
+
+    if handle == 0 {
+        return "{\"error\": \"Failed to connect to IBM Quantum\"}";
+    }
+
+    let job_id = ibm_submit_circuit(handle, circuit);
+
+    if job_id == 0 {
+        return "{\"error\": \"Failed to submit circuit\"}";
+    }
+
+    // Poll for result
+    let mut attempts = 0;
+    let max_attempts = 60;
+
+    while attempts < max_attempts {
+        let result = ibm_get_result(handle, job_id);
+
+        // Check for pending status
+        if result != "PENDING" && result != "RUNNING" && result != "QUEUED" {
+            return result;
+        }
+
+        // Simple delay via busy loop (no std::thread in Fusion)
+        let mut delay = 0;
+        while delay < 1000000 {
+            delay = delay + 1;
+        }
+
+        attempts = attempts + 1;
+    }
+
+    return "{\"error\": \"Job timed out after 60 attempts\"}";
+}

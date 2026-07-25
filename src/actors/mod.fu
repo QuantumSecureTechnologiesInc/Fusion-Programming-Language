@@ -1,0 +1,15 @@
+// Actors Module
+// Provides built-in Actor Model and Supervision Trees
+
+mod actor
+mod supervisor
+
+pub use actor.*
+pub use supervisor.*
+
+// Cross-references to related features
+pub use crate::concurrency::thread      // actors run on threads
+pub use crate::concurrency::channel     // actors communicate via channels
+pub use crate::security::capability     // actors have capabilities
+pub use crate::effects::effect          // actors can perform effects
+pub use crate::control::coroutine       // actors can use coroutines

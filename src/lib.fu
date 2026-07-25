@@ -1,24 +1,108 @@
+// src/lib.fu - Fusion V2.0 Vortex Root Module
+//
+// This is the main entry point for the Fusion language.
+// All modules are re-exported here for convenient access.
+
+// --- Compiler infrastructure ---
 mod ast;
 mod async_runtime;
 mod borrow_checker;
 mod codegen;
-mod crypto;
 mod docs;
 mod fusion_core;
+mod fusion_system;
 mod lexer;
 mod lib_integration;
 mod lsp;
-mod ml;
 mod mcp;
 mod module_resolver;
-mod network;
 mod optimization;
-mod package_manager;
 mod parser;
-mod quantum;
 mod registry;
-mod security;
 mod semantic_analyzer;
-mod stdlib;
 mod wasm;
-mod web;
+
+// --- Quantum Computing ---
+pub mod quantum {
+    pub use crate::quantum::*;
+}
+
+// --- AI / Machine Learning ---
+pub mod ai {
+    pub use crate::ai::*;
+}
+
+// --- Networking ---
+pub mod net {
+    pub use crate::net::*;
+}
+
+// --- Runtime ---
+pub mod runtime {
+    pub use crate::runtime::*;
+}
+
+// --- Cloud ---
+pub mod cloud {
+    pub use crate::cloud::*;
+}
+
+// --- Mobile ---
+pub mod mobile {
+    pub use crate::mobile::*;
+}
+
+// --- Web ---
+pub mod web {
+    pub use crate::web::*;
+}
+
+// --- Language Interop ---
+pub mod interop {
+    pub use crate::interop::*;
+}
+
+// --- Security ---
+pub mod security {
+    pub use crate::security::*;
+}
+
+// --- Compiler (Visual, Package Manager, Deploy) ---
+pub mod compiler {
+    pub use crate::compiler::*;
+}
+
+// --- Crypto (re-export from security) ---
+pub mod crypto {
+    pub use crate::security::fips::*;
+    pub use crate::security::zkp::*;
+    pub use crate::security::pqc_enforcement::*;
+}
+
+// --- Standard Library ---
+pub mod stdlib {
+    pub use crate::stdlib::*;
+}
+
+// --- Additional modules ---
+mod ml;
+mod network;
+mod finance;
+mod auth;
+mod fusion_sdk;
+
+// --- Advanced Feature Modules ---
+pub mod effects;
+pub mod tco;
+pub mod types;
+pub mod control;
+pub mod dispatch;
+pub mod actors;
+pub mod safety;
+pub mod meta;
+pub mod concurrency;
+pub mod modules;
+pub mod observability;
+pub mod portability;
+pub mod integration;
+pub mod fusion_system;

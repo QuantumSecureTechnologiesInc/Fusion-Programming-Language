@@ -1,0 +1,17 @@
+module observability.tracing
+
+struct Span {
+    trace_id: string
+    span_id: string
+    parent_id: string
+    name: string
+    start: int
+    end: int
+    status: string
+}
+
+extern fn trace_start(name: string) -> Span
+extern fn trace_end(span: Span) -> void
+extern fn trace_set_attribute(span: Span, key: string, value: string) -> void
+extern fn trace_set_status(span: Span, status: string) -> void
+extern fn trace_export(format: string) -> string

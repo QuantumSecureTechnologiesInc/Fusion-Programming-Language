@@ -43,4 +43,5 @@ pub trait Backend {
 // Conditionally include LLVM backend when inkwell is available
 #[cfg(feature = "llvm")]
 pub mod llvm_instsel;
+#[cfg(feature = "llvm")]
 pub mod llvm_backend;

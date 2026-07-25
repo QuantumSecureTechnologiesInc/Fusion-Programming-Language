@@ -1,8 +1,0 @@
-[package]
-name = "fusion_sec_static_analysis"
-version = "0.1.0"
-edition = "2021"
-description = "Interface for Static Analysis Security Testing (SAST)"
-license = "MIT"
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" } # AST inspection

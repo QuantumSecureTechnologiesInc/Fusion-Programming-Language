@@ -1,40 +1,24 @@
 [package]
 name = "fusion_runtime_core"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-authors.workspace = true
+version = "0.2.0"
+edition = "2021"
+authors = ["Quantum Secure Technologies Inc."]
 description = "Custom heterogeneous runtime for Quantum/AI/Classical hybrid workloads"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-fusion_core = { path = "../../../registry/crates/fusion_core/" }
-fusion_runtime_scheduler = { path = "../../../registry/crates/fusion_runtime_scheduler/" }
-fusion_runtime_mem_mgr = { path = "../../../registry/crates/fusion_runtime_mem_mgr/" }
-fusion_runtime_hal = { path = "../../../registry/crates/fusion_runtime_hal/" }
-
-# ⭐ Phase 2/3: New fusion_core integration
 fusion_traits = { path = "../fusion_traits" }
 fusion_tensor_core = { path = "../fusion_tensor_core" }
 fusion_quantum_core = { path = "../fusion_quantum_core" }
 
-parking_lot = { workspace = true }
-crossbeam = { workspace = true }
-dashmap = { workspace = true }
-futures = { workspace = true }
-pin-project-lite = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-metrics = { workspace = true }
-
-# NEW: Async I/O dependencies (tokio-equivalent)
-mio = { version = "0.8", features = ["os-poll", "net"] }
-rayon = "1.7"
+parking_lot = "0.12"
+crossbeam = "0.8"
+futures = "0.3"
+tracing = "0.1"
+num_cpus = "1.16"
 
 [dev-dependencies]
-criterion = { workspace = true }
-proptest = { workspace = true }
 
-[[bench]]
-name = "runtime_benchmarks"
-harness = false
+[lib]
+name = "fusion_runtime_core"
+path = "src/lib.rs"

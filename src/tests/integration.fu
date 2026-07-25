@@ -1,0 +1,434 @@
+// src/tests/integration.fu
+// Integration tests for the complete Fusion V2.0 Vortex ecosystem
+//
+// Tests quantum, AI, networking, security, runtime, and cloud subsystems
+// to verify they compose correctly through the unified module system.
+
+use crate::quantum;
+use crate::ai;
+use crate::net;
+use crate::security;
+use crate::runtime;
+use crate::cloud;
+use crate::mobile;
+use crate::web;
+use crate::interop;
+use crate::compiler;
+
+// ============================================================================
+// Test 1: Quantum Circuit Creation and Simulation
+// ============================================================================
+
+fn test_quantum_circuit() {
+    println!("[TEST] Quantum Circuit Creation and Simulation");
+
+    // Create a quantum circuit with 3 qubits
+    let circuit = quantum::Circuit::new(3);
+    assert!(circuit.num_qubits == 3);
+
+    // Apply gates
+    let qubit_0 = quantum::Qubit::new(0);
+    let qubit_1 = quantum::Qubit::new(1);
+    let qubit_2 = quantum::Qubit::new(2);
+
+    let hadamard = quantum::Gate::Hadamard;
+    let cnot = quantum::Gate::CNOT;
+    let pauli_x = quantum::Gate::PauliX;
+
+    let mut circ = quantum::Circuit::new(3);
+    circ.apply(hadamard, qubit_0);
+    circ.apply(cnot, qubit_0, qubit_1);
+    circ.apply(pauli_x, qubit_2);
+
+    // Simulate
+    let sim = quantum::QuantumSimulator::new();
+    let result = sim.run(&circ);
+    assert!(result.measurements.len() == 3);
+
+    println!("  [PASS] Quantum circuit created and simulated with {} qubits", 3);
+}
+
+// ============================================================================
+// Test 2: Quantum Backend Connectivity
+// ============================================================================
+
+fn test_quantum_backends() {
+    println!("[TEST] Quantum Backend Configurations");
+
+    // IBM
+    let ibm_config = quantum::ibm_backend::IBMConfig {
+        api_token: "test-token".to_string(),
+        device: "ibm_brisbane".to_string(),
+    };
+    assert!(ibm_config.api_token.len() > 0);
+
+    // AWS Braket
+    let aws_config = quantum::aws_backend::AWSConfig {
+        region: "us-east-1".to_string(),
+        s3_bucket: "test-bucket".to_string(),
+    };
+    assert!(aws_config.region.len() > 0);
+
+    // Azure Quantum
+    let azure_config = quantum::azure_backend::AzureConfig {
+        subscription_id: "test-sub".to_string(),
+        resource_group: "test-rg".to_string(),
+        workspace: "test-ws".to_string(),
+    };
+    assert!(azure_config.workspace.len() > 0);
+
+    // Google Cirq
+    let google_config = quantum::google_backend::CirqConfig {
+        project_id: "test-proj".to_string(),
+        processor: "rainbow".to_string(),
+    };
+    assert!(google_config.processor.len() > 0);
+
+    // Rigetti
+    let rigetti_config = quantum::rigetti_backend::RigettiConfig {
+        api_key: "test-key".to_string(),
+        endpoint: "https://api.rigetti.com".to_string(),
+    };
+    assert!(rigetti_config.endpoint.len() > 0);
+
+    println!("  [PASS] All 5 quantum backend configs created");
+}
+
+// ============================================================================
+// Test 3: AI Model Loading and Inference
+// ============================================================================
+
+fn test_ai_model() {
+    println!("[TEST] AI Model Loading and Inference");
+
+    // Create tensor
+    let data = [1.0, 2.0, 3.0, 4.0];
+    let shape = [2, 2];
+    let tensor = ai::tensor::tensor_new(data, shape);
+    assert!(tensor.shape[0] == 2);
+    assert!(tensor.shape[1] == 2);
+
+    // Matrix multiplication
+    let a = ai::tensor::tensor_new([1.0, 2.0, 3.0, 4.0], [2, 2]);
+    let b = ai::tensor::tensor_new([5.0, 6.0, 7.0, 8.0], [2, 2]);
+    let result = ai::tensor::tensor_matmul(a, b);
+    // [1*5+2*7, 1*6+2*8, 3*5+4*7, 3*6+4*8] = [19, 22, 43, 50]
+    assert!(result.data[0] == 19.0);
+    assert!(result.data[1] == 22.0);
+    assert!(result.data[2] == 43.0);
+    assert!(result.data[3] == 50.0);
+
+    // Autodiff
+    let x = ai::autodiff::ad_variable(3.0);
+    let y = ai::autodiff::ad_variable(2.0);
+    let z = ai::autodiff::ad_add(x, y);
+    let w = ai::autodiff::ad_mul(z, x);
+    ai::autodiff::ad_backward(w);
+    // d/dx((x+y)*x) = 2x+y = 2*3+2 = 8
+    assert!(x.grad == 8.0);
+
+    println!("  [PASS] Tensor operations and autodiff verified");
+}
+
+// ============================================================================
+// Test 4: HTTP Request Creation
+// ============================================================================
+
+fn test_http_requests() {
+    println!("[TEST] HTTP Request Creation");
+
+    // Create HTTP request
+    let req = net::http::HttpRequest {
+        method: "GET".to_string(),
+        url: "https://api.fusion-lang.dev/health".to_string(),
+        headers: "Content-Type: application/json".to_string(),
+        body: "".to_string(),
+    };
+    assert!(req.method == "GET");
+    assert!(req.url.contains("fusion-lang.dev"));
+
+    // Create POST request
+    let post_req = net::http::HttpRequest {
+        method: "POST".to_string(),
+        url: "https://api.fusion-lang.dev/models".to_string(),
+        headers: "Content-Type: application/json".to_string(),
+        body: "{\"name\": \"test-model\"}".to_string(),
+    };
+    assert!(post_req.method == "POST");
+    assert!(post_req.body.contains("test-model"));
+
+    println!("  [PASS] HTTP request creation verified");
+}
+
+// ============================================================================
+// Test 5: PQC Key Generation
+// ============================================================================
+
+fn test_pqc_security() {
+    println!("[TEST] PQC Key Generation");
+
+    // Verify PQC enforcement constants
+    assert!(security::pqc_enforcement::PQC_ENFORCEMENT_VERSION == 1);
+    assert!(security::pqc_enforcement::PQC_MIN_KEY_STRENGTH == 128);
+
+    // Security config
+    let config = security::SecurityConfig::default();
+    assert!(config.fips_mode == true);
+    assert!(config.min_key_length == 256);
+
+    let high_config = security::SecurityConfig::high_security();
+    assert!(high_config.min_key_length == 384);
+
+    let max_config = security::SecurityConfig::maximum_security();
+    assert!(max_config.min_key_length == 512);
+    assert!(max_config.max_auth_attempts == 1);
+
+    // Security manager
+    let manager = security::SecurityManager::new(config);
+    assert!(manager.is_ok());
+    let mut mgr = manager.unwrap();
+    assert!(!mgr.is_initialized());
+    mgr.initialize();
+    assert!(mgr.is_initialized());
+
+    println!("  [PASS] PQC security configuration verified");
+}
+
+// ============================================================================
+// Test 6: Runtime Scheduling
+// ============================================================================
+
+fn test_runtime_scheduling() {
+    println!("[TEST] Runtime Scheduling");
+
+    // SuperNova config
+    let sn_config = runtime::supernova::SupernovaConfig {
+        cpu_threads: 8,
+        gpu_enabled: true,
+        qpu_enabled: false,
+    };
+    runtime::supernova::supernova_init(sn_config);
+
+    // Submit a task
+    let task = runtime::supernova::Task {
+        id: 1,
+        intent: "compile".to_string(),
+        payload: "main.fu".to_string(),
+        priority: 10,
+    };
+    let task_id = runtime::supernova::supernova_submit(task);
+    assert!(task_id >= 0);
+
+    // Intent parsing
+    let intent = runtime::intent::intent_parse("compile main.fu with GPU acceleration");
+    assert!(intent.len() > 0);
+
+    // HAFT buffer allocation
+    let buffer = runtime::haft::haft_allocate(1024);
+    assert!(buffer.size == 1024);
+    runtime::haft::haft_free(buffer);
+
+    println!("  [PASS] Runtime scheduling and HAFT verified");
+}
+
+// ============================================================================
+// Test 7: Cloud Deployment Config
+// ============================================================================
+
+fn test_cloud_deployment() {
+    println!("[TEST] Cloud Deployment Config");
+
+    // K8s config
+    let k8s_config = cloud::k8s::K8sConfig {
+        namespace: "fusion-prod".to_string(),
+        kubeconfig: "~/.kube/config".to_string(),
+    };
+    assert!(k8s_config.namespace == "fusion-prod");
+
+    let deployment = cloud::k8s::K8sDeployment {
+        name: "fusion-api".to_string(),
+        replicas: 3,
+        image: "fusion/api:v2.0".to_string(),
+    };
+    assert!(deployment.replicas == 3);
+
+    // FaaS config
+    let func = cloud::faas::Function {
+        name: "process-request".to_string(),
+        runtime: "fusion-v2".to_string(),
+        handler: "handler.fu".to_string(),
+        timeout_ms: 30000,
+    };
+    assert!(func.name == "process-request");
+
+    // Deploy config
+    let deploy_config = compiler::deploy::DeployConfig {
+        target: "kubernetes".to_string(),
+        namespace: "fusion-prod".to_string(),
+        replicas: 3,
+    };
+    assert!(deploy_config.target == "kubernetes");
+
+    println!("  [PASS] Cloud deployment configuration verified");
+}
+
+// ============================================================================
+// Test 8: Mobile Integration
+// ============================================================================
+
+fn test_mobile_integration() {
+    println!("[TEST] Mobile Integration");
+
+    // iOS
+    let ios_view = mobile::ios::ios_create_view("button", "Click Me");
+    assert!(ios_view.kind == "button");
+
+    // Android
+    let android_view = mobile::android::android_create_view("text", "Hello Fusion");
+    assert!(android_view.kind == "text");
+
+    println!("  [PASS] Mobile integration (iOS + Android) verified");
+}
+
+// ============================================================================
+// Test 9: Web Runtime
+// ============================================================================
+
+fn test_web_runtime() {
+    println!("[TEST] Web Runtime");
+
+    let element = web::runtime::dom_create("div");
+    assert!(element.tag == "div");
+
+    web::runtime::dom_set_attribute(element, "class", "container");
+    let child = web::runtime::dom_create("span");
+    web::runtime::dom_append_child(element, child);
+
+    println!("  [PASS] Web DOM runtime verified");
+}
+
+// ============================================================================
+// Test 10: Language Interop
+// ============================================================================
+
+fn test_language_interop() {
+    println!("[TEST] Language Interop");
+
+    // Python
+    let py_module = interop::python::py_import("math");
+    assert!(py_module.name == "math");
+
+    // JavaScript
+    let js_engine = interop::javascript::js_create();
+    assert!(js_engine.handle >= 0);
+
+    // Java
+    let jvm = interop::java::jvm_create();
+    assert!(jvm.handle >= 0);
+
+    println!("  [PASS] Language interop (Python, JS, Java) verified");
+}
+
+// ============================================================================
+// Test 11: Visual Compiler
+// ============================================================================
+
+fn test_visual_compiler() {
+    println!("[TEST] Visual Compiler");
+
+    let config = compiler::visual_compiler::VisualConfig {
+        intent_accuracy: 0.95,
+        scaffold_enabled: true,
+    };
+    compiler::visual_compiler::vc_init(config);
+
+    let result = compiler::visual_compiler::vc_parse_intent("Create a REST API with CRUD operations");
+    assert!(result.intent.len() > 0);
+    assert!(result.confidence > 0.0);
+
+    let code = compiler::visual_compiler::vc_generate_code(result);
+    assert!(code.len() > 0);
+
+    println!("  [PASS] Visual compiler intent parsing verified");
+}
+
+// ============================================================================
+// Test 12: Package Manager
+// ============================================================================
+
+fn test_package_manager() {
+    println!("[TEST] Package Manager");
+
+    let registry = compiler::package_manager::PackageRegistry {
+        url: "https://registry.fusion-lang.dev".to_string(),
+        token: "test-token".to_string(),
+    };
+    assert!(registry.url.contains("fusion-lang.dev"));
+
+    let packages = compiler::package_manager::pkg_search(registry, "quantum");
+    assert!(packages.len() >= 0);
+
+    println!("  [PASS] Package manager verified");
+}
+
+// ============================================================================
+// Test 13: Networking Protocols
+// ============================================================================
+
+fn test_networking_protocols() {
+    println!("[TEST] Networking Protocols");
+
+    // TCP
+    let listener = net::TcpListener::new("127.0.0.1:8080");
+    assert!(listener.addr.len() > 0);
+
+    // TLS
+    let tls_config = net::tls::TlsConfig {
+        cert_path: "cert.pem".to_string(),
+        key_path: "key.pem".to_string(),
+    };
+    assert!(tls_config.cert_path.contains(".pem"));
+
+    // gRPC
+    let grpc_service = net::grpc::GrpcService {
+        endpoint: "localhost:50051".to_string(),
+        service_name: "fusion.v1.QuantumService".to_string(),
+    };
+    assert!(grpc_service.service_name.contains("Quantum"));
+
+    // WebSocket
+    let ws = net::websocket::WebSocket {
+        url: "wss://api.fusion-lang.dev/ws".to_string(),
+    };
+    assert!(ws.url.contains("wss://"));
+
+    println!("  [PASS] All networking protocols verified");
+}
+
+// ============================================================================
+// Main test runner
+// ============================================================================
+
+fn run_integration_tests() {
+    println!("========================================");
+    println!("  Fusion V2.0 Vortex Integration Tests");
+    println!("========================================\n");
+
+    test_quantum_circuit();
+    test_quantum_backends();
+    test_ai_model();
+    test_http_requests();
+    test_pqc_security();
+    test_runtime_scheduling();
+    test_cloud_deployment();
+    test_mobile_integration();
+    test_web_runtime();
+    test_language_interop();
+    test_visual_compiler();
+    test_package_manager();
+    test_networking_protocols();
+
+    println!("\n========================================");
+    println!("  All 13 integration tests PASSED");
+    println!("========================================");
+}

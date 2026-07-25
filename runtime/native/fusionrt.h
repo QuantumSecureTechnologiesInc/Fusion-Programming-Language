@@ -69,6 +69,7 @@ const char* fusion_fmt_pair(const char* k, const char* v);
 const char* fusion_json_escape(const char* s);
 const char* fusion_json_kv_string(const char* k, const char* v);
 const char* fusion_json_kv_int(const char* k, int64_t v);
+const char* fusion_str_concat(const char* a, const char* b);
 
 // ========================================
 // Networking (TCP)
@@ -137,6 +138,18 @@ int64_t fusion_string_to_int(const char* s);
 bool fusion_str_starts_with(const char* s, const char* prefix);
 bool fusion_str_ends_with(const char* s, const char* suffix);
 const char* fusion_str_replace(const char* s, const char* from, const char* to_str);
+
+// ========================================
+// Concatenation Helpers
+// ========================================
+const char* fusion_str_concat3(const char* a, const char* b, const char* c);
+const char* fusion_str_concat4(const char* a, const char* b, const char* c, const char* d);
+
+// ========================================
+// Memory Aliases (stdlib/memory.fu compatibility)
+// ========================================
+int64_t fu_malloc(int64_t size_bytes);
+void fu_free(int64_t ptr);
 
 // ========================================
 // Runtime Lifecycle

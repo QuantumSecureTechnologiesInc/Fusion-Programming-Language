@@ -49,6 +49,18 @@ impl Circuit {
         self.gates.push(QuantumGate::measure(qubit));
     }
 
+    fn pauli_x(mut self, target: int) {
+        self.gates.push(QuantumGate { gate_type: 3, target: target, control: -1 });
+    }
+
+    fn pauli_y(mut self, target: int) {
+        self.gates.push(QuantumGate { gate_type: 4, target: target, control: -1 });
+    }
+
+    fn pauli_z(mut self, target: int) {
+        self.gates.push(QuantumGate { gate_type: 5, target: target, control: -1 });
+    }
+
     fn execute(self) -> Vector<int> {
         // Simulate circuit execution
         let mut qubits = Vector::<Qubit>::new();
@@ -71,8 +83,29 @@ impl Circuit {
                 // Hadamard
                 let mut target_qubit = qubits.get(gate.target).unwrap();
                 target_qubit.hadamard();
+            } else if gate.gate_type == 1 {
+                // CNOT: flip target qubit if control qubit is |1⟩
+                let control_qubit = qubits.get(gate.control).unwrap();
+                let control_is_one = control_qubit.state.state_id == 1;
+                if control_is_one {
+                    let mut target_qubit = qubits.get(gate.target).unwrap();
+                    target_qubit.pauli_x();
+                }
+            } else if gate.gate_type == 2 {
+                // Measure (handled in the measurement phase below)
+            } else if gate.gate_type == 3 {
+                // Pauli-X (NOT gate)
+                let mut target_qubit = qubits.get(gate.target).unwrap();
+                target_qubit.pauli_x();
+            } else if gate.gate_type == 4 {
+                // Pauli-Y gate
+                let mut target_qubit = qubits.get(gate.target).unwrap();
+                target_qubit.pauli_y();
+            } else if gate.gate_type == 5 {
+                // Pauli-Z gate
+                let mut target_qubit = qubits.get(gate.target).unwrap();
+                target_qubit.pauli_z();
             }
-            // CNOT and other gates would go here
 
             gate_idx = gate_idx + 1;
         }

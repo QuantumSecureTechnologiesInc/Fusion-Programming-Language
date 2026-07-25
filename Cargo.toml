@@ -72,15 +72,63 @@ resolver = "2"
 members = [
     "crates/fuc",
     "crates/fuc2",
+    "crates/fusionc",
+    "crates/fusion_test",
+    "crates/fdbg",
+    "runtime/crates/fusion_cortex",
+    "runtime/crates/fusion_flux_resolve",
+    "runtime/crates/fusion_net",
+    "runtime/crates/fusion_package_registry",
+    "runtime/crates/fusion_visual_compiler",
+    "runtime/crates/fusion_interop_python",
+    "runtime/crates/fusion_interop_javascript",
+    "runtime/crates/fusion_interop_java",
+
+    "runtime/crates/fusion_k8s_operator",
+    "runtime/crates/fusion_faaS",
+    "runtime/crates/fusion_mobile_ios",
+    "runtime/crates/fusion_mobile_android",
+    "runtime/crates/fusion_web_runtime",
+    "runtime/crates/fusion_ai_providers",
 ]
 exclude = [
     "crates/fusion_std",
+    "crates/fusionc",
     "crates/tensorweave",
     "crates/fusion-monolith-core",
     "registry/crates/fusion-terminal-browser",
     "crates/settings",
     "crates/ai-core",
     "tools/forge",
+    "runtime/crates/fusion_ai_core",
+    "runtime/crates/fusion_core",
+    "runtime/crates/fusion_finance",
+    "runtime/crates/fusion_hal",
+    "runtime/crates/fusion_quantum_core",
+    "runtime/crates/fusion_quantum",
+    "runtime/crates/fusion_runtime_core",
+    "runtime/crates/fusion_runtime_hal",
+    "runtime/crates/fusion_runtime_mem_mgr",
+    "runtime/crates/fusion_runtime_scheduler",
+    "runtime/crates/fusion_tensor_core",
+    "runtime/crates/fusion_traits",
+    "runtime/crates/fusion_http",
+    "runtime/crates/fusion_grpc",
+    "runtime/crates/fusion_tls",
+    "runtime/crates/fusion_websocket",
+    "runtime/crates/fusion_llm_core",
+    "runtime/crates/fusion_llm_models",
+    "runtime/crates/fusion_llm_training",
+    "runtime/crates/fusion_gpu_kernels",
+    "runtime/crates/fusion_quantum_google",
+    "runtime/crates/fusion_quantum_ibm",
+    "runtime/crates/fusion_quantum_aws",
+    "runtime/crates/fusion_quantum_azure",
+    "runtime/crates/fusion_quantum_rigetti",
+    "runtime/crates/fusion_supernova",
+    "runtime/crates/fusion_cortex_scheduler",
+    "runtime/crates/fusion_intent",
+    "runtime/crates/fusion_haft",
 ]
 
 
@@ -180,7 +228,7 @@ fusion_quantum_sdk = { path = "registry/crates/quantum-sdk", version = "0.2.0" }
 fusion_k8s_operator = { path = "registry/crates/k8s-operator", version = "0.2.0" }
 sentinael-tribrid = { path = "registry/crates/sentinel-tribrid", version = "1.0.0" }
 num_complex = { package = "num-complex", version = "0.4" }
-semver = "1.0"
+semver = { version = "1.0", features = ["serde"] }
 fusion_llm_inference_engine = { path = "registry/crates/llm-inference", version = "0.2.0" }
 fusion_llm_lora_manager = { path = "registry/crates/llm-lora-manager", version = "0.2.0" }
 fusion_tensor_sparse = { path = "registry/crates/tensor-sparse", version = "0.2.0" }

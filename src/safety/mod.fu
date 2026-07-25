@@ -1,0 +1,17 @@
+// Safety Guarantees Module
+// Provides memory safety, type safety, and overflow protection
+
+mod memory
+mod types
+mod overflow
+
+pub use memory.*
+pub use types.*
+pub use overflow.*
+
+// Cross-references to related features
+pub use crate::types::linear           // safety includes linear types
+pub use crate::types::refinement       // safety includes refinement types
+pub use crate::security::capability    // safety includes capabilities
+pub use crate::security::provenance    // safety includes provenance
+pub use crate::meta::reflection        // safety uses reflection

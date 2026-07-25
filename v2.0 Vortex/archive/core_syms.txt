@@ -1,8 +1,0 @@
-0000000000000000 T hypercycle_rdtsc
-0000000000000010 T hypercycle_get_key_sizes
-00000000000000c0 T hypercycle_error_string
-0000000000000180 T hypercycle_init
-0000000000000400 T hypercycle_cleanup
-00000000000004a0 T hypercycle_keygen
-0000000000000760 T hypercycle_get_metrics
-00000000000007a0 T hypercycle_get_security_level

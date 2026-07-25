@@ -1,0 +1,276 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+import fusion::path
+
+/// Template for default Fusion project
+fn default_fusion_toml(name: String) -> String {
+    return """[package]
+name = "{name}"
+version = "0.1.0"
+description = "A Fusion project"
+authors = []
+license = "MIT"
+
+[dependencies]
+
+[build]
+optimization_level = 2
+debug_info = false
+incremental = true
+lto = false
+
+[runtime]
+profile = "default"
+target = "native"
+
+[features]
+default = ["std"]
+std = []
+ai = []
+quantum = []
+pqc = []
+"""
+}
+
+/// Template for GUI Fusion project
+fn gui_fusion_toml(name: String) -> String {
+    return """[package]
+name = "{name}"
+version = "0.1.0"
+description = "A Fusion GUI application"
+type = "gui"
+authors = []
+license = "MIT"
+
+[dependencies]
+fusion-gui = ">=1.0"
+
+[build]
+optimization_level = 2
+debug_info = false
+lto = true
+
+[runtime]
+profile = "gui"
+target = "native"
+
+[gui]
+framework = "fusion-gui"
+width = 800
+height = 600
+
+[features]
+default = ["std", "gui"]
+std = []
+gui = []
+"""
+}
+
+/// Template for CLI Fusion project
+fn cli_fusion_toml(name: String) -> String {
+    return """[package]
+name = "{name}"
+version = "0.1.0"
+description = "A Fusion CLI application"
+type = "cli"
+authors = []
+license = "MIT"
+
+[dependencies]
+
+[build]
+optimization_level = 2
+debug_info = false
+lto = false
+
+[runtime]
+profile = "cli"
+target = "native"
+
+[features]
+default = ["std"]
+std = []
+"""
+}
+
+/// Template for library Fusion project
+fn lib_fusion_toml(name: String) -> String {
+    return """[package]
+name = "{name}"
+version = "0.1.0"
+description = "A Fusion library"
+type = "library"
+authors = []
+license = "MIT"
+
+[dependencies]
+
+[build]
+optimization_level = 2
+debug_info = false
+lto = true
+
+[runtime]
+profile = "default"
+target = "native"
+
+[features]
+default = ["std"]
+std = []
+"""
+}
+
+/// Generate the main.fu entry point based on template
+fn main_fusion_content(template: String) -> String {
+    if template == "gui" {
+        return """// GUI application entry point
+import fusion::gui as gui
+
+fn main() {
+    let window = gui::Window::new("Fusion App")
+        .width(800)
+        .height(600)
+        .build()
+
+    let label = gui::Label::new("Hello, Fusion!")
+        .position(350, 280)
+        .build()
+
+    window.add(label)
+    window.show()
+}
+"""
+    } else if template == "cli" {
+        return """// CLI application entry point
+import fusion::io
+
+fn main() {
+    let args = io::args()
+    if args.len() > 1 {
+        io::println("Hello, {args[1]}!")
+    } else {
+        io::println("Hello, Fusion CLI!")
+    }
+}
+"""
+    } else if template == "lib" {
+        return """// Library entry point
+pub fn greet(name: String) -> String {
+    return "Hello, {name}!"
+}
+
+pub fn add(a: i64, b: i64) -> i64 {
+    return a + b
+}
+"""
+    } else {
+        return """// Fusion project entry point
+import fusion::io
+
+fn main() {
+    io::println("Hello, Fusion!")
+}
+"""
+    }
+}
+
+/// Generate the lib.fu entry point
+fn lib_fusion_content(template: String) -> String {
+    if template == "lib" {
+        return """// Library public API
+pub fn greet(name: String) -> String {
+    return "Hello, {name}!"
+}
+
+pub fn add(a: i64, b: i64) -> i64 {
+    return a + b
+}
+
+pub fn multiply(a: i64, b: i64) -> i64 {
+    return a * b
+}
+"""
+    } else {
+        return """// Library module
+pub fn version() -> String {
+    return "0.1.0"
+}
+"""
+    }
+}
+
+/// Generate test file content
+fn test_content() -> String {
+    return """import fusion::test
+
+fn test_greeting() {
+    let result = greet("World")
+    test::assert_eq(result, "Hello, World!")
+}
+
+fn test_add() {
+    test::assert_eq(add(2, 3), 5)
+}
+
+fn test_multiply() {
+    test::assert_eq(multiply(3, 4), 12)
+}
+"""
+}
+
+/// Run the init command
+pub fn run(name: String, template: String, json: bool) -> Result {
+    let root = path::Path::new(name)
+
+    if fs::exists(root) {
+        return Err("Directory '{name}' already exists")
+    }
+
+    if !json {
+        io::println("Init: Creating project '{name}' with template '{template}'...")
+    }
+
+    // Create directory structure
+    fs::create_dir_all(root)
+    fs::create_dir_all(root.join("src"))
+    fs::create_dir_all(root.join("tests"))
+
+    // Write Fusion.toml based on template
+    let toml_content = match template {
+        "gui" => gui_fusion_toml(name),
+        "cli" => cli_fusion_toml(name),
+        "lib" => lib_fusion_toml(name),
+        _ => default_fusion_toml(name),
+    }
+    fs::write(root.join("Fusion.toml"), toml_content)
+
+    // Write src/main.fu
+    let main_content = main_fusion_content(template)
+    fs::write(root.join("src").join("main.fu"), main_content)
+
+    // Write src/lib.fu
+    let lib_content = lib_fusion_content(template)
+    fs::write(root.join("src").join("lib.fu"), lib_content)
+
+    // Write .gitignore
+    fs::write(root.join(".gitignore"), "target/\nbuild/\n*.o\n*.so\nfusion.lock\n")
+
+    // Write test file
+    fs::write(root.join("tests").join("main_test.fu"), test_content())
+
+    if json {
+        io::println("{\"action\":\"init\",\"name\":\"{name}\",\"template\":\"{template}\",\"path\":\"{root}\"}")
+    } else {
+        io::println("")
+        io::println("OK: Project '{name}' created successfully!")
+        io::println("")
+        io::println("  Next steps:")
+        io::println("    cd {name}")
+        io::println("    fusion build")
+        io::println("    fusion run")
+        io::println("")
+    }
+
+    return Ok(())
+}

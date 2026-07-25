@@ -1,9 +1,0 @@
-warning: C:\Projects\Fusion - Programming Language\registry\crates\finite-fields\Cargo.toml: `default-features` is ignored for fusion_core, since `default-features` was not specified for `workspace.dependencies.fusion_core`, this could become a hard error in the future
-warning: C:\Projects\Fusion - Programming Language\registry\crates\finite-fields\Cargo.toml: `default-features` is ignored for fusion_std, since `default-features` was not specified for `workspace.dependencies.fusion_std`, this could become a hard error in the future
-warning: C:\Projects\Fusion - Programming Language\registry\crates\tensor-sparse\Cargo.toml: `default-features` is ignored for fusion_core, since `default-features` was not specified for `workspace.dependencies.fusion_core`, this could become a hard error in the future
-    Updating crates.io index
-error: no matching package found
-searched package name: `fusion_core`
-perhaps you meant:      fusion-core
-location searched: C:\Projects\Fusion - Programming Language\registry\crates\fusion-core
-required by package `fusion-visual v0.1.0 (C:\Projects\Fusion - Programming Language\cmd\fusion-visual)`

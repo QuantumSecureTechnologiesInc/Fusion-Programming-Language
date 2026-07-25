@@ -1,20 +1,0 @@
-TermBlink-GPU
-A production-ready, sidecar-compatible terminal browser engine.
-Quick Start
-1. Install Dependencies
-Linux/Mac:
-chmod +x scripts/setup.sh
-./scripts/setup.sh
-
-Windows:
-.\scripts\setup.ps1
-
-2. Build & Run
-cargo run --release -- --fps 30 [https://webgpu.github.io/webgpu-samples/](https://webgpu.github.io/webgpu-samples/)
-
-3. CLI Options
-FlagDescriptionDefault--urlTarget URLWebGPU Samples--widthInternal Viewport Width1280--heightInternal Viewport Height720--fpsTarget Frame Rate15--qualityJPEG Quality (1-100)50Integration (Sidecar Mode)
-TermBlink is designed to be bundled with other CLI tools.
-1. Copy the termblink-gpu binary to your app's bin folder.
-2. Run the setup script during your app's installation.
-3. Spawn the process with stdio: inherit.

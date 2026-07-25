@@ -1,0 +1,62 @@
+//! Async / await primitives.
+//!
+//! Provides lightweight futures, join handles, a one-shot select
+//! combinator, and timer utilities. Backed by the HyperRing reactor
+//! in `crates/fuc/src/reactor.rs`.
+
+// ---------------------------------------------------------------------------
+// Future
+// ---------------------------------------------------------------------------
+
+struct Future {
+    handle: int,
+    state: string,
+}
+
+/// Spawn an asynchronous task that will eventually produce an `int`.
+/// Returns a Future that can be awaited, polled, or cancelled.
+extern fn async_spawn(func: fn() -> int) -> Future
+
+/// Suspend the current task until `future` completes, then return
+/// its result.
+extern fn async_await(future: Future) -> int
+
+/// Non-blocking poll. Returns one of `"Pending"`, `"Ready"`, or
+/// `"Failed"`.
+extern fn async_poll(future: Future) -> string
+
+/// Cancel a pending future. If the future has already completed the
+/// call is a no-op.
+extern fn async_cancel(future: Future) -> void
+
+// ---------------------------------------------------------------------------
+// JoinHandle  (batch await)
+// ---------------------------------------------------------------------------
+
+struct JoinHandle {
+    futures: []Future,
+}
+
+/// Await all futures in the handle and return their results in order.
+extern fn async_join_all(handles: JoinHandle) -> []int
+
+/// Block until the **first** future in the slice completes.
+/// Returns the index of that future within the slice.
+extern fn async_select(futures: []Future) -> int
+
+// ---------------------------------------------------------------------------
+// Timer
+// ---------------------------------------------------------------------------
+
+struct Timer {
+    deadline: int,
+}
+
+/// Create a timer that becomes ready after `ms` milliseconds from now.
+extern fn timer_after(ms: int) -> Timer
+
+/// Suspend the current task until `timer` is ready.
+extern fn timer_until(timer: Timer) -> void
+
+/// Returns `true` if the timer's deadline has passed.
+extern fn timer_is_ready(timer: Timer) -> bool

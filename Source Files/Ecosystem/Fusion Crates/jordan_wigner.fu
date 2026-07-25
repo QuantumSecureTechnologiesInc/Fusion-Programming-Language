@@ -2,20 +2,34 @@
 // NOTE: Converted into FSN mirror under fsn/converted.
 /// Production Jordan-Wigner Mapper.
 /// 
-/// Maps Fermionic Operators (Creation/Annihilation) to Qubit Operators (Pauli FStrings).
-/// Essential for molecular simulation.
+/// Maps Fermionic Operators (Creation/Annihilation) to Qubit Operators (Pauli strings).
+/// Essential for molecular simulation on quantum hardware.
 
 use fusion_core::types::tensor::{Matrix, Tensor};
 use fusion_core::traits::Numeric;
 use fusion_core::FusionResult;
 use num_complex::Complex64;
 
-// Pauli Matrix definitions (Z and I) are needed.
-// We assume they are available or we construct them.
+const I2: [[Complex64; 2]; 2] = [
+    [Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0)],
+    [Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0)],
+];
+const X: [[Complex64; 2]; 2] = [
+    [Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0)],
+    [Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0)],
+];
+const Y: [[Complex64; 2]; 2] = [
+    [Complex64::new(0.0, 0.0), Complex64::new(0.0, -1.0)],
+    [Complex64::new(0.0, 1.0), Complex64::new(0.0, 0.0)],
+];
+const Z: [[Complex64; 2]; 2] = [
+    [Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0)],
+    [Complex64::new(0.0, 0.0), Complex64::new(-1.0, 0.0)],
+];
 
 struct FermionTerm {
     pub coeff: Complex64,
-    pub operators: FVec<(usize, FBool)>, // (index, is_creation)
+    pub operators: FVec<(usize, bool)>, // (index, is_creation)
 }
 
 struct QubitOperator {
@@ -23,38 +37,204 @@ struct QubitOperator {
     pub paulis: FVec<(usize, char)>, // (qubit_index, 'X'/'Y'/'Z')
 }
 
+/// Select the 2x2 Pauli matrix for a given label.
+fn pauli_matrix(label: char) -> [[Complex64; 2]; 2] {
+    match label {
+        'X' => X,
+        'Y' => Y,
+        'Z' => Z,
+        'I' | _ => I2,
+    }
+}
+
+/// Kronecker (tensor) product of two square matrices.
+fn kron(a: &Matrix<Complex64>, b: &Matrix<Complex64>) -> Matrix<Complex64> {
+    let na = a.rows();
+    let nb = b.rows();
+    let dim = na * nb;
+    let mut result = Tensor::zeros([dim, dim]);
+    for i in 0..na {
+        for j in 0..na {
+            let a_ij = a.get([i, j]).unwrap();
+            for k in 0..nb {
+                for l in 0..nb {
+                    result.set(
+                        [i * nb + k, j * nb + l],
+                        *a_ij * *b.get([k, l]).unwrap_or(&Complex64::default()),
+                    );
+                }
+            }
+        }
+    }
+    result
+}
+
 impl QubitOperator {
-    /// Convert QubitOperator to a Matrix (Hamiltonian).
+    /// Convert QubitOperator to a full matrix via tensor product of Pauli matrices.
+    /// The operator acts on num_qubits qubits; unspecified qubits get Identity.
     fn to_matrix(&self, num_qubits: usize) -> FusionResult<Matrix<Complex64>> {
-        let dim = 1 << num_qubits;
-        let mut mat = Tensor::zeros([dim, dim]);
-        // Logic to construct matrix from tensor product of Paulis would go here.
-        // Requires sparse matrix construction for efficiency.
-        // For production "Ready", we need at least the mapping logic.
-        Ok(mat) 
+        if num_qubits == 0 {
+            return Err(fusion_core::FusionError::InvalidInput("num_qubits must be > 0".into()));
+        }
+
+        // Build a lookup: qubit_index -> Pauli label (default 'I')
+        let mut pauli_map: FMap<usize, char> = FMap::new();
+        for &(idx, label) in &self.paulis {
+            pauli_map.insert(idx, label);
+        }
+
+        // Kronecker-product across all qubits: M_0 ⊗ M_1 ⊗ ... ⊗ M_{n-1}
+        let dim0 = [[Complex64::new(1.0, 0.0); 1]; 1];
+        let mut result: Matrix<Complex64> = Tensor::zeros([1, 1]);
+        result.set([0, 0], Complex64::new(1.0, 0.0));
+
+        for q in 0..num_qubits {
+            let label = pauli_map.get(&q).copied().unwrap_or('I');
+            let mat2 = pauli_matrix(label);
+            let block = Tensor::from_raw(2, 2, mat2.iter().flatten().cloned().collect());
+            result = kron(&result, &block);
+        }
+
+        // Multiply by coefficient
+        for i in 0..result.rows() {
+            for j in 0..result.cols() {
+                if let Some(val) = result.get_mut([i, j]) {
+                    *val = self.coeff * *val;
+                }
+            }
+        }
+
+        Ok(result)
     }
 }
 
 struct JordanWigner;
 
 impl JordanWigner {
-    /// Map a single Fermionic operator a_p^dagger to Qubit operators.
+    /// Map creation operator a_p^dagger to Qubit operators.
     /// a_p^dagger = 0.5 * (X_p - iY_p) * Z_{p-1} * ... * Z_0
     fn map_creation(p: usize) -> FVec<QubitOperator> {
         let mut ops = Vec::new();
-        
-        // Term 1: 0.5 * X_p * Z...Z
+
+        // Term 1: 0.5 * X_p * Z_{p-1} ... Z_0
         let mut paulis1 = Vec::new();
         for i in 0..p { paulis1.push((i, 'Z')); }
         paulis1.push((p, 'X'));
         ops.push(QubitOperator { coeff: Complex64::new(0.5, 0.0), paulis: paulis1 });
 
-        // Term 2: -0.5i * Y_p * Z...Z
+        // Term 2: -0.5i * Y_p * Z_{p-1} ... Z_0
         let mut paulis2 = Vec::new();
         for i in 0..p { paulis2.push((i, 'Z')); }
         paulis2.push((p, 'Y'));
         ops.push(QubitOperator { coeff: Complex64::new(0.0, -0.5), paulis: paulis2 });
 
         ops
+    }
+
+    /// Map annihilation operator a_p to Qubit operators.
+    /// a_p = 0.5 * (X_p + iY_p) * Z_{p-1} * ... * Z_0
+    fn map_annihilation(p: usize) -> FVec<QubitOperator> {
+        let mut ops = Vec::new();
+
+        // Term 1: 0.5 * X_p * Z_{p-1} ... Z_0
+        let mut paulis1 = Vec::new();
+        for i in 0..p { paulis1.push((i, 'Z')); }
+        paulis1.push((p, 'X'));
+        ops.push(QubitOperator { coeff: Complex64::new(0.5, 0.0), paulis: paulis1 });
+
+        // Term 2: +0.5i * Y_p * Z_{p-1} ... Z_0
+        let mut paulis2 = Vec::new();
+        for i in 0..p { paulis2.push((i, 'Z')); }
+        paulis2.push((p, 'Y'));
+        ops.push(QubitOperator { coeff: Complex64::new(0.0, 0.5), paulis: paulis2 });
+
+        ops
+    }
+
+    /// Map a Hamiltonian term: coeff * a_p^dagger * a_q to Qubit operators.
+    /// For p == q: maps the number operator n_p = a_p^dagger * a_p.
+    /// For p != q: maps the hopping term a_p^dagger * a_q.
+    fn map_hamiltonian_term(coeff: Complex64, p: usize, q: usize, num_qubits: usize) -> FVec<QubitOperator> {
+        let ops_p = Self::map_creation(p);       // a_p^dagger
+        let ops_q = Self::map_annihilation(q);   // a_q
+
+        // Expand product: for each pair (op_p, op_q), multiply coefficients
+        // and concatenate Pauli strings (combining operators on the same qubit).
+        let mut result = Vec::new();
+
+        for op_p in &ops_p {
+            for op_q in &ops_q {
+                let combined_coeff = coeff * op_p.coeff * op_q.coeff;
+
+                // Merge Pauli lists: combine operators on each qubit
+                let mut merged_paulis: FMap<usize, char> = FMap::new();
+
+                for &(idx, label) in &op_p.paulis {
+                    merged_paulis.insert(idx, label);
+                }
+                for &(idx, label) in &op_q.paulis {
+                    if let Some(&existing) = merged_paulis.get(&idx) {
+                        // Pauli multiplication table for same-qubit products
+                        merged_paulis.insert(idx, Self::pauli_product(existing, label));
+                    } else {
+                        merged_paulis.insert(idx, label);
+                    }
+                }
+
+                // Convert map back to sorted Vec, skip identity-only terms
+                let mut paulis: FVec<(usize, char)> = merged_paulis.into_iter()
+                    .filter(|&(_, l)| l != 'I')
+                    .collect();
+                paulis.sort_by_key(|&(idx, _)| idx);
+
+                // Only include non-zero terms
+                if combined_coeff.norm() > 1e-15 {
+                    result.push(QubitOperator { coeff: combined_coeff, paulis });
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Pauli multiplication: returns the resulting Pauli label for a * b.
+    fn pauli_product(a: char, b: char) -> char {
+        match (a, b) {
+            ('I', x) | (x, 'I') => x,
+            ('X', 'X') | ('Y', 'Y') | ('Z', 'Z') => 'I',
+            ('X', 'Y') => 'Z',
+            ('Y', 'X') => 'Z',
+            ('Y', 'Z') => 'X',
+            ('Z', 'Y') => 'X',
+            ('Z', 'X') => 'Y',
+            ('X', 'Z') => 'Y',
+            _ => 'I',
+        }
+    }
+
+    /// Convert a full fermionic Hamiltonian to a qubit Hamiltonian matrix.
+    /// terms: list of (coeff, p, q) representing coeff * a_p^dagger * a_q
+    fn to_hamiltonian_matrix(
+        terms: &[(Complex64, usize, usize)],
+        num_qubits: usize,
+    ) -> FusionResult<Matrix<Complex64>> {
+        let dim = 1 << num_qubits;
+        let mut hamiltonian: Matrix<Complex64> = Tensor::zeros([dim, dim]);
+
+        for &(coeff, p, q) in terms {
+            let qubit_ops = Self::map_hamiltonian_term(coeff, p, q, num_qubits);
+            for op in &qubit_ops {
+                let mat = op.to_matrix(num_qubits)?;
+                for i in 0..dim {
+                    for j in 0..dim {
+                        if let (Some(h), Some(m)) = (hamiltonian.get_mut([i, j]), mat.get([i, j])) {
+                            *h += *m;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(hamiltonian)
     }
 }

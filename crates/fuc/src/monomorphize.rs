@@ -6,7 +6,7 @@
 use crate::types::*;
 use std::collections::HashMap;
 
-use crate::ast::{Program, Function, Type, StructDefinition};
+use crate::ast::{Program, Function, Type, StructDefinition, Declaration, Block, Statement, Expression, ExpressionKind};
 
 pub struct Instantiation {
     pub generic_name: FString,
@@ -62,18 +62,112 @@ impl Monomorphizer {
         }
     }
 
-    fn collect_instantiations(&mut self, _prog: &Program) {
-        // In a full implementation, this recursively walks expressions
-        // looking for Expression::FunctionCall with concrete type arguments.
-        // For demonstration, we simulate finding a call to `Vec<int>`.
-        
-        // Example: Found a call to `push<Int>`
-        let mangled = self.mangle_name("push", &vec![Type::Int]);
-        self.instantiations.push(Instantiation {
-            generic_name: "push".to_string(),
-            concrete_types: vec![Type::Int],
-            new_mangled_name: mangled,
-        });
+    fn collect_instantiations(&mut self, prog: &Program) {
+        // Walk all functions looking for calls with type arguments
+        for func in &prog.functions {
+            self.collect_from_block(&func.body);
+        }
+        // Also scan top-level declarations for nested functions
+        for decl in &prog.declarations {
+            if let Declaration::Function { body, .. } = decl {
+                self.collect_from_block(body);
+            }
+        }
+    }
+
+    fn collect_from_block(&mut self, block: &Block) {
+        for stmt in &block.statements {
+            self.collect_from_statement(stmt);
+        }
+    }
+
+    fn collect_from_statement(&mut self, stmt: &Statement) {
+        match stmt {
+            Statement::Let { value, .. } => self.collect_from_expression(value),
+            Statement::Assignment { target, value } => {
+                self.collect_from_expression(target);
+                self.collect_from_expression(value);
+            }
+            Statement::Expression(expr) => self.collect_from_expression(expr),
+            Statement::Return(Some(expr)) => self.collect_from_expression(expr),
+            Statement::VariableDeclaration { initializer, .. } => {
+                self.collect_from_expression(initializer);
+            }
+            Statement::If { cond, then_block, else_block } => {
+                self.collect_from_expression(cond);
+                self.collect_from_block(then_block);
+                if let Some(eb) = else_block {
+                    self.collect_from_block(eb);
+                }
+            }
+            Statement::While { cond, body } => {
+                self.collect_from_expression(cond);
+                self.collect_from_block(body);
+            }
+            Statement::For { iter, body, .. } => {
+                self.collect_from_expression(iter);
+                self.collect_from_block(body);
+            }
+            Statement::Return(None) => {}
+        }
+    }
+
+    fn collect_from_expression(&mut self, expr: &Expression) {
+        match &expr.kind {
+            ExpressionKind::FunctionCall { name, args, type_args } => {
+                if !type_args.is_empty() && self.generic_funcs.contains_key(name) {
+                    // Check if this exact instantiation already exists
+                    let already_seen = self.instantiations.iter().any(|i| {
+                        i.generic_name == *name && i.concrete_types == *type_args
+                    });
+                    if !already_seen {
+                        let mangled = self.mangle_name(name, type_args);
+                        self.instantiations.push(Instantiation {
+                            generic_name: name.clone(),
+                            concrete_types: type_args.clone(),
+                            new_mangled_name: mangled,
+                        });
+                    }
+                }
+                // Recurse into arguments to find nested generic calls
+                for arg in args {
+                    self.collect_from_expression(arg);
+                }
+            }
+            ExpressionKind::BinaryOp { left, right, .. } => {
+                self.collect_from_expression(left);
+                self.collect_from_expression(right);
+            }
+            ExpressionKind::UnaryOp { expr, .. } => {
+                self.collect_from_expression(expr);
+            }
+            ExpressionKind::MemberAccess { base, .. } => {
+                self.collect_from_expression(base);
+            }
+            ExpressionKind::StructLiteral { fields, .. } => {
+                for (_, field_expr) in fields {
+                    self.collect_from_expression(field_expr);
+                }
+            }
+            ExpressionKind::ArrayLiteral(elems) => {
+                for elem in elems {
+                    self.collect_from_expression(elem);
+                }
+            }
+            ExpressionKind::Match { scrutinee, arms } => {
+                self.collect_from_expression(scrutinee);
+                for arm in arms {
+                    self.collect_from_expression(&arm.body);
+                    if let Some(guard) = &arm.guard {
+                        self.collect_from_expression(guard);
+                    }
+                }
+            }
+            ExpressionKind::Closure { body, .. } => {
+                self.collect_from_expression(body);
+            }
+            ExpressionKind::Literal(_) | ExpressionKind::Variable(_) => {}
+        }
     }
 
     fn mangle_name(&self, base: &str, types: &FVec<Type>) -> FString {

@@ -1,5 +1,0 @@
-use anyhow::Result;
-use fusion_tester;
-fn test(filter: Option<&str>, release: FBool, bench: FBool) -> Result<()> {
-    fusion_tester::test_project(filter, release, bench)
-}

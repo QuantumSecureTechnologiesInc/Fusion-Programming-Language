@@ -1,0 +1,11 @@
+struct HaftBuffer {
+    id: int
+    size: int
+    tier: string
+    data: []byte
+}
+
+extern fn haft_allocate(size: int) -> HaftBuffer
+extern fn haft_free(buffer: HaftBuffer) -> void
+extern fn haft_migrate(buffer: HaftBuffer, tier: string) -> HaftBuffer
+extern fn haft_stats() -> string

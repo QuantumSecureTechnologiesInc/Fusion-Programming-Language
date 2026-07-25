@@ -1,0 +1,194 @@
+// Fusion v2.0 Vortex — Block and State Storage
+// Persistent block storage with indexing and key-value state management.
+
+use crate::blockchain::block::{Block, block_to_json, block_from_json}
+
+struct BlockStorage {
+    path: string,
+    blocks: []Block,
+    index: map
+}
+
+struct StateStorage {
+    state: string,
+    version: int
+}
+
+/// Create a new block storage at the given filesystem path.
+fn storage_new(path: string) -> BlockStorage {
+    let blocks: []Block = []
+    let index = map_new()
+    return BlockStorage {
+        path,
+        blocks,
+        index
+    }
+}
+
+/// Save a block to storage and update the index.
+fn storage_save_block(storage: BlockStorage, block: Block) -> BlockStorage {
+    let idx = storage.blocks.len()
+    storage.index.insert(block.hash, idx)
+    storage.blocks.push(block)
+
+    // Persist to disk
+    let filepath = storage.path + "/block_" + idx.to_string() + ".json"
+    let json = block_to_json(block)
+    fs_write(filepath, json)
+
+    return storage
+}
+
+/// Retrieve a block by its index.
+fn storage_get_block(storage: BlockStorage, index: int) -> Block {
+    if index < 0 || index >= storage.blocks.len() {
+        // Return empty sentinel block
+        return Block {
+            index: 0,
+            timestamp: 0,
+            previous_hash: "",
+            hash: "",
+            nonce: 0,
+            data: "",
+            merkle_root: "",
+            validator: ""
+        }
+    }
+    return storage.blocks[index]
+}
+
+/// Return all blocks in storage.
+fn storage_get_all(storage: BlockStorage) -> []Block {
+    return storage.blocks
+}
+
+/// Return the number of stored blocks.
+fn storage_size(storage: BlockStorage) -> int {
+    return storage.blocks.len()
+}
+
+/// Flush all blocks to disk as a single ledger file.
+fn storage_flush(storage: BlockStorage) -> void {
+    let ledger_path = storage.path + "/ledger.json"
+    let parts: []string = []
+    parts.push("[")
+
+    let i = 0
+    while i < storage.blocks.len() {
+        parts.push(block_to_json(storage.blocks[i]))
+        if i < storage.blocks.len() - 1 {
+            parts.push(",")
+        }
+        i += 1
+    }
+
+    parts.push("]")
+
+    let result = ""
+    for p in parts {
+        result = result + p
+    }
+
+    fs_write(ledger_path, result)
+}
+
+/// Load blocks from the ledger file on disk.
+fn storage_load(storage: BlockStorage) -> BlockStorage {
+    let ledger_path = storage.path + "/ledger.json"
+    let json = fs_read(ledger_path)
+    if json == "" {
+        return storage
+    }
+
+    let blocks_json = json_extract_array(json, "")
+    storage.blocks = []
+    storage.index = map_new()
+
+    let i = 0
+    while i < blocks_json.len() {
+        let block = block_from_json(blocks_json[i])
+        storage.index.insert(block.hash, i)
+        storage.blocks.push(block)
+        i += 1
+    }
+
+    return storage
+}
+
+// ─── State Storage ───────────────────────────────────────────────
+
+/// Create a new empty state store at version 0.
+fn state_new() -> StateStorage {
+    return StateStorage {
+        state: "{}",
+        version: 0
+    }
+}
+
+/// Get a value from the state by key.
+fn state_get(state: StateStorage, key: string) -> string {
+    return json_extract_string(state.state, key)
+}
+
+/// Set a key-value pair in the state, bumping the version.
+fn state_set(state: StateStorage, key: string, value: string) -> StateStorage {
+    // Simple JSON merge (append key-value)
+    let existing = json_extract_string(state.state, key)
+    let new_state: string
+    if existing == "" {
+        // Key doesn't exist, add it
+        if state.state == "{}" {
+            new_state = "{\"" + key + "\":\"" + value + "\"}"
+        } else {
+            new_state = state.state[:state.state.len() - 1] + ",\"" + key + "\":\"" + value + "\"}"
+        }
+    } else {
+        // Replace existing value
+        let old_entry = "\"" + key + "\":\"" + existing + "\""
+        let new_entry = "\"" + key + "\":\"" + value + "\""
+        new_state = string_replace(state.state, old_entry, new_entry)
+    }
+    return StateStorage {
+        state: new_state,
+        version: state.version + 1
+    }
+}
+
+/// Delete a key from the state.
+fn state_delete(state: StateStorage, key: string) -> StateStorage {
+    let value = state_get(state, key)
+    if value == "" {
+        return state
+    }
+    let entry = "\"" + key + "\":\"" + value + "\""
+    let new_state = string_remove(state.state, entry)
+    return StateStorage {
+        state: new_state,
+        version: state.version + 1
+    }
+}
+
+/// Create a snapshot of the current state for later revert.
+fn state_snapshot(state: StateStorage) -> StateStorage {
+    return StateStorage {
+        state: state.state,
+        version: state.version
+    }
+}
+
+/// Revert state to a previously taken snapshot.
+fn state_revert(state: StateStorage, snapshot: StateStorage) -> StateStorage {
+    return StateStorage {
+        state: snapshot.state,
+        version: snapshot.version
+    }
+}
+
+// Runtime helpers
+extern fn map_new() -> map
+extern fn fs_write(path: string, content: string) -> void
+extern fn fs_read(path: string) -> string
+extern fn json_extract_string(json: string, key: string) -> string
+extern fn json_extract_array(json: string, key: string) -> []string
+extern fn string_replace(s: string, from: string, to: string) -> string
+extern fn string_remove(s: string, substring: string) -> string

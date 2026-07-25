@@ -1,0 +1,187 @@
+// commands/ai.fu — AI commands.
+// chat, complete, explain, review, generate, models, pull
+
+fn cmd_ai(args: CliArgs) -> void {
+    let sub = args.subcommand;
+
+    if str_eq(sub, "") {
+        ai_help();
+        return;
+    }
+
+    if str_eq(sub, "chat") {
+        ai_chat(args);
+    } else if str_eq(sub, "complete") {
+        ai_complete(args);
+    } else if str_eq(sub, "explain") {
+        ai_explain(args);
+    } else if str_eq(sub, "review") {
+        ai_review(args);
+    } else if str_eq(sub, "generate") {
+        ai_generate(args);
+    } else if str_eq(sub, "models") {
+        ai_models(args);
+    } else if str_eq(sub, "pull") {
+        ai_pull(args);
+    } else {
+        print_error("Unknown AI subcommand: ");
+        puts(sub);
+        ai_help();
+    }
+}
+
+fn ai_help() -> void {
+    print_bold("Fusion AI Commands:");
+    puts("  fusion ai chat <prompt>              Chat with the AI");
+    puts("  fusion ai complete <file>            Auto-complete code");
+    puts("  fusion ai explain <file> [line]      Explain code");
+    puts("  fusion ai review <file>              Review code");
+    puts("  fusion ai generate <description>     Generate code");
+    puts("  fusion ai models                     List available models");
+    puts("  fusion ai pull <model>               Pull a model");
+}
+
+fn ai_chat(args: CliArgs) -> void {
+    let prompt = args.arg1;
+    if str_eq(prompt, "") {
+        print_error("Error: prompt required");
+        puts("Usage: fusion ai chat <prompt>");
+        exit(1);
+    }
+
+    print_info("AI Chat");
+    puts("");
+
+    let cmd = "fusion-ai chat \"";
+    cmd = cmd + prompt;
+    cmd = cmd + "\"";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn ai_complete(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion ai complete <file>");
+        exit(1);
+    }
+
+    print_info("Auto-completing: ");
+    puts(file);
+
+    let cmd = "fusion-ai complete --file \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    run_command(cmd);
+}
+
+fn ai_explain(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion ai explain <file> [line]");
+        exit(1);
+    }
+
+    print_info("Explaining: ");
+    puts(file);
+
+    let cmd = "fusion-ai explain --file \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    if !str_eq(args.arg2, "") {
+        cmd = cmd + " --line ";
+        cmd = cmd + args.arg2;
+    }
+
+    run_command(cmd);
+}
+
+fn ai_review(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion ai review <file>");
+        exit(1);
+    }
+
+    print_info("Reviewing: ");
+    puts(file);
+
+    let cmd = "fusion-ai review --file \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn ai_generate(args: CliArgs) -> void {
+    let description = args.arg1;
+    if str_eq(description, "") {
+        print_error("Error: description required");
+        puts("Usage: fusion ai generate <description>");
+        exit(1);
+    }
+
+    print_info("Generating code...");
+
+    let cmd = "fusion-ai generate \"";
+    cmd = cmd + description;
+    cmd = cmd + "\"";
+
+    if !str_eq(args.arg2, "") {
+        cmd = cmd + " --output \"";
+        cmd = cmd + args.arg2;
+        cmd = cmd + "\"";
+    }
+
+    run_command(cmd);
+}
+
+fn ai_models(args: CliArgs) -> void {
+    print_info("Available AI models:");
+
+    let cmd = "fusion-ai models";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn ai_pull(args: CliArgs) -> void {
+    let model = args.arg1;
+    if str_eq(model, "") {
+        print_error("Error: model name required");
+        puts("Usage: fusion ai pull <model>");
+        exit(1);
+    }
+
+    print_info("Pulling model: ");
+    puts(model);
+
+    let cmd = "fusion-ai pull \"";
+    cmd = cmd + model;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Model pulled successfully");
+    } else {
+        print_error("Failed to pull model");
+        exit(1);
+    }
+}

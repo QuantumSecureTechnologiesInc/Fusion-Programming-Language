@@ -1,8 +1,0 @@
-// Reactor CLI example (pure .fu)
-
-fn main() -> int {
-    let cfg: ReactorConfig = reactor_config_new("artifact.fri", "node-1", 1);
-    // Placeholder output
-    return 0;
-}
-

@@ -1,4 +1,0 @@
-mod runner;
-/// AI models version
-const AI_MODELS_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub use runner::LocalModelRunner;

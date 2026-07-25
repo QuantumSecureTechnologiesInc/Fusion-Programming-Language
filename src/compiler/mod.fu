@@ -13,6 +13,12 @@ pub mod driver;
 pub mod intent;
 pub mod pqc;
 pub mod test;
+pub mod visual_compiler;
+pub mod package_manager;
+pub mod deploy;
+pub mod feature_toggle;
+pub mod interaction_witness;
+pub mod transforms;
 
 // Re-export main compiler entry points
 pub use lexer::lex;
@@ -24,5 +30,63 @@ pub use intent::{Intent, IntentEngine, TaskProfile, Device, Cortex};
 pub use pqc::{KyberKeypair, KyberKEM, DilithiumKeypair, DilithiumSign, HybridKeypair};
 pub use test::run_all_tests;
 
+// Visual compiler re-exports
+pub use visual_compiler::{VisualConfig, IntentResult, vc_init, vc_parse_intent, vc_generate_code, vc_scaffold_project, vc_suggest_architecture};
 
+// Package manager re-exports
+pub use package_manager::{Package, PackageRegistry, pkg_search, pkg_install, pkg_publish, pkg_update, pkg_list};
+
+// Deploy re-exports
+pub use deploy::{DeployConfig, deploy_to_k8s, deploy_to_faas, deploy_status, deploy_rollback};
+
+// Feature toggle re-exports
+pub use feature_toggle::{
+    FeatureToggle, FeatureRegistry,
+    feature_toggle_init, feature_toggle_register, feature_toggle_resolve,
+    feature_toggle_check_conflicts, feature_toggle_inject_transforms, feature_toggle_get_order,
+};
+
+// Interaction witness re-exports
+pub use interaction_witness::{
+    InteractionWitness, WitnessConflict, WitnessReport,
+    witness_generate, witness_verify, witness_check_conflicts,
+    witness_conflict_error, witness_report_errors, witness_format_report,
+    program_witness_check,
+};
+
+// Transforms re-exports
+pub use transforms::{
+    cps_transform, tco_loop_transform, linear_resource_tracking,
+    capability_check_injection, effect_handler_injection, dispatch_table_generation,
+    refinement_check_insertion, dependent_check_insertion, provenance_tracking_injection,
+    actor_supervision_injection, staging_specialization, allocator_replacement,
+    effect_specialization, verification_hook_injection, gradual_annotation_check,
+    tmc_transform,
+};
+
+// ─── Integrated compiler pipeline ─────────────────────────────────────────────
+
+fn compile_with_features(code: string, uses: []string) -> string {
+    let registry = feature_toggle_init()
+    let _resolved = feature_toggle_resolve(registry, uses)
+    let conflicts = feature_toggle_check_conflicts(uses)
+    if conflicts.len() > 0 {
+        return "// COMPILATION FAILED: feature conflicts detected\n// " + conflicts.join("\n// ")
+    }
+    let ordered = feature_toggle_get_order(uses)
+    let mut result = code
+    for pass_name in ordered {
+        result = feature_toggle_inject_transforms([pass_name], result)
+    }
+    result
+}
+
+fn validate_features(uses: []string) -> bool {
+    let conflicts = feature_toggle_check_conflicts(uses)
+    conflicts.len() == 0
+}
+
+fn get_feature_order(uses: []string) -> []string {
+    feature_toggle_get_order(uses)
+}
 

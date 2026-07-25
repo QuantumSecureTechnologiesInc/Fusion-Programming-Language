@@ -1,0 +1,94 @@
+// Delegated Proof of Stake implementation for Fusion v2.0 Vortex
+
+struct Delegate {
+    address: string,
+    votes: int,
+    stake: float,
+    active: bool
+}
+
+struct DposConfig {
+    max_delegates: int,
+    election_period: int,
+    min_vote: float
+}
+
+fn dpos_vote(delegates: []Delegate, voter: string, delegate: string, amount: float) -> []Delegate {
+    let mut new_delegates = delegates
+    let mut found = false
+
+    for i in 0..new_delegates.len() {
+        if new_delegates[i].address == delegate {
+            new_delegates[i].votes = new_delegates[i].votes + 1
+            new_delegates[i].stake = new_delegates[i].stake + amount
+            found = true
+            break
+        }
+    }
+
+    if !found {
+        new_delegates.push(Delegate {
+            address: delegate,
+            votes: 1,
+            stake: amount,
+            active: false
+        })
+    }
+
+    new_delegates
+}
+
+fn dpos_unvote(delegates: []Delegate, voter: string, delegate: string, amount: float) -> []Delegate {
+    let mut new_delegates = delegates
+
+    for i in 0..new_delegates.len() {
+        if new_delegates[i].address == delegate {
+            let actual_amount = if amount > new_delegates[i].stake {
+                new_delegates[i].stake
+            } else {
+                amount
+            }
+
+            new_delegates[i].votes = max(0, new_delegates[i].votes - 1)
+            new_delegates[i].stake = new_delegates[i].stake - actual_amount
+            break
+        }
+    }
+
+    new_delegates
+}
+
+fn dpos_select_delegates(delegates: []Delegate, config: DposConfig) -> []Delegate {
+    let mut sorted_delegates = delegates
+    sorted_delegates.sort_by(|a, b| b.votes.cmp(&a.votes))
+
+    let mut selected = []
+    for delegate in sorted_delegates {
+        if selected.len() >= config.max_delegates {
+            break
+        }
+        selected.push(delegate)
+    }
+
+    selected
+}
+
+fn dpos_elect(delegates: []Delegate, config: DposConfig) -> []Delegate {
+    let selected = dpos_select_delegates(delegates, config)
+
+    let mut new_delegates = delegates
+    for delegate in new_delegates {
+        delegate.active = false
+    }
+
+    for selected_delegate in selected {
+        for i in 0..new_delegates.len() {
+            if new_delegates[i].address == selected_delegate.address {
+                new_delegates[i].active = true
+                break
+            }
+        }
+    }
+
+    new_delegates
+}

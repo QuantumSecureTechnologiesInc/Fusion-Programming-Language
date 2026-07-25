@@ -1,17 +1,20 @@
 [package]
 name = "fusion_ai_core"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-authors.workspace = true
+version = "0.2.0"
+edition = "2021"
+authors = ["Quantum Secure Technologies Inc."]
 description = "AI/ML core with autodiff and zero-copy tensor operations"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-fusion_core = { path = "../../../registry/crates/fusion_core/" }
-fusion_runtime_core = { path = "../../../registry/crates/fusion_runtime_core/" }
-serde = { workspace = true }
-tracing = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+rand = "0.8"
+rand_distr = "0.4"
+thiserror = "1.0"
 
 [dev-dependencies]
-criterion = { workspace = true }
+
+[lib]
+name = "fusion_ai_core"
+path = "src/lib.rs"

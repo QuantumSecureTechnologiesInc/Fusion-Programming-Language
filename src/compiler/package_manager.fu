@@ -1,0 +1,20 @@
+struct Package {
+    name: string
+    version: string
+    description: string
+}
+
+struct PackageRegistry {
+    url: string
+    token: string
+}
+
+extern fn pkg_search(registry: PackageRegistry, query: string) -> []Package
+
+extern fn pkg_install(registry: PackageRegistry, name: string, version: string) -> void
+
+extern fn pkg_publish(registry: PackageRegistry, path: string) -> void
+
+extern fn pkg_update(registry: PackageRegistry, name: string) -> void
+
+extern fn pkg_list() -> []Package

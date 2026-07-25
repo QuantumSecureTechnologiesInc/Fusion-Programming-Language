@@ -13,7 +13,11 @@ use fuc::ir_lower;
 use fuc::optimizer;
 use fuc::borrowck;
 use fuc::diagnostics::chaos_vacuum::ChaosVacuumReporter;
+#[cfg(feature = "wasm")]
 use fuc::wasm::WasmCodeGenerator;
+
+#[cfg(feature = "llvm")]
+use fuc::codegen::Backend;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -118,6 +122,11 @@ fn main() {
         eprintln!("fuc: vortex safety check passed");
     }
 
+    if cli.vortex_only {
+        eprintln!("fuc: vortex safety check passed [ok]");
+        process::exit(0);
+    }
+
     // IR lowering
     let ir_module = ir_lower::lower_program(&typed_prog);
     if cli.verbose {
@@ -134,31 +143,39 @@ fn main() {
     // Codegen
     if cli.target_wasm {
         // WASM codegen
-        // Note: WASM codegen uses the original AST declarations, not the IR module
-        // For now, re-parse (in a full pipeline this would be restructured)
-        let output = parser::parse_output(&source);
-        let program = output.program.unwrap();
-        let mut codegen = WasmCodeGenerator::new();
-        match codegen.generate(&program.declarations) {
-            Ok(wasm_bytes) => {
-                let out_path = if cli.output_file == "a.out" {
-                    "output.wasm".to_string()
-                } else {
-                    cli.output_file.clone()
-                };
-                if let Err(e) = std::fs::write(&out_path, &wasm_bytes) {
-                    eprintln!("fuc: error writing '{}': {}", out_path, e);
+        #[cfg(feature = "wasm")]
+        {
+            // Note: WASM codegen uses the original AST declarations, not the IR module
+            // For now, re-parse (in a full pipeline this would be restructured)
+            let output = parser::parse_output(&source);
+            let program = output.program.unwrap();
+            let mut codegen = WasmCodeGenerator::new();
+            match codegen.generate(&program.declarations) {
+                Ok(wasm_bytes) => {
+                    let out_path = if cli.output_file == "a.out" {
+                        "output.wasm".to_string()
+                    } else {
+                        cli.output_file.clone()
+                    };
+                    if let Err(e) = std::fs::write(&out_path, &wasm_bytes) {
+                        eprintln!("fuc: error writing '{}': {}", out_path, e);
+                        process::exit(1);
+                    }
+                    if cli.verbose {
+                        eprintln!("fuc: wrote {} bytes to {}", wasm_bytes.len(), out_path);
+                    }
+                    eprintln!("fuc: compiled '{}' -> '{}' [ok]", input_path, out_path);
+                }
+                Err(e) => {
+                    eprintln!("fuc: codegen error: {}", e);
                     process::exit(1);
                 }
-                if cli.verbose {
-                    eprintln!("fuc: wrote {} bytes to {}", wasm_bytes.len(), out_path);
-                }
-                eprintln!("fuc: compiled '{}' -> '{}' [ok]", input_path, out_path);
             }
-            Err(e) => {
-                eprintln!("fuc: codegen error: {}", e);
-                process::exit(1);
-            }
+        }
+        #[cfg(not(feature = "wasm"))]
+        {
+            eprintln!("fuc: WASM backend not available (rebuild with --features wasm)");
+            process::exit(1);
         }
     } else {
         // Native codegen via LLVM (if available)
@@ -172,7 +189,7 @@ fn main() {
             let mut backend = LlvmBackend::new(&context, input_path, &config);
 
             match backend.compile_module(&optimized) {
-                Ok(()) => {
+                Ok(_) => {
                     let out_path = if cli.output_file == "a.out" {
                         if cli.emit_llvm {
                             "output.ll".to_string()
@@ -191,7 +208,6 @@ fn main() {
                         }
                         eprintln!("fuc: emitted LLVM IR to '{}' [ok]", out_path);
                     } else {
-                        // Emit native object file
                         match backend.write_object_file(&out_path) {
                             Ok(()) => eprintln!("fuc: compiled '{}' -> '{}' [ok]", input_path, out_path),
                             Err(e) => {

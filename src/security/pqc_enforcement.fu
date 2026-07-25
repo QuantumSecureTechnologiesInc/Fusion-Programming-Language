@@ -1,0 +1,106 @@
+// Fusion PQC Enforcement Policy
+// Compile-time enforcement of 50/50 classical + post-quantum cryptography.
+// Every cryptographic operation MUST use both classical AND PQC algorithms.
+
+// Security policy constants
+const PQC_ENFORCEMENT_VERSION: int = 1
+const PQC_MIN_KEY_STRENGTH: int = 128
+
+// Allowed classical algorithms (must be paired with PQC)
+const CLASSICAL_X25519: int = 1
+const CLASSICAL_ED25519: int = 2
+
+// Allowed PQC algorithms (must be paired with classical)
+const PQC_MLKEM768: int = 1
+const PQC_MLDSA65: int = 2
+
+// Violation types
+const VIOLATION_CLASSICAL_ONLY: int = 1
+const VIOLATION_PQC_ONLY: int = 2
+const VIOLATION_WEAK_KEY: int = 3
+const VIOLATION_DEPRECATED_ALGO: int = 4
+
+// Security policy check result
+struct PolicyResult {
+    allowed: bool,
+    violation_type: int,
+    message: string,
+}
+
+// Check if a cryptographic operation complies with 50/50 policy
+// Returns PolicyResult indicating whether the operation is allowed
+fn check_hybrid_compliance(
+    classical_algo: int,
+    pq_algo: int,
+) -> PolicyResult {
+    // Rule 1: Must have classical component
+    if classical_algo == 0 {
+        return PolicyResult {
+            allowed: false,
+            violation_type: VIOLATION_PQC_ONLY,
+            message: "PQC-only operation rejected: 50/50 hybrid required",
+        }
+    }
+
+    // Rule 2: Must have PQC component
+    if pq_algo == 0 {
+        return PolicyResult {
+            allowed: false,
+            violation_type: VIOLATION_CLASSICAL_ONLY,
+            message: "Classical-only operation rejected: 50/50 hybrid required",
+        }
+    }
+
+    // Rule 3: Validate classical algorithm
+    if classical_algo != CLASSICAL_X25519 && classical_algo != CLASSICAL_ED25519 {
+        return PolicyResult {
+            allowed: false,
+            violation_type: VIOLATION_DEPRECATED_ALGO,
+            message: "Deprecated or unknown classical algorithm",
+        }
+    }
+
+    // Rule 4: Validate PQC algorithm
+    if pq_algo != PQC_MLKEM768 && pq_algo != PQC_MLDSA65 {
+        return PolicyResult {
+            allowed: false,
+            violation_type: VIOLATION_DEPRECATED_ALGO,
+            message: "Deprecated or unknown PQC algorithm",
+        }
+    }
+
+    // All checks passed: hybrid operation is compliant
+    return PolicyResult {
+        allowed: true,
+        violation_type: 0,
+        message: "Operation compliant with 50/50 PQC policy",
+    }
+}
+
+// Lint: detect classical-only crypto usage in source code
+// Returns list of violations found
+fn lint_classical_only_usage(source: string) -> []string {
+    let violations: []string = []
+
+    // Check for direct X25519 without ML-KEM pairing
+    if source.contains("X25519") && !source.contains("MLKEM768") && !source.contains("mlkem768") {
+        violations.push("Warning: X25519 used without ML-KEM-768 pairing (violates 50/50 policy)")
+    }
+
+    // Check for direct Ed25519 without ML-DSA pairing
+    if source.contains("Ed25519") && !source.contains("MLDSA65") && !source.contains("mldsa65") {
+        violations.push("Warning: Ed25519 used without ML-DSA-65 pairing (violates 50/50 policy)")
+    }
+
+    // Check for raw RSA/ECDSA (never acceptable in post-quantum era)
+    if source.contains("RSA") || source.contains("ECDSA") || source.contains("ECDH") {
+        violations.push("Error: Classical-only RSA/ECDSA/ECDH detected (not allowed)")
+    }
+
+    // Check for SHA-1 usage (weak)
+    if source.contains("SHA1") || source.contains("sha1") {
+        violations.push("Warning: SHA-1 detected (deprecated, use SHA-256 or SHA-3)")
+    }
+
+    return violations
+}

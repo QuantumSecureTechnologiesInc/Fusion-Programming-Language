@@ -1,0 +1,123 @@
+// commands/source.fu — Source file operations.
+// list, compile, test, audit
+
+fn cmd_source(args: CliArgs) -> void {
+    let sub = args.subcommand;
+
+    if str_eq(sub, "") {
+        source_help();
+        return;
+    }
+
+    if str_eq(sub, "list") {
+        source_list(args);
+    } else if str_eq(sub, "compile") {
+        source_compile(args);
+    } else if str_eq(sub, "test") {
+        source_test(args);
+    } else if str_eq(sub, "audit") {
+        source_audit(args);
+    } else {
+        print_error("Unknown source subcommand: ");
+        puts(sub);
+        source_help();
+    }
+}
+
+fn source_help() -> void {
+    print_bold("Fusion Source Commands:");
+    puts("  fusion source list                    List source files");
+    puts("  fusion source compile <file>          Compile a single file");
+    puts("  fusion source test <file>             Test a single file");
+    puts("  fusion source audit <file>            Audit a file for issues");
+}
+
+fn source_list(args: CliArgs) -> void {
+    print_info("Source files:");
+
+    let cmd = "fuc.exe source list --path src/";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn source_compile(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion source compile <file>");
+        exit(1);
+    }
+
+    print_info("Compiling: ");
+    puts(file);
+
+    let cmd = "fuc.exe source compile \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Compilation successful");
+    } else {
+        print_error("Compilation failed");
+        exit(1);
+    }
+}
+
+fn source_test(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion source test <file>");
+        exit(1);
+    }
+
+    print_info("Testing: ");
+    puts(file);
+
+    let cmd = "fuc.exe source test \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Tests passed");
+    } else {
+        print_error("Tests failed");
+        exit(1);
+    }
+}
+
+fn source_audit(args: CliArgs) -> void {
+    let file = args.arg1;
+    if str_eq(file, "") {
+        print_error("Error: file required");
+        puts("Usage: fusion source audit <file>");
+        exit(1);
+    }
+
+    print_info("Auditing: ");
+    puts(file);
+
+    let cmd = "fuc.exe source audit \"";
+    cmd = cmd + file;
+    cmd = cmd + "\"";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Audit passed");
+    } else {
+        print_warning("Audit found issues");
+    }
+}

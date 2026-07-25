@@ -1,0 +1,32 @@
+// Memory Safety Guarantees
+// Provides bounds checking, null checking, use-after-free detection,
+// double-free prevention, and buffer overflow protection
+
+extern fn bounds_check(index: int, length: int) -> bool
+extern fn null_check(ptr: *byte) -> bool
+extern fn use_after_free_check(ptr: *byte) -> bool
+extern fn double_free_check(ptr: *byte) -> bool
+extern fn buffer_overflow_check(ptr: *byte, size: int, buffer_size: int) -> bool
+
+struct MemorySafetyReport {
+    violations: []string
+    severity: string
+}
+
+extern fn memory_safety_audit() -> MemorySafetyReport
+
+// Bounds-checked array indexing - panics on out-of-bounds access
+fn safe_index(arr: []int, index: int) -> int {
+    if !bounds_check(index, arr.length) {
+        panic("index out of bounds: index={}, length={}", index, arr.length)
+    }
+    return arr[index]
+}
+
+// Null-checked pointer dereference - panics on null pointer
+fn safe_deref(ptr: *int) -> int {
+    if !null_check(ptr as *byte) {
+        panic("null pointer dereference")
+    }
+    return *ptr
+}

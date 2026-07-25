@@ -1,0 +1,117 @@
+// Fusion v2.0 Vortex — Block
+// A single block in the blockchain: header + payload + proof-of-work.
+
+use crate::blockchain::crypto::{crypto_hash_sha256, crypto_merkle_root}
+
+struct Block {
+    index: int,
+    timestamp: int,
+    previous_hash: string,
+    hash: string,
+    nonce: int,
+    data: string,
+    merkle_root: string,
+    validator: string
+}
+
+/// Create a new block (not yet mined). Hash is computed from header fields.
+fn block_new(index: int, previous_hash: string, data: string) -> Block {
+    let timestamp = now()
+    let merkle_root = crypto_hash_sha256(data)
+    let payload = index.to_string() + timestamp.to_string() + previous_hash + data + merkle_root
+    let hash = crypto_hash_sha256(payload)
+    return Block {
+        index,
+        timestamp,
+        previous_hash,
+        hash,
+        nonce: 0,
+        data,
+        merkle_root,
+        validator: ""
+    }
+}
+
+/// Recompute the block's hash from its header fields.
+fn block_hash(block: Block) -> string {
+    let payload = block.index.to_string() + block.timestamp.to_string() + block.previous_hash + block.nonce.to_string() + block.data + block.merkle_root
+    return crypto_hash_sha256(payload)
+}
+
+/// Mine a block using proof-of-work. Repeatedly increments the nonce until
+/// the block hash starts with `difficulty` leading zero hex chars.
+fn block_mine(block: Block, difficulty: int) -> Block {
+    let target = ""
+    let i = 0
+    while i < difficulty {
+        target = target + "0"
+        i += 1
+    }
+
+    let b = Block {
+        index: block.index,
+        timestamp: block.timestamp,
+        previous_hash: block.previous_hash,
+        hash: block.hash,
+        nonce: block.nonce,
+        data: block.data,
+        merkle_root: block.merkle_root,
+        validator: block.validator
+    }
+
+    let hash = block_hash(b)
+    while hash[:difficulty] != target {
+        b.nonce += 1
+        hash = block_hash(b)
+    }
+    b.hash = hash
+    return b
+}
+
+/// Validate a block against its predecessor.
+/// Checks: correct index, correct previous_hash, valid current hash.
+fn block_validate(block: Block, previous: Block) -> bool {
+    if block.index != previous.index + 1 {
+        return false
+    }
+    if block.previous_hash != previous.hash {
+        return false
+    }
+    let computed = block_hash(block)
+    if computed != block.hash {
+        return false
+    }
+    return true
+}
+
+/// Serialize block to JSON.
+fn block_to_json(block: Block) -> string {
+    return "{" +
+        "\"index\":" + block.index.to_string() + "," +
+        "\"timestamp\":" + block.timestamp.to_string() + "," +
+        "\"previous_hash\":\"" + block.previous_hash + "\"," +
+        "\"hash\":\"" + block.hash + "\"," +
+        "\"nonce\":" + block.nonce.to_string() + "," +
+        "\"data\":\"" + block.data + "\"," +
+        "\"merkle_root\":\"" + block.merkle_root + "\"," +
+        "\"validator\":\"" + block.validator + "\"" +
+        "}"
+}
+
+/// Deserialize block from JSON.
+fn block_from_json(json: string) -> Block {
+    let index = json_extract_int(json, "index")
+    let timestamp = json_extract_int(json, "timestamp")
+    let previous_hash = json_extract_string(json, "previous_hash")
+    let hash = json_extract_string(json, "hash")
+    let nonce = json_extract_int(json, "nonce")
+    let data = json_extract_string(json, "data")
+    let merkle_root = json_extract_string(json, "merkle_root")
+    let validator = json_extract_string(json, "validator")
+    return Block { index, timestamp, previous_hash, hash, nonce, data, merkle_root, validator }
+}
+
+// JSON helpers (provided by Fusion runtime)
+extern fn json_extract_string(json: string, key: string) -> string
+extern fn json_extract_int(json: string, key: string) -> int
+extern fn now() -> int

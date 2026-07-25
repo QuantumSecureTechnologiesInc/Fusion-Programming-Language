@@ -1,0 +1,12 @@
+struct CortexConfig {
+    model_path: string
+    gpu_weight: float
+    learning_rate: float
+}
+
+extern fn cortex_init(config: CortexConfig) -> void
+extern fn cortex_schedule(task_ops: int, task_memory: int, intent: string) -> string
+extern fn cortex_record(task_id: int, device: string, duration_ms: int) -> void
+extern fn cortex_train() -> void
+extern fn cortex_export_model(path: string) -> void
+extern fn cortex_import_model(path: string) -> void

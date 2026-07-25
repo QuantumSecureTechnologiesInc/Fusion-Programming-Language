@@ -1,9 +1,23 @@
 #![allow(dead_code)]
-mod layers;
+
+pub mod layers;
+pub mod conv;
+pub mod rnn;
+pub mod transformer;
+pub mod embedding;
+pub mod normalization;
+pub mod dropout;
+pub mod container;
+pub mod activation;
+pub mod loss;
+pub mod optimizer;
+pub mod model_zoo;
+
 use super::tensor::Tensor;
 use super::MLError;
+
 /// Neural Network Module Trait
-trait Module {
+pub trait Module {
     /// Forward pass
     fn forward(&self, input: &Tensor) -> Result<Tensor, MLError>;
     /// Get trainable parameters
@@ -11,3 +25,11 @@ trait Module {
     /// Set training mode
     fn train(&mut self, mode: FBool);
 }
+
+// Re-export key types from submodules
+pub use layers::{Linear, ReLU, Sigmoid, Tanh, Dropout, BatchNorm, Sequential, HybridQuantumLayer};
+pub use conv::{Conv1d, Conv2d};
+pub use normalization::{BatchNorm1d, BatchNorm2d, LayerNorm, InstanceNorm, GroupNorm};
+pub use container::{ModuleList, ModuleDict};
+pub use activation::{LeakyRelu, Elu, Selu, Mish, Swish, Softmax};
+pub use model_zoo::{LeNet5, ResNetBlock, ResNet18, VGG};

@@ -1,0 +1,29 @@
+// Provenance Tracking — Fusion v2.0 Vortex
+//
+// Provides origin tracking and data lineage for security-sensitive values.
+
+pub struct Provenance {
+    pub source: string,
+    pub timestamp: u64,
+    pub chain: []string,
+}
+
+pub fn provenance_new(source: string) -> Provenance {
+    return Provenance {
+        source,
+        timestamp: 0,
+        chain: [],
+    }
+}
+
+pub fn provenance_extend(p: Provenance, step: string) -> Provenance {
+    return Provenance {
+        source: p.source,
+        timestamp: p.timestamp,
+        chain: array_push(p.chain, step),
+    }
+}
+
+pub fn provenance_chain(p: Provenance) -> []string {
+    return p.chain
+}

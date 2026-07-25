@@ -1,0 +1,948 @@
+#![allow(dead_code)]
+use super::Module;
+use super::normalization::LayerNorm;
+use crate::ml::tensor::Tensor;
+use crate::ml::MLError;
+
+/// Scaled dot-product attention
+/// softmax(Q * K^T / sqrt(d_k)) * V
+struct ScaledDotProductAttention {
+    pub scale: f32,
+}
+
+impl ScaledDotProductAttention {
+    pub fn new(d_k: FSize) -> Self {
+        Self {
+            scale: (d_k as f32).sqrt(),
+        }
+    }
+}
+
+impl Module for ScaledDotProductAttention {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        // For Module trait: input encodes concatenated Q, K, V along feature dim
+        // Expects input of shape [batch, seq_len, 3 * d_k]
+        let d_k = input.shape[2] / 3;
+        let seq_len = input.shape[1];
+
+        let mut q = Tensor::zeros(vec![input.shape[0], seq_len, d_k]);
+        let mut k = Tensor::zeros(vec![input.shape[0], seq_len, d_k]);
+        let mut v = Tensor::zeros(vec![input.shape[0], seq_len, d_k]);
+
+        for b in 0..input.shape[0] {
+            for s in 0..seq_len {
+                for d in 0..d_k {
+                    q.set(&[b, s, d], *input.get(&[b, s, d]).unwrap())?;
+                    k.set(&[b, s, d], *input.get(&[b, s, d_k + d]).unwrap())?;
+                    v.set(&[b, s, d], *input.get(&[b, s, 2 * d_k + d]).unwrap())?;
+                }
+            }
+        }
+
+        scaled_dot_product_attention(&q, &k, &v, None)
+    }
+
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Multi-head attention layer
+struct MultiHeadAttention {
+    pub num_heads: FSize,
+    pub d_model: FSize,
+    pub d_k: FSize,
+    pub d_v: FSize,
+    pub w_q: Tensor,
+    pub w_k: Tensor,
+    pub w_v: Tensor,
+    pub w_o: Tensor,
+    training: FBool,
+}
+
+impl MultiHeadAttention {
+    /// Create new multi-head attention with Xavier initialization
+    pub fn new(d_model: FSize, num_heads: FSize) -> Self {
+        assert!(d_model % num_heads == 0, "d_model must be divisible by num_heads");
+        let d_k = d_model / num_heads;
+        let d_v = d_model / num_heads;
+
+        Self {
+            num_heads,
+            d_model,
+            d_k,
+            d_v,
+            w_q: xavier_init(d_model, d_model),
+            w_k: xavier_init(d_model, d_model),
+            w_v: xavier_init(d_model, d_model),
+            w_o: xavier_init(d_model, d_model),
+            training: true,
+        }
+    }
+
+    /// Split input [batch, seq_len, d_model] into [batch, num_heads, seq_len, d_k]
+    fn split_heads(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch_size = input.shape[0];
+        let seq_len = input.shape[1];
+        let head_size = self.d_k;
+
+        let mut output = Tensor::zeros(vec![batch_size, self.num_heads, seq_len, head_size]);
+        for b in 0..batch_size {
+            for s in 0..seq_len {
+                for h in 0..self.num_heads {
+                    for d in 0..head_size {
+                        let val = *input.get(&[b, s, h * head_size + d]).unwrap();
+                        output.set(&[b, h, s, d], val)?;
+                    }
+                }
+            }
+        }
+        Ok(output)
+    }
+
+    /// Merge heads from [batch, num_heads, seq_len, d_k] to [batch, seq_len, d_model]
+    fn merge_heads(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch_size = input.shape[0];
+        let seq_len = input.shape[2];
+        let mut output = Tensor::zeros(vec![batch_size, seq_len, self.d_model]);
+
+        for b in 0..batch_size {
+            for s in 0..seq_len {
+                for h in 0..self.num_heads {
+                    for d in 0..self.d_k {
+                        let val = *input.get(&[b, h, s, d]).unwrap();
+                        output.set(&[b, s, h * self.d_k + d], val)?;
+                    }
+                }
+            }
+        }
+        Ok(output)
+    }
+}
+
+impl Module for MultiHeadAttention {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        multi_head_attention_forward(input, self)
+    }
+
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.w_q, &self.w_k, &self.w_v, &self.w_o]
+    }
+
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// Feed-forward network: W2 * activation(W1 * input + b1) + b2
+struct FeedForward {
+    pub d_model: FSize,
+    pub d_ff: FSize,
+    pub w1: Tensor,
+    pub b1: Tensor,
+    pub w2: Tensor,
+    pub b2: Tensor,
+    pub activation: String,
+    training: FBool,
+}
+
+impl FeedForward {
+    /// Create new feed-forward network with Xavier initialization
+    pub fn new(d_model: FSize, d_ff: FSize, activation: &str) -> Self {
+        Self {
+            d_model,
+            d_ff,
+            w1: xavier_init(d_model, d_ff),
+            b1: Tensor::zeros(vec![1, d_ff]),
+            w2: xavier_init(d_ff, d_model),
+            b2: Tensor::zeros(vec![1, d_model]),
+            activation: activation.to_string(),
+            training: true,
+        }
+    }
+}
+
+impl Module for FeedForward {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        feed_forward_forward(input, self)
+    }
+
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.w1, &self.b1, &self.w2, &self.b2]
+    }
+
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// Transformer block with pre-norm architecture
+struct TransformerBlock {
+    pub attention: MultiHeadAttention,
+    pub ffn: FeedForward,
+    pub norm1: LayerNorm,
+    pub norm2: LayerNorm,
+    training: FBool,
+}
+
+impl TransformerBlock {
+    pub fn new(d_model: FSize, num_heads: FSize, d_ff: FSize, activation: &str) -> Self {
+        Self {
+            attention: MultiHeadAttention::new(d_model, num_heads),
+            ffn: FeedForward::new(d_model, d_ff, activation),
+            norm1: LayerNorm::new(vec![d_model]),
+            norm2: LayerNorm::new(vec![d_model]),
+            training: true,
+        }
+    }
+}
+
+impl Module for TransformerBlock {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        // Pre-norm transformer block
+        let normed1 = layer_norm_forward(input, &self.norm1)?;
+        let attn_out = multi_head_attention_forward(&normed1, &self.attention)?;
+        let residual1 = input.add(&attn_out)?;
+
+        let normed2 = layer_norm_forward(&residual1, &self.norm2)?;
+        let ffn_out = feed_forward_forward(&normed2, &self.ffn)?;
+        let residual2 = residual1.add(&ffn_out)?;
+
+        Ok(residual2)
+    }
+
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = self.attention.parameters();
+        params.extend(self.ffn.parameters());
+        params.extend(self.norm1.parameters());
+        params.extend(self.norm2.parameters());
+        params
+    }
+
+    fn train(&mut self, mode: FBool) {
+        self.attention.train(mode);
+        self.ffn.train(mode);
+        self.norm1.train(mode);
+        self.norm2.train(mode);
+        self.training = mode;
+    }
+}
+
+/// Transformer encoder with sinusoidal positional encoding
+struct TransformerEncoder {
+    pub blocks: FVec<TransformerBlock>,
+    pub embedding: Tensor,
+    pub positional_encoding: Tensor,
+    pub num_layers: FSize,
+    pub d_model: FSize,
+}
+
+impl TransformerEncoder {
+    /// Create new transformer encoder with sinusoidal positional encoding
+    pub fn new(vocab_size: FSize, d_model: FSize, num_layers: FSize, num_heads: FSize, d_ff: FSize, max_len: FSize) -> Self {
+        let mut blocks = Vec::with_capacity(num_layers as usize);
+        for _ in 0..num_layers {
+            blocks.push(TransformerBlock::new(d_model, num_heads, d_ff, "gelu"));
+        }
+
+        let embedding = Tensor::ones(vec![vocab_size, d_model]);
+        let positional_encoding = generate_positional_encoding(max_len, d_model);
+
+        Self {
+            blocks,
+            embedding,
+            positional_encoding,
+            num_layers,
+            d_model,
+        }
+    }
+}
+
+impl Module for TransformerEncoder {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        transformer_encoder_forward(input, self)
+    }
+
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = vec![&self.embedding];
+        for block in &self.blocks {
+            params.extend(block.parameters());
+        }
+        params
+    }
+
+    fn train(&mut self, mode: FBool) {
+        for block in &mut self.blocks {
+            block.train(mode);
+        }
+    }
+}
+
+/// Transformer decoder block with self-attention and cross-attention
+struct TransformerDecoderBlock {
+    pub self_attention: MultiHeadAttention,
+    pub cross_attention: MultiHeadAttention,
+    pub ffn: FeedForward,
+    pub norm1: LayerNorm,
+    pub norm2: LayerNorm,
+    pub norm3: LayerNorm,
+}
+
+/// Transformer decoder with sinusoidal positional encoding
+struct TransformerDecoder {
+    pub blocks: FVec<TransformerDecoderBlock>,
+    pub embedding: Tensor,
+    pub positional_encoding: Tensor,
+    pub num_layers: FSize,
+    pub d_model: FSize,
+}
+
+impl TransformerDecoder {
+    /// Create new transformer decoder
+    pub fn new(vocab_size: FSize, d_model: FSize, num_layers: FSize, num_heads: FSize, d_ff: FSize, max_len: FSize) -> Self {
+        let mut blocks = Vec::with_capacity(num_layers as usize);
+        for _ in 0..num_layers {
+            blocks.push(TransformerDecoderBlock {
+                self_attention: MultiHeadAttention::new(d_model, num_heads),
+                cross_attention: MultiHeadAttention::new(d_model, num_heads),
+                ffn: FeedForward::new(d_model, d_ff, "gelu"),
+                norm1: LayerNorm::new(vec![d_model]),
+                norm2: LayerNorm::new(vec![d_model]),
+                norm3: LayerNorm::new(vec![d_model]),
+            });
+        }
+
+        let embedding = Tensor::ones(vec![vocab_size, d_model]);
+        let positional_encoding = generate_positional_encoding(max_len, d_model);
+
+        Self {
+            blocks,
+            embedding,
+            positional_encoding,
+            num_layers,
+            d_model,
+        }
+    }
+
+    /// Generate causal mask: upper triangular matrix with -inf on masked positions
+    /// Returns tensor of shape [1, seq_len, seq_len]
+    pub fn causal_mask(seq_len: FSize) -> Result<Tensor, MLError> {
+        let mut mask = Tensor::ones(vec![seq_len, seq_len]);
+        for i in 0..seq_len {
+            for j in (i + 1)..seq_len {
+                mask.set(&[i, j], 0.0)?;
+            }
+        }
+        // Reshape to [1, seq_len, seq_len] for batch dimension
+        mask.reshape(vec![1, seq_len, seq_len])
+    }
+}
+
+impl Module for TransformerDecoder {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        transformer_decoder_forward(input, input, self)
+    }
+
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = vec![&self.embedding];
+        for block in &self.blocks {
+            params.extend(block.self_attention.parameters());
+            params.extend(block.cross_attention.parameters());
+            params.extend(block.ffn.parameters());
+            params.extend(block.norm1.parameters());
+            params.extend(block.norm2.parameters());
+            params.extend(block.norm3.parameters());
+        }
+        params
+    }
+
+    fn train(&mut self, mode: FBool) {
+        for block in &mut self.blocks {
+            block.self_attention.train(mode);
+            block.cross_attention.train(mode);
+            block.ffn.train(mode);
+            block.norm1.train(mode);
+            block.norm2.train(mode);
+            block.norm3.train(mode);
+        }
+    }
+}
+
+/// Cross-attention: queries from one sequence, keys/values from another
+struct CrossAttention {
+    pub d_model: FSize,
+    pub num_heads: FSize,
+    pub w_q: Tensor,
+    pub w_k: Tensor,
+    pub w_v: Tensor,
+    pub w_o: Tensor,
+    training: FBool,
+}
+
+impl CrossAttention {
+    pub fn new(d_model: FSize, num_heads: FSize) -> Self {
+        assert!(d_model % num_heads == 0, "d_model must be divisible by num_heads");
+        Self {
+            d_model,
+            num_heads,
+            w_q: xavier_init(d_model, d_model),
+            w_k: xavier_init(d_model, d_model),
+            w_v: xavier_init(d_model, d_model),
+            w_o: xavier_init(d_model, d_model),
+            training: true,
+        }
+    }
+
+    /// Cross-attention: queries from input, keys/values from encoder_output
+    pub fn forward_cross(&self, query: &Tensor, key_value: &Tensor) -> Result<Tensor, MLError> {
+        let batch_size = query.shape[0];
+        let seq_len_q = query.shape[1];
+        let seq_len_kv = key_value.shape[1];
+        let d_k = self.d_model / self.num_heads;
+
+        // Project Q from query, K and V from key_value
+        let q = query.matmul(&self.w_q)?;
+        let k = key_value.matmul(&self.w_k)?;
+        let v = key_value.matmul(&self.w_v)?;
+
+        let mut all_heads = Tensor::zeros(vec![batch_size, seq_len_q, self.d_model]);
+
+        for h in 0..self.num_heads {
+            let mut q_h = Tensor::zeros(vec![batch_size, seq_len_q, d_k]);
+            let mut k_h = Tensor::zeros(vec![batch_size, seq_len_kv, d_k]);
+            let mut v_h = Tensor::zeros(vec![batch_size, seq_len_kv, d_k]);
+
+            for b in 0..batch_size {
+                for s in 0..seq_len_q {
+                    for d in 0..d_k {
+                        q_h.set(&[b, s, d], *q.get(&[b, s, h * d_k + d]).unwrap())?;
+                    }
+                }
+                for s in 0..seq_len_kv {
+                    for d in 0..d_k {
+                        k_h.set(&[b, s, d], *k.get(&[b, s, h * d_k + d]).unwrap())?;
+                        v_h.set(&[b, s, d], *v.get(&[b, s, h * d_k + d]).unwrap())?;
+                    }
+                }
+            }
+
+            let attn_out = scaled_dot_product_attention(&q_h, &k_h, &v_h, None)?;
+
+            for b in 0..batch_size {
+                for s in 0..seq_len_q {
+                    for d in 0..d_k {
+                        all_heads.set(&[b, s, h * d_k + d], *attn_out.get(&[b, s, d]).unwrap())?;
+                    }
+                }
+            }
+        }
+
+        all_heads.matmul(&self.w_o)
+    }
+}
+
+impl Module for CrossAttention {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        // For Module trait: self-attention fallback
+        self.forward_cross(input, input)
+    }
+
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.w_q, &self.w_k, &self.w_v, &self.w_o]
+    }
+
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+/// Xavier/Glorot initialization: N(0, sqrt(2 / (fan_in + fan_out)))
+fn xavier_init(fan_in: FSize, fan_out: FSize) -> Tensor {
+    let std = (2.0 / (fan_in + fan_out) as f32).sqrt();
+    let size = fan_in * fan_out;
+    let mut data = Vec::with_capacity(size);
+
+    // Deterministic pseudo-random via LCG
+    let mut state: u64 = 42;
+    for _ in 0..size {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let u1 = ((state >> 33) as f32) / (1u64 << 31) as f32;
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let u2 = ((state >> 33) as f32) / (1u64 << 31) as f32;
+        // Box-Muller transform for normal distribution
+        let z = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
+        data.push(z * std);
+    }
+
+    Tensor::new(data, vec![fan_in, fan_out]).unwrap()
+}
+
+/// Scaled dot-product attention: softmax(Q * K^T / sqrt(d_k)) * V
+/// q, k, v shape: [batch, seq_len, d_k]
+fn scaled_dot_product_attention(q: &Tensor, k: &Tensor, v: &Tensor, mask: Option<&Tensor>) -> Result<Tensor, MLError> {
+    let batch_size = q.shape[0];
+    let seq_len_q = q.shape[1];
+    let seq_len_k = k.shape[1];
+    let d_k = q.shape[2] as f32;
+
+    // Compute Q @ K^T / sqrt(d_k)
+    let mut scores = Tensor::zeros(vec![batch_size, seq_len_q, seq_len_k]);
+    for b in 0..batch_size {
+        for i in 0..seq_len_q {
+            for j in 0..seq_len_k {
+                let mut sum = 0.0f32;
+                for d in 0..q.shape[2] {
+                    sum += q.get(&[b, i, d]).unwrap() * k.get(&[b, j, d]).unwrap();
+                }
+                scores.set(&[b, i, j], sum / d_k.sqrt())?;
+            }
+        }
+    }
+
+    // Apply mask if provided (set masked positions to -inf)
+    if let Some(m) = mask {
+        for b in 0..batch_size {
+            for i in 0..seq_len_q {
+                for j in 0..seq_len_k {
+                    if let Some(mask_val) = m.get(&[b, i, j]) {
+                        if *mask_val == 0.0 {
+                            scores.set(&[b, i, j], f32::NEG_INFINITY)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Softmax along last dimension
+    let attn_weights = softmax_3d(&scores, 2)?;
+
+    // Compute attention output
+    let mut output = Tensor::zeros(vec![batch_size, seq_len_q, v.shape[2]]);
+    for b in 0..batch_size {
+        for i in 0..seq_len_q {
+            for d in 0..v.shape[2] {
+                let mut sum = 0.0f32;
+                for j in 0..seq_len_k {
+                    sum += attn_weights.get(&[b, i, j]).unwrap() * v.get(&[b, j, d]).unwrap();
+                }
+                output.set(&[b, i, d], sum)?;
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Softmax along a specific axis for 3D tensor
+fn softmax_3d(input: &Tensor, axis: usize) -> Result<Tensor, MLError> {
+    let mut result = input.clone();
+    let axis_size = input.shape[axis];
+    let outer: FSize = input.shape[..axis].iter().product();
+    let inner: FSize = input.shape[axis + 1..].iter().product();
+
+    for o in 0..outer {
+        for i in 0..inner {
+            let mut max_val = f32::NEG_INFINITY;
+            for a in 0..axis_size {
+                let flat_idx = o * axis_size * inner + a * inner + i;
+                if input.data[flat_idx] > max_val {
+                    max_val = input.data[flat_idx];
+                }
+            }
+            let mut sum_exp = 0.0f32;
+            for a in 0..axis_size {
+                let flat_idx = o * axis_size * inner + a * inner + i;
+                sum_exp += (input.data[flat_idx] - max_val).exp();
+            }
+            for a in 0..axis_size {
+                let flat_idx = o * axis_size * inner + a * inner + i;
+                result.data[flat_idx] = (input.data[flat_idx] - max_val).exp() / sum_exp;
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Multi-head attention forward pass
+/// input shape: [batch, seq_len, d_model]
+fn multi_head_attention_forward(input: &Tensor, layer: &MultiHeadAttention) -> Result<Tensor, MLError> {
+    if input.shape.len() != 3 {
+        return Err(MLError::InvalidShape(
+            "Multi-head attention expects 3D input [batch, seq_len, d_model]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let seq_len = input.shape[1];
+    let num_heads = layer.num_heads;
+    let d_k = layer.d_k;
+
+    // Project Q, K, V
+    let q = input.matmul(&layer.w_q)?;
+    let k = input.matmul(&layer.w_k)?;
+    let v = input.matmul(&layer.w_v)?;
+
+    // Split into heads and compute attention
+    let mut all_heads = Tensor::zeros(vec![batch_size, seq_len, layer.d_model]);
+
+    for h in 0..num_heads {
+        let mut q_h = Tensor::zeros(vec![batch_size, seq_len, d_k]);
+        let mut k_h = Tensor::zeros(vec![batch_size, seq_len, d_k]);
+        let mut v_h = Tensor::zeros(vec![batch_size, seq_len, d_k]);
+
+        for b in 0..batch_size {
+            for s in 0..seq_len {
+                for d in 0..d_k {
+                    q_h.set(&[b, s, d], *q.get(&[b, s, h * d_k + d]).unwrap())?;
+                    k_h.set(&[b, s, d], *k.get(&[b, s, h * d_k + d]).unwrap())?;
+                    v_h.set(&[b, s, d], *v.get(&[b, s, h * d_k + d]).unwrap())?;
+                }
+            }
+        }
+
+        let attn_out = scaled_dot_product_attention(&q_h, &k_h, &v_h, None)?;
+
+        // Concatenate heads
+        for b in 0..batch_size {
+            for s in 0..seq_len {
+                for d in 0..d_k {
+                    all_heads.set(&[b, s, h * d_k + d], *attn_out.get(&[b, s, d]).unwrap())?;
+                }
+            }
+        }
+    }
+
+    // Output projection
+    all_heads.matmul(&layer.w_o)
+}
+
+/// Layer normalization forward pass
+fn layer_norm_forward(input: &Tensor, layer: &LayerNorm) -> Result<Tensor, MLError> {
+    let shape = &input.shape;
+    let last_dim = shape[shape.len() - 1];
+    let outer: FSize = shape[..shape.len() - 1].iter().product();
+    let mut output = Tensor::zeros(shape.clone());
+
+    for o in 0..outer {
+        let mut sum = 0.0f32;
+        for d in 0..last_dim {
+            sum += input.data[o * last_dim + d];
+        }
+        let mean = sum / last_dim as f32;
+
+        let mut var_sum = 0.0f32;
+        for d in 0..last_dim {
+            let diff = input.data[o * last_dim + d] - mean;
+            var_sum += diff * diff;
+        }
+        let var = var_sum / last_dim as f32;
+
+        for d in 0..last_dim {
+            let normalized = (input.data[o * last_dim + d] - mean) / (var + layer.eps).sqrt();
+            let gamma_val = layer.gamma.get(&[d]).unwrap();
+            let beta_val = layer.beta.get(&[d]).unwrap();
+            output.data[o * last_dim + d] = gamma_val * normalized + beta_val;
+        }
+    }
+    Ok(output)
+}
+
+/// GELU activation: x * Phi(x) approximated
+fn gelu(x: f32) -> f32 {
+    0.5 * x * (1.0 + (x * 0.7978845608 * (1.0 + 0.044715 * x * x)).tanh())
+}
+
+/// ReLU activation
+fn relu(x: f32) -> f32 {
+    x.max(0.0)
+}
+
+/// Apply activation function by name
+fn apply_activation(x: f32, activation: &str) -> f32 {
+    match activation {
+        "gelu" => gelu(x),
+        "relu" => relu(x),
+        "sigmoid" => 1.0 / (1.0 + (-x).exp()),
+        "tanh" => x.tanh(),
+        _ => gelu(x),
+    }
+}
+
+/// Feed-forward network forward pass
+/// input shape: [batch, seq_len, d_model]
+fn feed_forward_forward(input: &Tensor, layer: &FeedForward) -> Result<Tensor, MLError> {
+    if input.shape.len() != 3 {
+        return Err(MLError::InvalidShape(
+            "FFN expects 3D input [batch, seq_len, d_model]".to_string(),
+        ));
+    }
+    let batch_size = input.shape[0];
+    let seq_len = input.shape[1];
+    let d_model = layer.d_model;
+    let d_ff = layer.d_ff;
+
+    // Reshape to 2D for matmul
+    let flat = input.reshape(vec![batch_size * seq_len, d_model])?;
+    let h = flat.matmul(&layer.w1)?;
+
+    // Add bias and apply activation
+    let mut activated = Tensor::zeros(h.shape().clone());
+    for i in 0..batch_size * seq_len {
+        for j in 0..d_ff {
+            let val = h.get(&[i, j]).unwrap() + layer.b1.get(&[0, j]).unwrap();
+            activated.set(&[i, j], apply_activation(*val, &layer.activation))?;
+        }
+    }
+
+    let output_2d = activated.matmul(&layer.w2)?;
+
+    // Add second bias and reshape back
+    let mut output = Tensor::zeros(vec![batch_size, seq_len, d_model]);
+    for b in 0..batch_size {
+        for s in 0..seq_len {
+            for d in 0..d_model {
+                let flat_idx = b * seq_len + s;
+                let val = output_2d.get(&[flat_idx, d]).unwrap() + layer.b2.get(&[0, d]).unwrap();
+                output.set(&[b, s, d], *val)?;
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// Full transformer encoder forward pass
+fn transformer_encoder_forward(input: &Tensor, encoder: &TransformerEncoder) -> Result<Tensor, MLError> {
+    let mut x = input.clone();
+    for block in &encoder.blocks {
+        x = block.forward(&x)?;
+    }
+    Ok(x)
+}
+
+/// Full transformer decoder forward pass
+fn transformer_decoder_forward(
+    input: &Tensor,
+    encoder_output: &Tensor,
+    decoder: &TransformerDecoder,
+) -> Result<Tensor, MLError> {
+    let mut x = input.clone();
+    for block in &decoder.blocks {
+        // Self-attention with pre-norm
+        let normed1 = layer_norm_forward(&x, &block.norm1)?;
+        let self_attn_out = multi_head_attention_forward(&normed1, &block.self_attention)?;
+        let residual1 = x.add(&self_attn_out)?;
+
+        // Cross-attention with encoder output
+        let normed2 = layer_norm_forward(&residual1, &block.norm2)?;
+        let mut cross_attn_out = Tensor::zeros(residual1.shape().clone());
+        let batch_size = encoder_output.shape[0];
+        let seq_len = encoder_output.shape[1];
+        let d_model = encoder_output.shape[2];
+
+        for b in 0..batch_size {
+            for s in 0..seq_len {
+                for d in 0..d_model {
+                    cross_attn_out.set(&[b, s, d], *encoder_output.get(&[b, s, d]).unwrap())?;
+                }
+            }
+        }
+        let cross_attn = multi_head_attention_forward(&normed2, &block.cross_attention)?;
+        let residual2 = residual1.add(&cross_attn)?;
+
+        // FFN with pre-norm
+        let normed3 = layer_norm_forward(&residual2, &block.norm3)?;
+        let ffn_out = feed_forward_forward(&normed3, &block.ffn)?;
+        x = residual2.add(&ffn_out)?;
+    }
+    Ok(x)
+}
+
+/// Generate sinusoidal positional encoding
+/// Returns tensor of shape [max_len, d_model]
+fn generate_positional_encoding(max_len: FSize, d_model: FSize) -> Tensor {
+    let mut pe = Tensor::zeros(vec![max_len, d_model]);
+    for pos in 0..max_len {
+        for i in 0..d_model / 2 {
+            let angle = pos as f32 / (10000.0_f32).powf((2 * i) as f32 / d_model as f32);
+            pe.set(&[pos, 2 * i], angle.sin()).unwrap();
+            pe.set(&[pos, 2 * i + 1], angle.cos()).unwrap();
+        }
+    }
+    pe
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scaled_dot_product_attention_output_shape() {
+        let layer = ScaledDotProductAttention::new(8);
+        // Input: [1, 4, 24] (3 * 8 = 24 for Q, K, V)
+        let input = Tensor::ones(vec![1, 4, 24]);
+        let output = layer.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 4, 8]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_output_shape() {
+        let mha = MultiHeadAttention::new(16, 4);
+        let input = Tensor::ones(vec![1, 5, 16]);
+        let output = mha.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 5, 16]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_parameters() {
+        let mha = MultiHeadAttention::new(16, 4);
+        let params = mha.parameters();
+        assert_eq!(params.len(), 4); // w_q, w_k, w_v, w_o
+    }
+
+    #[test]
+    fn test_split_heads_shape() {
+        let mha = MultiHeadAttention::new(16, 4);
+        let input = Tensor::ones(vec![1, 5, 16]);
+        let split = mha.split_heads(&input).unwrap();
+        assert_eq!(split.shape(), &vec![1, 4, 5, 4]);
+    }
+
+    #[test]
+    fn test_merge_heads_shape() {
+        let mha = MultiHeadAttention::new(16, 4);
+        let heads = Tensor::ones(vec![1, 4, 5, 4]);
+        let merged = mha.merge_heads(&heads).unwrap();
+        assert_eq!(merged.shape(), &vec![1, 5, 16]);
+    }
+
+    #[test]
+    fn test_feed_forward_output_shape() {
+        let ffn = FeedForward::new(16, 64, "gelu");
+        let input = Tensor::ones(vec![1, 5, 16]);
+        let output = ffn.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 5, 16]);
+    }
+
+    #[test]
+    fn test_feed_forward_parameters() {
+        let ffn = FeedForward::new(16, 64, "relu");
+        let params = ffn.parameters();
+        assert_eq!(params.len(), 4); // w1, b1, w2, b2
+    }
+
+    #[test]
+    fn test_feed_forward_different_activations() {
+        let input = Tensor::ones(vec![1, 3, 8]);
+        let ffn_gelu = FeedForward::new(8, 32, "gelu");
+        let ffn_relu = FeedForward::new(8, 32, "relu");
+        let out_gelu = ffn_gelu.forward(&input).unwrap();
+        let out_relu = ffn_relu.forward(&input).unwrap();
+        assert_eq!(out_gelu.shape(), &vec![1, 3, 8]);
+        assert_eq!(out_relu.shape(), &vec![1, 3, 8]);
+    }
+
+    #[test]
+    fn test_transformer_block_output_shape() {
+        let block = TransformerBlock::new(16, 4, 64, "gelu");
+        let input = Tensor::ones(vec![1, 5, 16]);
+        let output = block.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 5, 16]);
+    }
+
+    #[test]
+    fn test_transformer_encoder_output_shape() {
+        let encoder = TransformerEncoder::new(100, 16, 2, 4, 64, 50);
+        let input = Tensor::ones(vec![1, 10, 16]);
+        let output = encoder.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 10, 16]);
+    }
+
+    #[test]
+    fn test_transformer_decoder_causal_mask() {
+        let mask = TransformerDecoder::causal_mask(4).unwrap();
+        assert_eq!(mask.shape(), &vec![1, 4, 4]);
+        // Upper triangle should be 0 (masked)
+        assert_eq!(*mask.get(&[0, 0, 1]).unwrap(), 0.0);
+        assert_eq!(*mask.get(&[0, 0, 2]).unwrap(), 0.0);
+        assert_eq!(*mask.get(&[0, 0, 3]).unwrap(), 0.0);
+        // Diagonal and lower should be 1 (unmasked)
+        assert_eq!(*mask.get(&[0, 0, 0]).unwrap(), 1.0);
+        assert_eq!(*mask.get(&[0, 1, 1]).unwrap(), 1.0);
+        assert_eq!(*mask.get(&[0, 2, 2]).unwrap(), 1.0);
+    }
+
+    #[test]
+    fn test_cross_attention_output_shape() {
+        let cross_attn = CrossAttention::new(16, 4);
+        let query = Tensor::ones(vec![1, 5, 16]);
+        let key_value = Tensor::ones(vec![1, 8, 16]);
+        let output = cross_attn.forward_cross(&query, &key_value).unwrap();
+        assert_eq!(output.shape(), &vec![1, 5, 16]);
+    }
+
+    #[test]
+    fn test_cross_attention_as_module() {
+        let cross_attn = CrossAttention::new(16, 4);
+        let input = Tensor::ones(vec![1, 5, 16]);
+        let output = cross_attn.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 5, 16]);
+    }
+
+    #[test]
+    fn test_cross_attention_parameters() {
+        let cross_attn = CrossAttention::new(16, 4);
+        let params = cross_attn.parameters();
+        assert_eq!(params.len(), 4); // w_q, w_k, w_v, w_o
+    }
+
+    #[test]
+    fn test_generate_positional_encoding_shape() {
+        let pe = generate_positional_encoding(100, 64);
+        assert_eq!(pe.shape(), &vec![100, 64]);
+    }
+
+    #[test]
+    fn test_generate_positional_encoding_values() {
+        let pe = generate_positional_encoding(10, 8);
+        // First position should be all zeros (sin(0) = 0, cos(0) = 1)
+        // sin(0) = 0, cos(0) = 1
+        assert_eq!(*pe.get(&[0, 0]).unwrap(), 0.0); // sin(0)
+        assert!((pe.get(&[0, 1]).unwrap() - 1.0).abs() < 1e-6); // cos(0)
+    }
+
+    #[test]
+    fn test_xavier_init_shape() {
+        let w = xavier_init(16, 32);
+        assert_eq!(w.shape(), &vec![16, 32]);
+    }
+
+    #[test]
+    fn test_xavier_init_distribution() {
+        let w = xavier_init(100, 100);
+        let mean: f32 = w.data.iter().sum::<f32>() / w.data.len() as f32;
+        // Mean should be close to 0
+        assert!(mean.abs() < 0.1);
+    }
+
+    #[test]
+    fn test_attention_with_mask() {
+        let q = Tensor::ones(vec![1, 3, 8]);
+        let k = Tensor::ones(vec![1, 3, 8]);
+        let v = Tensor::ones(vec![1, 3, 8]);
+        // Mask that blocks position 2 from attending to position 0
+        let mut mask = Tensor::ones(vec![1, 3, 3]);
+        mask.set(&[0, 2, 0], 0.0).unwrap();
+
+        let output = scaled_dot_product_attention(&q, &k, &v, Some(&mask)).unwrap();
+        assert_eq!(output.shape(), &vec![1, 3, 8]);
+    }
+}

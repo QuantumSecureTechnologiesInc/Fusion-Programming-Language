@@ -1,9 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/cmd/fusion/src/commands/fmt.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-use fusion_formatter;
-
-fn fmt(check: FBool, all: FBool) -> Result<()> {
-    fusion_formatter::format(check, all)?;
-    Ok(())
-}

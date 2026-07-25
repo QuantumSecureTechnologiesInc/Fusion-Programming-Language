@@ -641,8 +641,29 @@ impl IrBuilder {
                             });
                         }
                         "string" => {
-                            self.emit(Instruction::Comment("TODO: string pattern match".to_string()));
-                            self.set_terminator(Terminator::Jump(next_block));
+                            let cmp_reg = self.next_reg();
+                            let cmp_val = self.temp_val(cmp_reg, Type::Int);
+                            self.emit(Instruction::Call {
+                                dest: Some(cmp_val.clone()),
+                                func_name: "fusion_strcmp".to_string(),
+                                args: vec![
+                                    scrutinee_val.clone(),
+                                    self.string_val(arm.pattern.str_val.clone()),
+                                ],
+                            });
+                            let eq_reg = self.next_reg();
+                            let eq_val = self.temp_val(eq_reg, Type::Bool);
+                            self.emit(Instruction::BinaryOperation {
+                                dest: eq_val.clone(),
+                                op: BinaryOp::Eq,
+                                op1: cmp_val,
+                                op2: self.int_val(0),
+                            });
+                            self.set_terminator(Terminator::ConditionalJump {
+                                cond: eq_val,
+                                then_block: arm_body_blocks[i],
+                                else_block: next_block,
+                            });
                         }
                         _ => {
                             self.set_terminator(Terminator::Jump(next_block));

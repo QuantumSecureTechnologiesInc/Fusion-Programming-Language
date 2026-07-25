@@ -117,6 +117,31 @@ fn constant_fold_block(block: &mut BasicBlock) -> FBool {
                             _ => None,
                         }
                     }
+                    // Identity: x + 0 -> x
+                    (Value::IntConst(0), ref v2) if matches!(op, BinaryOp::Add) => {
+                        Some(v2.clone())
+                    }
+                    (ref v1, Value::IntConst(0)) if matches!(op, BinaryOp::Add) => {
+                        Some(v1.clone())
+                    }
+                    // Identity: x - 0 -> x
+                    (ref v1, Value::IntConst(0)) if matches!(op, BinaryOp::Sub) => {
+                        Some(v1.clone())
+                    }
+                    // Identity: x * 1 -> x
+                    (Value::IntConst(1), ref v2) if matches!(op, BinaryOp::Mul) => {
+                        Some(v2.clone())
+                    }
+                    (ref v1, Value::IntConst(1)) if matches!(op, BinaryOp::Mul) => {
+                        Some(v1.clone())
+                    }
+                    // Annihilator: x * 0 -> 0
+                    (Value::IntConst(0), _) if matches!(op, BinaryOp::Mul) => {
+                        Some(Value::IntConst(0))
+                    }
+                    (_, Value::IntConst(0)) if matches!(op, BinaryOp::Mul) => {
+                        Some(Value::IntConst(0))
+                    }
                     _ => None,
                 };
                 if let Some(v) = folded {
@@ -195,6 +220,25 @@ fn constant_fold_block(block: &mut BasicBlock) -> FBool {
                         field_ty,
                         struct_name,
                     });
+            }
+            Instruction::UnaryNot { dest, operand } => {
+                let resolved = resolve(&operand, &const_values);
+                if let Value::BoolConst(b) = resolved.val {
+                    // !true -> false, !false -> true
+                    const_values.insert(
+                        dest.val.clone(),
+                        TypedValue {
+                            val: Value::BoolConst(!b),
+                            ty: dest.ty.clone(),
+                        },
+                    );
+                    changed = true;
+                    continue;
+                }
+                new_instrs.push(Instruction::UnaryNot {
+                    dest,
+                    operand: resolved,
+                });
             }
             other => new_instrs.push(other),
         }

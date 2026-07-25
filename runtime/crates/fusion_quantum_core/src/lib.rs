@@ -12,5 +12,5 @@ mod simulator;
 pub use circuit::QuantumCircuit;
 pub use error::{QuantumError, QuantumResult};
 pub use gates::QuantumGate;
-pub use registry::{QuantumRegistry, Qubit, QubitId};
+pub use registry::{EntanglementGroup, QuantumRegistry, Qubit, QubitId};
 pub use simulator::QuantumState;

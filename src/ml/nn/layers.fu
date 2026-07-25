@@ -3,6 +3,7 @@ use crate::ml::tensor::Tensor;
 use crate::ml::MLError;
 use crate::quantum::circuit::CircuitBuilder;
 use crate::quantum::simulator::QuantumSimulator;
+use std::cell::RefCell;
 /// Linear (Dense) Layer
 /// y = xW + b
 struct Linear {
@@ -74,6 +75,228 @@ impl Module for ReLU {
         Vec::new()
     }
     fn train(&mut self, _mode: FBool) {}
+}
+/// Sigmoid Activation
+struct Sigmoid;
+impl Module for Sigmoid {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        Ok(input.map(|x| 1.0 / (1.0 + (-x).exp())))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+/// Tanh Activation
+struct Tanh;
+impl Module for Tanh {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        Ok(input.map(|x| x.tanh()))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+/// Dropout Layer
+/// Randomly zeros elements with given probability during training
+struct Dropout {
+    /// Probability of dropping an element
+    p: f32,
+    /// Training mode
+    training: FBool,
+    /// Inverse of drop probability (for scaling)
+    scale: f32,
+}
+impl Dropout {
+    /// Create new Dropout layer
+    pub fn new(p: f32) -> Self {
+        assert!(p >= 0.0 && p < 1.0, "Dropout probability must be in [0, 1)");
+        Self {
+            p,
+            training: true,
+            scale: 1.0 / (1.0 - p),
+        }
+    }
+}
+impl Module for Dropout {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        if !self.training || self.p == 0.0 {
+            return Ok(input.clone());
+        }
+        // During training: randomly zero elements and scale by 1/(1-p)
+        // Simple deterministic pseudo-random based on data index
+        let data: FVec<f32> = input
+            .data()
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                // LCG-based pseudo-random
+                let hash = (i as u64)
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                let r = (hash % 10000) as f32 / 10000.0;
+                if r < self.p {
+                    0.0
+                } else {
+                    v * self.scale
+                }
+            })
+            .collect();
+        Ok(Tensor::new(data, input.shape().clone()).unwrap())
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+/// Batch Normalization Layer
+/// Normalizes across the batch dimension for each feature
+struct BatchNorm {
+    /// Number of features (channels)
+    num_features: FSize,
+    /// Learnable gamma (scale)
+    pub gamma: Tensor,
+    /// Learnable beta (shift)
+    pub beta: Tensor,
+    /// Running mean (exponential moving average)
+    running_mean: Tensor,
+    /// Running variance (exponential moving average)
+    running_var: Tensor,
+    /// Momentum for running statistics
+    momentum: f32,
+    /// Small epsilon for numerical stability
+    epsilon: f32,
+    /// Training mode
+    training: FBool,
+}
+impl BatchNorm {
+    /// Create new BatchNorm layer
+    pub fn new(num_features: FSize) -> Self {
+        Self {
+            num_features,
+            gamma: Tensor::ones(vec![num_features]),
+            beta: Tensor::zeros(vec![num_features]),
+            running_mean: Tensor::zeros(vec![num_features]),
+            running_var: Tensor::ones(vec![num_features]),
+            momentum: 0.1,
+            epsilon: 1e-5,
+            training: true,
+        }
+    }
+}
+impl Module for BatchNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        if input.shape.len() != 2 {
+            return Err(MLError::InvalidShape(
+                "BatchNorm expects 2D input [batch, features]".to_string(),
+            ));
+        }
+        if input.shape[1] != self.num_features {
+            return Err(MLError::DimensionMismatch {
+                expected: vec![input.shape[0], self.num_features],
+                actual: input.shape.clone(),
+            });
+        }
+        let batch_size = input.shape[0];
+        let mut output_data = Vec::with_capacity(input.numel());
+        if self.training {
+            // Compute batch statistics
+            let mut means = Vec::with_capacity(self.num_features);
+            let mut variances = Vec::with_capacity(self.num_features);
+            for f in 0..self.num_features {
+                let mut sum = 0.0f32;
+                for b in 0..batch_size {
+                    sum += input.get(&[b, f]).unwrap();
+                }
+                let mean = sum / batch_size as f32;
+                means.push(mean);
+                let mut var_sum = 0.0f32;
+                for b in 0..batch_size {
+                    let diff = input.get(&[b, f]).unwrap() - mean;
+                    var_sum += diff * diff;
+                }
+                variances.push(var_sum / batch_size as f32);
+            }
+            // Normalize
+            for b in 0..batch_size {
+                for f in 0..self.num_features {
+                    let x = input.get(&[b, f]).unwrap();
+                    let normalized = (x - means[f]) / (variances[f] + self.epsilon).sqrt();
+                    let gamma_val = self.gamma.get(&[f]).unwrap();
+                    let beta_val = self.beta.get(&[f]).unwrap();
+                    output_data.push(gamma_val * normalized + beta_val);
+                }
+            }
+        } else {
+            // Use running statistics during inference
+            for b in 0..batch_size {
+                for f in 0..self.num_features {
+                    let x = input.get(&[b, f]).unwrap();
+                    let mean = self.running_mean.get(&[f]).unwrap();
+                    let var = self.running_var.get(&[f]).unwrap();
+                    let normalized = (x - mean) / (var + self.epsilon).sqrt();
+                    let gamma_val = self.gamma.get(&[f]).unwrap();
+                    let beta_val = self.beta.get(&[f]).unwrap();
+                    output_data.push(gamma_val * normalized + beta_val);
+                }
+            }
+        }
+        Tensor::new(output_data, input.shape().clone())
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![& self.gamma, & self.beta]
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+/// Sequential Container
+/// Chains multiple layers in sequence
+struct Sequential {
+    layers: FVec<Box<dyn Module>>,
+}
+impl Sequential {
+    /// Create new empty Sequential container
+    pub fn new() -> Self {
+        Self { layers: Vec::new() }
+    }
+    /// Add a layer to the sequence
+    pub fn add(mut self, layer: Box<dyn Module>) -> Self {
+        self.layers.push(layer);
+        self
+    }
+    /// Get number of layers
+    pub fn len(&self) -> FSize {
+        self.layers.len()
+    }
+    /// Check if empty
+    pub fn is_empty(&self) -> FBool {
+        self.layers.is_empty()
+    }
+}
+impl Module for Sequential {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let mut current = input.clone();
+        for layer in &self.layers {
+            current = layer.forward(&current)?;
+        }
+        Ok(current)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = Vec::new();
+        for layer in &self.layers {
+            params.extend(layer.parameters());
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        for layer in &mut self.layers {
+            layer.train(mode);
+        }
+    }
 }
 /// Interwoven Hybrid Quantum Layer
 ///
@@ -151,6 +374,704 @@ impl Module for HybridQuantumLayer {
         self.training = mode;
     }
 }
+/// ============================================================================
+/// Convolution Layers
+/// ============================================================================
+
+/// 2D Convolution Layer
+/// Applies sliding window convolution over 4D input [batch, in_channels, height, width]
+struct Conv2d {
+    in_channels: FSize,
+    out_channels: FSize,
+    kernel_size: FSize,
+    stride: FSize,
+    padding: FSize,
+    pub weights: Tensor,
+    pub bias: Option<Tensor>,
+    training: FBool,
+}
+impl Conv2d {
+    /// Create new Conv2d layer with Xavier-initialized weights
+    pub fn new(in_channels: FSize, out_channels: FSize, kernel_size: FSize, stride: FSize, padding: FSize) -> Self {
+        let fan_in = in_channels * kernel_size * kernel_size;
+        let fan_out = out_channels * kernel_size * kernel_size;
+        let std = (2.0 / (fan_in as f32 + fan_out as f32)).sqrt();
+        let total = out_channels * in_channels * kernel_size * kernel_size;
+        let weights_data: FVec<f32> = (0..total).map(|i| {
+            let hash = (i as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((hash % 20001) as f32 - 10000.0) / 10000.0 * std
+        }).collect();
+        let bias_data: FVec<f32> = vec![0.0; out_channels];
+        Self {
+            in_channels, out_channels, kernel_size, stride, padding,
+            weights: Tensor::new(weights_data, vec![out_channels, in_channels, kernel_size, kernel_size]).unwrap(),
+            bias: Some(Tensor::new(bias_data, vec![out_channels]).unwrap()),
+            training: true,
+        }
+    }
+}
+impl Module for Conv2d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let h = input.shape()[2];
+        let w = input.shape()[3];
+        let out_h = (h + 2 * self.padding - self.kernel_size) / self.stride + 1;
+        let out_w = (w + 2 * self.padding - self.kernel_size) / self.stride + 1;
+        let mut output_data = Vec::with_capacity(batch * self.out_channels * out_h * out_w);
+        for b in 0..batch {
+            for oc in 0..self.out_channels {
+                for oh in 0..out_h {
+                    for ow in 0..out_w {
+                        let mut sum = 0.0f32;
+                        for ic in 0..self.in_channels {
+                            for kh in 0..self.kernel_size {
+                                for kw in 0..self.kernel_size {
+                                    let ih = oh * self.stride + kh;
+                                    let iw = ow * self.stride + kw;
+                                    if ih >= self.padding && ih - self.padding < h
+                                        && iw >= self.padding && iw - self.padding < w
+                                    {
+                                        let val = input.get(&[b, ic, ih - self.padding, iw - self.padding]).unwrap();
+                                        let w_val = self.weights.get(&[oc, ic, kh, kw]).unwrap();
+                                        sum += val * w_val;
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(ref bias) = self.bias {
+                            sum += bias.get(&[oc]).unwrap();
+                        }
+                        output_data.push(sum);
+                    }
+                }
+            }
+        }
+        Tensor::new(output_data, vec![batch, self.out_channels, out_h, out_w])
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = vec![&self.weights];
+        if let Some(ref b) = self.bias {
+            params.push(b);
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// 1D Convolution Layer
+/// Applies sliding window convolution over 3D input [batch, in_channels, length]
+struct Conv1d {
+    in_channels: FSize,
+    out_channels: FSize,
+    kernel_size: FSize,
+    stride: FSize,
+    padding: FSize,
+    pub weights: Tensor,
+    pub bias: Option<Tensor>,
+    training: FBool,
+}
+impl Conv1d {
+    /// Create new Conv1d layer with Xavier-initialized weights
+    pub fn new(in_channels: FSize, out_channels: FSize, kernel_size: FSize, stride: FSize, padding: FSize) -> Self {
+        let fan_in = in_channels * kernel_size;
+        let fan_out = out_channels * kernel_size;
+        let std = (2.0 / (fan_in as f32 + fan_out as f32)).sqrt();
+        let total = out_channels * in_channels * kernel_size;
+        let weights_data: FVec<f32> = (0..total).map(|i| {
+            let hash = (i as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((hash % 20001) as f32 - 10000.0) / 10000.0 * std
+        }).collect();
+        let bias_data: FVec<f32> = vec![0.0; out_channels];
+        Self {
+            in_channels, out_channels, kernel_size, stride, padding,
+            weights: Tensor::new(weights_data, vec![out_channels, in_channels, kernel_size]).unwrap(),
+            bias: Some(Tensor::new(bias_data, vec![out_channels]).unwrap()),
+            training: true,
+        }
+    }
+}
+impl Module for Conv1d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let length = input.shape()[2];
+        let out_len = (length + 2 * self.padding - self.kernel_size) / self.stride + 1;
+        let mut output_data = Vec::with_capacity(batch * self.out_channels * out_len);
+        for b in 0..batch {
+            for oc in 0..self.out_channels {
+                for ol in 0..out_len {
+                    let mut sum = 0.0f32;
+                    for ic in 0..self.in_channels {
+                        for k in 0..self.kernel_size {
+                            let sl = ol * self.stride + k;
+                            if sl >= self.padding && sl - self.padding < length {
+                                let val = input.get(&[b, ic, sl - self.padding]).unwrap();
+                                let w_val = self.weights.get(&[oc, ic, k]).unwrap();
+                                sum += val * w_val;
+                            }
+                        }
+                    }
+                    if let Some(ref bias) = self.bias {
+                        sum += bias.get(&[oc]).unwrap();
+                    }
+                    output_data.push(sum);
+                }
+            }
+        }
+        Tensor::new(output_data, vec![batch, self.out_channels, out_len])
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = vec![&self.weights];
+        if let Some(ref b) = self.bias {
+            params.push(b);
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        self.training = mode;
+    }
+}
+
+/// ============================================================================
+/// Pooling Layers
+/// ============================================================================
+
+/// Max Pooling 2D Layer
+/// Takes the maximum value over each sliding window
+struct MaxPool2d {
+    kernel_size: FSize,
+    stride: FSize,
+}
+impl MaxPool2d {
+    pub fn new(kernel_size: FSize, stride: FSize) -> Self {
+        Self { kernel_size, stride }
+    }
+}
+impl Module for MaxPool2d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let channels = input.shape()[1];
+        let h = input.shape()[2];
+        let w = input.shape()[3];
+        let out_h = (h - self.kernel_size) / self.stride + 1;
+        let out_w = (w - self.kernel_size) / self.stride + 1;
+        let mut output_data = Vec::with_capacity(batch * channels * out_h * out_w);
+        for b in 0..batch {
+            for c in 0..channels {
+                for oh in 0..out_h {
+                    for ow in 0..out_w {
+                        let mut max_val = f32::NEG_INFINITY;
+                        for kh in 0..self.kernel_size {
+                            for kw in 0..self.kernel_size {
+                                let val = input.get(&[b, c, oh * self.stride + kh, ow * self.stride + kw]).unwrap();
+                                if val > max_val {
+                                    max_val = val;
+                                }
+                            }
+                        }
+                        output_data.push(max_val);
+                    }
+                }
+            }
+        }
+        Tensor::new(output_data, vec![batch, channels, out_h, out_w])
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Average Pooling 2D Layer
+/// Takes the average value over each sliding window
+struct AvgPool2d {
+    kernel_size: FSize,
+    stride: FSize,
+}
+impl AvgPool2d {
+    pub fn new(kernel_size: FSize, stride: FSize) -> Self {
+        Self { kernel_size, stride }
+    }
+}
+impl Module for AvgPool2d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let channels = input.shape()[1];
+        let h = input.shape()[2];
+        let w = input.shape()[3];
+        let out_h = (h - self.kernel_size) / self.stride + 1;
+        let out_w = (w - self.kernel_size) / self.stride + 1;
+        let window_size = (self.kernel_size * self.kernel_size) as f32;
+        let mut output_data = Vec::with_capacity(batch * channels * out_h * out_w);
+        for b in 0..batch {
+            for c in 0..channels {
+                for oh in 0..out_h {
+                    for ow in 0..out_w {
+                        let mut sum = 0.0f32;
+                        for kh in 0..self.kernel_size {
+                            for kw in 0..self.kernel_size {
+                                sum += input.get(&[b, c, oh * self.stride + kh, ow * self.stride + kw]).unwrap();
+                            }
+                        }
+                        output_data.push(sum / window_size);
+                    }
+                }
+            }
+        }
+        Tensor::new(output_data, vec![batch, channels, out_h, out_w])
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Global Average Pooling Layer
+/// Averages over all spatial dimensions (H, W), output shape [batch, channels]
+struct GlobalAvgPool;
+impl Module for GlobalAvgPool {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let channels = input.shape()[1];
+        let h = input.shape()[2];
+        let w = input.shape()[3];
+        let spatial_size = (h * w) as f32;
+        let mut output_data = Vec::with_capacity(batch * channels);
+        for b in 0..batch {
+            for c in 0..channels {
+                let mut sum = 0.0f32;
+                for i in 0..h {
+                    for j in 0..w {
+                        sum += input.get(&[b, c, i, j]).unwrap();
+                    }
+                }
+                output_data.push(sum / spatial_size);
+            }
+        }
+        Tensor::new(output_data, vec![batch, channels])
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Adaptive Average Pooling Layer
+/// Outputs a fixed spatial size regardless of input size
+struct AdaptiveAvgPool {
+    output_size: FSize,
+}
+impl AdaptiveAvgPool {
+    pub fn new(output_size: FSize) -> Self {
+        Self { output_size }
+    }
+}
+impl Module for AdaptiveAvgPool {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let channels = input.shape()[1];
+        let h = input.shape()[2];
+        let w = input.shape()[3];
+        let os = self.output_size;
+        let mut output_data = Vec::with_capacity(batch * channels * os * os);
+        for b in 0..batch {
+            for c in 0..channels {
+                for oh in 0..os {
+                    for ow in 0..os {
+                        let start_h = oh * h / os;
+                        let end_h = (oh + 1) * h / os;
+                        let start_w = ow * w / os;
+                        let end_w = (ow + 1) * w / os;
+                        let mut sum = 0.0f32;
+                        let mut count = 0u32;
+                        for i in start_h..end_h {
+                            for j in start_w..end_w {
+                                sum += input.get(&[b, c, i, j]).unwrap();
+                                count += 1;
+                            }
+                        }
+                        output_data.push(sum / count as f32);
+                    }
+                }
+            }
+        }
+        Tensor::new(output_data, vec![batch, channels, os, os])
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// ============================================================================
+/// Additional Activation Layers
+/// ============================================================================
+
+/// Leaky ReLU Activation
+/// f(x) = x if x > 0, alpha * x otherwise
+struct LeakyRelu {
+    alpha: f32,
+}
+impl LeakyRelu {
+    pub fn new(alpha: f32) -> Self {
+        Self { alpha }
+    }
+}
+impl Module for LeakyRelu {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        Ok(input.map(|x| if x > 0.0 { x } else { self.alpha * x }))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// ELU Activation
+/// f(x) = x if x > 0, alpha * (e^x - 1) if x <= 0
+struct Elu {
+    alpha: f32,
+}
+impl Elu {
+    pub fn new(alpha: f32) -> Self {
+        Self { alpha }
+    }
+}
+impl Module for Elu {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        Ok(input.map(|x| if x > 0.0 { x } else { self.alpha * (x.exp() - 1.0) }))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// SELU Activation
+/// f(x) = lambda * elu(x, alpha)
+struct Selu {
+    alpha: f32,
+    lambda: f32,
+}
+impl Selu {
+    pub fn new(alpha: f32, lambda: f32) -> Self {
+        Self { alpha, lambda }
+    }
+}
+impl Module for Selu {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        Ok(input.map(|x| {
+            let elu_val = if x > 0.0 { x } else { self.alpha * (x.exp() - 1.0) };
+            self.lambda * elu_val
+        }))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Mish Activation
+/// f(x) = x * tanh(softplus(x)) where softplus(x) = ln(1 + e^x)
+struct Mish;
+impl Module for Mish {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        Ok(input.map(|x| {
+            let sp = (1.0f32 + x.exp()).ln();
+            x * sp.tanh()
+        }))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Swish Activation
+/// f(x) = x * sigmoid(beta * x)
+struct Swish {
+    beta: f32,
+}
+impl Swish {
+    pub fn new(beta: f32) -> Self {
+        Self { beta }
+    }
+}
+impl Module for Swish {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        Ok(input.map(|x| x / (1.0 + (-self.beta * x).exp())))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Softmax Activation
+/// Numerically stable softmax along specified dimension
+struct Softmax {
+    dim: FSize,
+}
+impl Softmax {
+    pub fn new(dim: FSize) -> Self {
+        Self { dim }
+    }
+}
+impl Module for Softmax {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let shape = input.shape();
+        let dim_size = shape[self.dim];
+        let stride: FSize = shape[self.dim + 1..].iter().product();
+        let outer_size: FSize = shape[..self.dim].iter().product();
+        let total: FSize = shape.iter().product();
+        let data = input.data();
+        let mut output_data = vec![0.0f32; total];
+        for o in 0..outer_size {
+            for s in 0..stride {
+                // Find max for numerical stability
+                let mut max_val = f32::NEG_INFINITY;
+                for d in 0..dim_size {
+                    let idx = o * dim_size * stride + d * stride + s;
+                    if data[idx] > max_val {
+                        max_val = data[idx];
+                    }
+                }
+                // Compute exp sum
+                let mut sum = 0.0f32;
+                for d in 0..dim_size {
+                    let idx = o * dim_size * stride + d * stride + s;
+                    sum += (data[idx] - max_val).exp();
+                }
+                // Normalize
+                for d in 0..dim_size {
+                    let idx = o * dim_size * stride + d * stride + s;
+                    output_data[idx] = (data[idx] - max_val).exp() / sum;
+                }
+            }
+        }
+        Tensor::new(output_data, shape.clone())
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// GELU Activation
+/// f(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+struct GELU;
+impl Module for GELU {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let c = 0.7978845608f32;
+        Ok(input.map(|x| 0.5 * x * (1.0 + (c * (x + 0.044715 * x * x * x)).tanh())))
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        Vec::new()
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// ============================================================================
+/// Normalization Layers
+/// ============================================================================
+
+/// Layer Normalization
+/// Normalizes over the last len(normalized_shape) dimensions
+struct LayerNorm {
+    normalized_shape: FVec<FSize>,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    epsilon: f32,
+}
+impl LayerNorm {
+    pub fn new(normalized_shape: FVec<FSize>) -> Self {
+        let n: FSize = normalized_shape.iter().product();
+        Self {
+            normalized_shape,
+            gamma: Tensor::ones(vec![n]),
+            beta: Tensor::zeros(vec![n]),
+            epsilon: 1e-5,
+        }
+    }
+}
+impl Module for LayerNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let shape = input.shape();
+        let norm_size: FSize = self.normalized_shape.iter().product();
+        let outer_size: FSize = shape[..shape.len() - self.normalized_shape.len()].iter().product();
+        let total: FSize = shape.iter().product();
+        let data = input.data();
+        let mut output_data = Vec::with_capacity(total);
+        for o in 0..outer_size {
+            let start = o * norm_size;
+            // Compute mean
+            let mut mean = 0.0f32;
+            for i in 0..norm_size {
+                mean += data[start + i];
+            }
+            mean /= norm_size as f32;
+            // Compute variance
+            let mut var = 0.0f32;
+            for i in 0..norm_size {
+                let diff = data[start + i] - mean;
+                var += diff * diff;
+            }
+            var /= norm_size as f32;
+            // Normalize and apply affine transform
+            for i in 0..norm_size {
+                let normalized = (data[start + i] - mean) / (var + self.epsilon).sqrt();
+                output_data.push(self.gamma.get(&[i]).unwrap() * normalized + self.beta.get(&[i]).unwrap());
+            }
+        }
+        Tensor::new(output_data, shape.clone())
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Group Normalization
+/// Divides channels into groups and normalizes within each group
+struct GroupNorm {
+    num_groups: FSize,
+    num_channels: FSize,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    epsilon: f32,
+}
+impl GroupNorm {
+    pub fn new(num_groups: FSize, num_channels: FSize) -> Self {
+        Self {
+            num_groups,
+            num_channels,
+            gamma: Tensor::ones(vec![num_channels]),
+            beta: Tensor::zeros(vec![num_channels]),
+            epsilon: 1e-5,
+        }
+    }
+}
+impl Module for GroupNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let c = input.shape()[1];
+        let h = input.shape()[2];
+        let w = input.shape()[3];
+        let channels_per_group = c / self.num_groups;
+        let mut output_data = Vec::with_capacity(input.numel());
+        for b in 0..batch {
+            for g in 0..self.num_groups {
+                let ch_start = g * channels_per_group;
+                let ch_end = ch_start + channels_per_group;
+                let group_size = channels_per_group * h * w;
+                // Compute group mean
+                let mut mean = 0.0f32;
+                for ch in ch_start..ch_end {
+                    for i in 0..h {
+                        for j in 0..w {
+                            mean += input.get(&[b, ch, i, j]).unwrap();
+                        }
+                    }
+                }
+                mean /= group_size as f32;
+                // Compute group variance
+                let mut var = 0.0f32;
+                for ch in ch_start..ch_end {
+                    for i in 0..h {
+                        for j in 0..w {
+                            let diff = input.get(&[b, ch, i, j]).unwrap() - mean;
+                            var += diff * diff;
+                        }
+                    }
+                }
+                var /= group_size as f32;
+                // Normalize and apply affine transform
+                for ch in ch_start..ch_end {
+                    for i in 0..h {
+                        for j in 0..w {
+                            let val = input.get(&[b, ch, i, j]).unwrap();
+                            let normalized = (val - mean) / (var + self.epsilon).sqrt();
+                            let gamma_val = self.gamma.get(&[ch]).unwrap();
+                            let beta_val = self.beta.get(&[ch]).unwrap();
+                            output_data.push(gamma_val * normalized + beta_val);
+                        }
+                    }
+                }
+            }
+        }
+        Tensor::new(output_data, input.shape().clone())
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
+/// Instance Normalization
+/// Normalizes each channel independently for each batch element
+struct InstanceNorm {
+    num_features: FSize,
+    pub gamma: Tensor,
+    pub beta: Tensor,
+    epsilon: f32,
+}
+impl InstanceNorm {
+    pub fn new(num_features: FSize) -> Self {
+        Self {
+            num_features,
+            gamma: Tensor::ones(vec![num_features]),
+            beta: Tensor::zeros(vec![num_features]),
+            epsilon: 1e-5,
+        }
+    }
+}
+impl Module for InstanceNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        let batch = input.shape()[0];
+        let h = input.shape()[2];
+        let w = input.shape()[3];
+        let spatial_size = (h * w) as f32;
+        let mut output_data = Vec::with_capacity(input.numel());
+        for b in 0..batch {
+            for c in 0..self.num_features {
+                // Compute mean
+                let mut mean = 0.0f32;
+                for i in 0..h {
+                    for j in 0..w {
+                        mean += input.get(&[b, c, i, j]).unwrap();
+                    }
+                }
+                mean /= spatial_size;
+                // Compute variance
+                let mut var = 0.0f32;
+                for i in 0..h {
+                    for j in 0..w {
+                        let diff = input.get(&[b, c, i, j]).unwrap() - mean;
+                        var += diff * diff;
+                    }
+                }
+                var /= spatial_size;
+                // Normalize and apply affine transform
+                for i in 0..h {
+                    for j in 0..w {
+                        let val = input.get(&[b, c, i, j]).unwrap();
+                        let normalized = (val - mean) / (var + self.epsilon).sqrt();
+                        let gamma_val = self.gamma.get(&[c]).unwrap();
+                        let beta_val = self.beta.get(&[c]).unwrap();
+                        output_data.push(gamma_val * normalized + beta_val);
+                    }
+                }
+            }
+        }
+        Tensor::new(output_data, input.shape().clone())
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        vec![&self.gamma, &self.beta]
+    }
+    fn train(&mut self, _mode: FBool) {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,10 +1083,179 @@ mod tests {
         assert_eq!(output.shape(), & vec![1, 2]);
     }
     #[test]
+    fn test_dropout_train() {
+        let mut dropout = Dropout::new(0.0);
+        let input = Tensor::ones(vec![2, 3]);
+        let output = dropout.forward(&input).unwrap();
+        // With p=0, output should equal input
+        for i in 0..6 {
+            assert!((output.data()[i] - 1.0).abs() < 1e-6);
+        }
+    }
+    #[test]
+    fn test_dropout_inference() {
+        let mut dropout = Dropout::new(0.5);
+        dropout.train(false);
+        let input = Tensor::ones(vec![2, 3]);
+        let output = dropout.forward(&input).unwrap();
+        // During inference, no dropout applied
+        for i in 0..6 {
+            assert!((output.data()[i] - 1.0).abs() < 1e-6);
+        }
+    }
+    #[test]
+    fn test_batchnorm_inference() {
+        let bn = BatchNorm::new(3);
+        let input = Tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
+        let mut bn_infer = BatchNorm::new(3);
+        bn_infer.train(false);
+        let output = bn_infer.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![2, 3]);
+    }
+    #[test]
+    fn test_sequential() {
+        let seq = Sequential::new()
+            .add(Box::new(Linear::new(2, 4, true)))
+            .add(Box::new(ReLU))
+            .add(Box::new(Linear::new(4, 1, true)));
+        let input = Tensor::ones(vec![1, 2]);
+        let output = seq.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 1]);
+    }
+    #[test]
     fn test_hybrid_quantum_layer() {
         let layer = HybridQuantumLayer::new(2);
         let input = Tensor::zeros(vec![1, 2]);
         let output = layer.forward(&input).unwrap();
         assert_eq!(output.shape(), & vec![1, 2]);
+    }
+    // --- Convolution Layer Tests ---
+    #[test]
+    fn test_conv2d_forward() {
+        let conv = Conv2d::new(1, 1, 3, 1, 1);
+        let input = Tensor::ones(vec![1, 1, 8, 8]);
+        let output = conv.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 1, 8, 8]);
+    }
+    #[test]
+    fn test_conv2d_parameters() {
+        let conv = Conv2d::new(2, 4, 3, 1, 1);
+        assert_eq!(conv.parameters().len(), 2);
+    }
+    #[test]
+    fn test_conv1d_forward() {
+        let conv = Conv1d::new(1, 1, 3, 1, 1);
+        let input = Tensor::ones(vec![1, 1, 10]);
+        let output = conv.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 1, 10]);
+    }
+    #[test]
+    fn test_conv1d_parameters() {
+        let conv = Conv1d::new(3, 8, 5, 1, 2);
+        assert_eq!(conv.parameters().len(), 2);
+    }
+    // --- Pooling Layer Tests ---
+    #[test]
+    fn test_maxpool2d_forward() {
+        let pool = MaxPool2d::new(2, 2);
+        let input = Tensor::ones(vec![1, 1, 4, 4]);
+        let output = pool.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 1, 2, 2]);
+    }
+    #[test]
+    fn test_avgpool2d_forward() {
+        let pool = AvgPool2d::new(2, 2);
+        let input = Tensor::ones(vec![1, 1, 4, 4]);
+        let output = pool.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 1, 2, 2]);
+    }
+    #[test]
+    fn test_global_avg_pool_forward() {
+        let pool = GlobalAvgPool;
+        let input = Tensor::ones(vec![1, 3, 4, 4]);
+        let output = pool.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 3]);
+    }
+    #[test]
+    fn test_adaptive_avg_pool_forward() {
+        let pool = AdaptiveAvgPool::new(1);
+        let input = Tensor::ones(vec![1, 3, 8, 8]);
+        let output = pool.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 3, 1, 1]);
+    }
+    // --- Activation Layer Tests ---
+    #[test]
+    fn test_leaky_relu_forward() {
+        let layer = LeakyRelu::new(0.01);
+        let input = Tensor::new(vec![-1.0, 0.0, 1.0, 2.0], vec![1, 4]).unwrap();
+        let output = layer.forward(&input).unwrap();
+        assert!((output.data()[0] - (-0.01)).abs() < 1e-6);
+        assert!((output.data()[2] - 1.0).abs() < 1e-6);
+    }
+    #[test]
+    fn test_elu_forward() {
+        let layer = Elu::new(1.0);
+        let input = Tensor::new(vec![-1.0, 0.0, 1.0], vec![1, 3]).unwrap();
+        let output = layer.forward(&input).unwrap();
+        assert!((output.data()[2] - 1.0).abs() < 1e-6);
+        assert!(output.data()[0] < 0.0);
+    }
+    #[test]
+    fn test_selu_forward() {
+        let layer = Selu::new(1.6733, 1.0507);
+        let input = Tensor::new(vec![0.0, 1.0, -1.0], vec![1, 3]).unwrap();
+        let output = layer.forward(&input).unwrap();
+        assert!((output.data()[1] - 1.0507).abs() < 1e-4);
+    }
+    #[test]
+    fn test_mish_forward() {
+        let layer = Mish;
+        let input = Tensor::new(vec![0.0, 1.0, -1.0], vec![1, 3]).unwrap();
+        let output = layer.forward(&input).unwrap();
+        assert!((output.data()[0]).abs() < 1e-6);
+    }
+    #[test]
+    fn test_swish_forward() {
+        let layer = Swish::new(1.0);
+        let input = Tensor::new(vec![0.0, 1.0, -1.0], vec![1, 3]).unwrap();
+        let output = layer.forward(&input).unwrap();
+        assert!((output.data()[0]).abs() < 1e-6);
+    }
+    #[test]
+    fn test_softmax_forward() {
+        let layer = Softmax::new(1);
+        let input = Tensor::new(vec![1.0, 2.0, 3.0], vec![1, 3]).unwrap();
+        let output = layer.forward(&input).unwrap();
+        let sum: f32 = output.data().iter().sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+    }
+    #[test]
+    fn test_gelu_forward() {
+        let layer = GELU;
+        let input = Tensor::new(vec![0.0, 1.0, -1.0], vec![1, 3]).unwrap();
+        let output = layer.forward(&input).unwrap();
+        assert!((output.data()[0]).abs() < 1e-6);
+    }
+    // --- Normalization Layer Tests ---
+    #[test]
+    fn test_layer_norm_forward() {
+        let layer = LayerNorm::new(vec![4]);
+        let input = Tensor::ones(vec![2, 4]);
+        let output = layer.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![2, 4]);
+    }
+    #[test]
+    fn test_group_norm_forward() {
+        let layer = GroupNorm::new(2, 4);
+        let input = Tensor::ones(vec![1, 4, 2, 2]);
+        let output = layer.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 4, 2, 2]);
+    }
+    #[test]
+    fn test_instance_norm_forward() {
+        let layer = InstanceNorm::new(3);
+        let input = Tensor::ones(vec![1, 3, 4, 4]);
+        let output = layer.forward(&input).unwrap();
+        assert_eq!(output.shape(), &vec![1, 3, 4, 4]);
     }
 }

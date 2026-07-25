@@ -1,0 +1,32 @@
+//! OS-level thread management.
+//!
+//! Wraps pthread / Win32 thread handles behind a portable Fusion
+//! interface. Threads are scheduled by the OS kernel; no green-thread
+//! or coroutine abstraction is implied here.
+
+struct Thread {
+    id: int,
+    handle: int,
+    name: string,
+    state: string,
+}
+
+/// Spawn a new OS thread that runs `func` concurrently.
+/// Returns a handle that can be joined or inspected.
+extern fn thread_spawn(name: string, func: fn() -> void) -> Thread
+
+/// Block the calling thread until `thread` finishes.
+extern fn thread_join(thread: Thread) -> void
+
+/// Hint to the scheduler that the current thread is willing to yield its
+/// time slice to other runnable threads.
+extern fn thread_yield() -> void
+
+/// Suspend the calling thread for at least `ms` milliseconds.
+extern fn thread_sleep(ms: int) -> void
+
+/// Return the platform thread-id of the calling thread.
+extern fn thread_id() -> int
+
+/// Return the total number of threads currently alive in the process.
+extern fn thread_count() -> int

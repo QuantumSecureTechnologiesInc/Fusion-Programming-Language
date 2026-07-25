@@ -1,0 +1,23 @@
+// Generics Support
+// Provides type parameterization and generic function instantiation
+
+struct TypeParam {
+    name: string
+    bounds: []string
+}
+
+struct GenericFunction {
+    name: string
+    type_params: []TypeParam
+    params: []string
+    body: string
+}
+
+// Instantiate a generic function with concrete types
+extern fn generic_instantiate(func: GenericFunction, types: []string) -> string
+
+// Verify type arguments satisfy bounds constraints
+extern fn generic_check_bounds(func: GenericFunction, types: []string) -> bool
+
+// Generate mangled name for generic instantiation
+extern fn generic_mangle_name(name: string, types: []string) -> string

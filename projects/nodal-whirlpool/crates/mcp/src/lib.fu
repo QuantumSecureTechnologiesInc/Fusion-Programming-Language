@@ -1,8 +1,0 @@
-mod client;
-mod protocol;
-mod servers;
-pub use client::McpClient;
-pub use protocol::*;
-pub use servers::{FilesystemServer, GitHubServer, WebServer};
-/// MCP library version
-const MCP_LIB_VERSION: &str = env!("CARGO_PKG_VERSION");

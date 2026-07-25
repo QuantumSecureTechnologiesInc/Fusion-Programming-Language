@@ -1,0 +1,75 @@
+// Supervision Trees
+// Provides fault tolerance through hierarchical supervision strategies
+
+struct Supervisor {
+    id: int
+    name: string
+    strategy: string
+    children: []ActorRef
+}
+
+// Create a new supervisor with the given name and strategy
+extern fn supervisor_new(name: string, strategy: string) -> Supervisor
+
+// Add a child actor to the supervisor
+extern fn supervisor_add_child(sup: Supervisor, actor: ActorRef) -> Supervisor
+
+// Start all child actors under the supervisor
+extern fn supervisor_start(sup: Supervisor) -> void
+
+// Stop all child actors under the supervisor
+extern fn supervisor_stop(sup: Supervisor) -> void
+
+// Restart a specific child actor
+extern fn supervisor_restart(sup: Supervisor, actor_id: int) -> void
+
+// Get the supervision strategy
+extern fn supervisor_get_strategy(sup: Supervisor) -> string
+
+// Handle a failure from a child actor
+extern fn supervisor_handle_failure(sup: Supervisor, actor_id: int, error: string) -> void
+
+// One-for-One: restart only the failed actor
+fn supervisor_one_for_one(sup: Supervisor, actor_id: int) -> void {
+    var i = 0
+    while i < sup.children.length {
+        if sup.children[i].id == actor_id {
+            let child = sup.children[i]
+            actor_stop(child)
+            let new_child = actor_spawn(child.name, "restarted", "default_handler")
+            sup.children[i] = new_child
+            return
+        }
+        i += 1
+    }
+}
+
+// One-for-All: restart all child actors
+fn supervisor_one_for_all(sup: Supervisor, actor_id: int) -> void {
+    var i = 0
+    while i < sup.children.length {
+        let child = sup.children[i]
+        actor_stop(child)
+        let new_child = actor_spawn(child.name, "restarted", "default_handler")
+        sup.children[i] = new_child
+        i += 1
+    }
+}
+
+// Rest-for-One: restart the failed actor and all actors started after it
+fn supervisor_rest_for_one(sup: Supervisor, actor_id: int) -> void {
+    var found = false
+    var i = 0
+    while i < sup.children.length {
+        let child = sup.children[i]
+        if child.id == actor_id {
+            found = true
+        }
+        if found {
+            actor_stop(child)
+            let new_child = actor_spawn(child.name, "restarted", "default_handler")
+            sup.children[i] = new_child
+        }
+        i += 1
+    }
+}

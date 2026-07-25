@@ -1,0 +1,105 @@
+// Mining operations for Fusion v2.0 Vortex
+
+import Block from blockchain
+import Blockchain from blockchain
+
+struct Miner {
+    id: string,
+    address: string,
+    hash_rate: int,
+    earnings: float
+}
+
+struct MiningReward {
+    block_index: int,
+    miner: string,
+    amount: float,
+    timestamp: int
+}
+
+fn miner_new(id: string, address: string, hash_rate: int) -> Miner {
+    Miner {
+        id: id,
+        address: address,
+        hash_rate: hash_rate,
+        earnings: 0.0
+    }
+}
+
+fn miner_mine(miner: Miner, chain: Blockchain, difficulty: int) -> (Block, MiningReward) {
+    let previous_block = chain.blocks[chain.blocks.len() - 1]
+    let block_index = previous_block.index + 1
+    let timestamp = now()
+
+    let new_block = Block {
+        index: block_index,
+        timestamp: timestamp,
+        transactions: [],
+        previous_hash: previous_block.hash,
+        hash: "",
+        nonce: 0,
+        difficulty: difficulty,
+        validator: miner.address
+    }
+
+    let config = pow_new(difficulty)
+    let mined_block = pow_mine(new_block, config)
+
+    let reward = miner_calculate_reward(block_index, 210000, 50.0)
+    let mining_reward = MiningReward {
+        block_index: block_index,
+        miner: miner.address,
+        amount: reward,
+        timestamp: timestamp
+    }
+
+    (mined_block, mining_reward)
+}
+
+fn miner_calculate_reward(block_index: int, halving_interval: int, initial_reward: float) -> float {
+    let halvings = block_index / halving_interval
+    let reward = initial_reward
+
+    if halvings >= 64 {
+        return 0.0
+    }
+
+    reward / (1 << halvings)
+}
+
+fn miner_add_reward(chain: Blockchain, reward: MiningReward) -> Blockchain {
+    let mut new_chain = chain
+    let mut miner_found = false
+
+    for i in 0..new_chain.miners.len() {
+        if new_chain.miners[i].address == reward.miner {
+            new_chain.miners[i].earnings = new_chain.miners[i].earnings + reward.amount
+            miner_found = true
+            break
+        }
+    }
+
+    if !miner_found {
+        new_chain.miners.push(Miner {
+            id: reward.miner,
+            address: reward.miner,
+            hash_rate: 0,
+            earnings: reward.amount
+        })
+    }
+
+    new_chain.rewards.push(reward)
+    new_chain
+}
+
+fn miner_total_earnings(chain: Blockchain, miner_address: string) -> float {
+    let mut total = 0.0
+
+    for reward in chain.rewards {
+        if reward.miner == miner_address {
+            total = total + reward.amount
+        }
+    }
+
+    total
+}

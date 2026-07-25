@@ -1,0 +1,161 @@
+// Fusion v2.0 Vortex — Peer-to-Peer Networking
+// Manages peer discovery, message propagation, and chain synchronization.
+
+use crate::blockchain::chain::{Blockchain, chain_length, chain_get_latest}
+use crate::blockchain::block::Block
+use crate::blockchain::transaction::Transaction
+
+struct Peer {
+    id: string,
+    address: string,
+    port: int,
+    last_seen: int,
+    reputation: float
+}
+
+struct Network {
+    peers: []Peer,
+    max_peers: int,
+    my_id: string
+}
+
+struct BlockMessage {
+    type: string,
+    block: Block,
+    sender: string
+}
+
+struct TxMessage {
+    type: string,
+    transaction: Transaction,
+    sender: string
+}
+
+/// Create a new network node with the given identity and peer capacity.
+fn network_new(my_id: string, max_peers: int) -> Network {
+    let peers: []Peer = []
+    return Network {
+        peers,
+        max_peers,
+        my_id
+    }
+}
+
+/// Add a peer to the network. Ignores if at capacity or duplicate.
+fn network_add_peer(network: Network, peer: Peer) -> Network {
+    if network.peers.len() >= network.max_peers {
+        return network
+    }
+
+    // Check for duplicate
+    let mut i = 0
+    while i < network.peers.len() {
+        if network.peers[i].id == peer.id {
+            return network
+        }
+        i += 1
+    }
+
+    network.peers.push(peer)
+    return network
+}
+
+/// Remove a peer by ID from the network.
+fn network_remove_peer(network: Network, peer_id: string) -> Network {
+    let result: []Peer = []
+    let mut i = 0
+    while i < network.peers.len() {
+        if network.peers[i].id != peer_id {
+            result.push(network.peers[i])
+        }
+        i += 1
+    }
+    network.peers = result
+    return network
+}
+
+/// Discover peers by querying the network. Returns peers that responded.
+fn network_discover_peers(network: Network) -> []Peer {
+    let discovered: []Peer = []
+    let mut i = 0
+    while i < network.peers.len() {
+        let peer = network.peers[i]
+        let time_since = now() - peer.last_seen
+        // Only consider recently seen peers with acceptable reputation
+        if time_since < 3600 && peer.reputation > 0.5 {
+            discovered.push(peer)
+        }
+        i += 1
+    }
+    return discovered
+}
+
+/// Broadcast a message to all connected peers.
+fn network_broadcast(network: Network, message: string) -> void {
+    let mut i = 0
+    while i < network.peers.len() {
+        let peer = network.peers[i]
+        // Simulate sending message to peer
+        let endpoint = peer.address + ":" + peer.port.to_string()
+        network_send(endpoint, message)
+        i += 1
+    }
+}
+
+/// Synchronize the local chain with the longest chain from peers.
+fn network_sync_chain(network: Network, chain: Blockchain) -> Blockchain {
+    let longest = chain
+    let mut i = 0
+    while i < network.peers.len() {
+        let peer = network.peers[i]
+        let endpoint = peer.address + ":" + peer.port.to_string()
+        let remote_json = network_request(endpoint, "GET_CHAIN")
+        if remote_json != "" {
+            let remote_chain = chain_from_json(remote_json)
+            if chain_length(remote_chain) > chain_length(longest) {
+                if chain_validate(remote_chain) {
+                    longest = remote_chain
+                }
+            }
+        }
+        i += 1
+    }
+    return longest
+}
+
+/// Gossip a message to a random subset of peers for faster propagation.
+fn network_gossip(network: Network, message: string) -> void {
+    let peer_count = network.peers.len()
+    if peer_count == 0 {
+        return
+    }
+
+    // Gossip to sqrt(n) peers for efficient dissemination
+    let gossip_targets = int_sqrt(peer_count)
+    if gossip_targets < 1 {
+        gossip_targets = 1
+    }
+
+    let sent = 0
+    let mut i = 0
+    while sent < gossip_targets && i < network.peers.len() {
+        let peer = network.peers[i]
+        let endpoint = peer.address + ":" + peer.port.to_string()
+        network_send(endpoint, message)
+        sent += 1
+        i += 1
+    }
+}
+
+/// Return the current number of connected peers.
+fn network_peer_count(network: Network) -> int {
+    return network.peers.len()
+}
+
+// Network I/O helpers (provided by Fusion runtime)
+extern fn network_send(endpoint: string, message: string) -> void
+extern fn network_request(endpoint: string, path: string) -> string
+extern fn now() -> int
+extern fn int_sqrt(n: int) -> int
+extern fn chain_validate(chain: Blockchain) -> bool
+extern fn chain_from_json(json: string) -> Blockchain

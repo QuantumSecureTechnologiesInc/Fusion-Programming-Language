@@ -1,0 +1,53 @@
+// src/quantum/rigetti_backend.fu
+// Rigetti QCS Backend Interface
+// Wraps the Rigetti QCS Rust crate with Fusion-native API
+
+class RigettiConfig {
+    api_token: string;
+    qpu_server: string;
+}
+
+impl RigettiConfig {
+    fn new(api_token: string, qpu_server: string) -> RigettiConfig {
+        return RigettiConfig {
+            api_token: api_token,
+            qpu_server: qpu_server
+        };
+    }
+}
+
+// External FFI bindings to rigetti-qcs-runtime crate
+extern fn rigetti_connect(config: RigettiConfig) -> int;
+extern fn rigetti_compile(handle: int, circuit: string) -> string;
+extern fn rigetti_execute(handle: int, compiled: string, shots: int) -> string;
+extern fn rigetti_list_qpus(handle: int) -> string;
+
+// Compile and execute a circuit on Rigetti QCS
+fn rigetti_run(config: RigettiConfig, circuit: string, shots: int) -> string {
+    let handle = rigetti_connect(config);
+
+    if handle == 0 {
+        return "{\"error\": \"Failed to connect to Rigetti QCS\"}";
+    }
+
+    let compiled = rigetti_compile(handle, circuit);
+
+    // Check for compile error (empty string or error prefix)
+    if compiled == "" || compiled == "{\"error\": \"Compilation failed\"}" {
+        return compiled;
+    }
+
+    let result = rigetti_execute(handle, compiled, shots);
+    return result;
+}
+
+// Get available QPU devices
+fn rigetti_get_devices(config: RigettiConfig) -> string {
+    let handle = rigetti_connect(config);
+
+    if handle == 0 {
+        return "{\"error\": \"Failed to connect to Rigetti QCS\"}";
+    }
+
+    return rigetti_list_qpus(handle);
+}

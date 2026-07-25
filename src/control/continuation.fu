@@ -1,0 +1,94 @@
+// src/control/continuation.fu
+// First-Class Continuations — Capture, Invoke, and Restore Execution State
+//
+// Continuations represent a saved point in program execution: the call stack,
+// local environment, and control state required to resume computation from
+// that point. They enable non-local control flow, backtracking, coroutines,
+// and structured concurrency patterns.
+
+/// A captured continuation representing a resumable execution state.
+///
+/// Each continuation carries a unique identifier, the serialized call stack
+/// frames captured at capture time, and the name of the enclosing environment
+/// (module or scope) required for restoration.
+struct Continuation {
+    /// Unique identifier for this continuation instance
+    id: int,
+    /// Serialized stack frames captured at the point of continuation creation
+    stack: []string,
+    /// Name of the enclosing environment / scope
+    environment: string,
+}
+
+// ---------------------------------------------------------------------------
+// Core operations (extern — implemented in the runtime)
+// ---------------------------------------------------------------------------
+
+/// Call the current continuation with the given function name.
+/// Captures the current execution state and passes it to `fn_name`,
+/// which receives a Continuation it may invoke later.
+extern fn call_cc(fn_name: string) -> Continuation
+
+/// Invoke a previously captured continuation, passing `value` as the
+/// result that `cont_capture` or `call_cc` will return at the original
+/// capture site. Resumes execution from the saved stack frame.
+extern fn cont_invoke(cont: Continuation, value: string) -> string
+
+/// Capture the current continuation without immediately binding it to a
+/// callback. Returns the raw Continuation value for later use with
+/// `cont_invoke` or `cont_restore`.
+extern fn cont_capture() -> Continuation
+
+/// Restore a continuation by unwinding the current stack to the state
+/// recorded in `cont` and resuming from that point. Returns the value
+/// passed to `cont_invoke` at the resume site.
+extern fn cont_restore(cont: Continuation) -> string
+
+/// Serialize a continuation to disk at `path` so it can survive process
+/// boundaries. The serialized form includes the stack, environment, and
+/// all captured frame data.
+extern fn cont_save_to_file(cont: Continuation, path: string) -> void
+
+/// Deserialize a continuation from a file previously written by
+/// `cont_save_to_file`. Panics if the file is missing or corrupt.
+extern fn cont_load_from_file(path: string) -> Continuation
+
+// ---------------------------------------------------------------------------
+// Analysis helpers (pure Fusion)
+// ---------------------------------------------------------------------------
+
+/// Returns true if `cont` is well-formed: has a non-negative id, a
+/// non-empty stack, and a recognized environment name.
+fn cont_is_valid(cont: Continuation) -> bool {
+    if cont.id < 0 {
+        return false
+    }
+    if string_length(cont.environment) == 0 {
+        return false
+    }
+    // A valid continuation must have at least one stack frame
+    let has_frames = false
+    for frame in cont.stack {
+        if string_length(frame) > 0 {
+            has_frames = true
+            break
+        }
+    }
+    return has_frames
+}
+
+/// Return the depth (number of stack frames) of a captured continuation.
+/// Useful for diagnostics and for comparing the relative depth of
+/// different capture points.
+fn cont_depth(cont: Continuation) -> int {
+    let depth = 0
+    for _ in cont.stack {
+        depth = depth + 1
+    }
+    return depth
+}
+
+/// Return the number of active (captured but not yet invoked) continuations
+/// tracked by the runtime. Each `cont_capture` increments this count and
+/// each `cont_invoke` or `cont_restore` decrements it.
+extern fn cont_thread_count() -> int

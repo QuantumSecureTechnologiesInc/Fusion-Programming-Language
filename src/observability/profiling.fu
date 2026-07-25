@@ -1,0 +1,17 @@
+module observability.profiling
+
+struct Profile {
+    name: string
+    duration_ms: int
+    samples: int
+    flamegraph: string
+}
+
+extern fn profile_start(name: string) -> int
+extern fn profile_stop(profile_id: int) -> Profile
+extern fn profile_export(profile_id: int, format: string) -> string
+extern fn stacktrace() -> []string
+extern fn stacktrace_format(frames: []string) -> string
+extern fn breakpoint(message: string) -> void
+extern fn memory_usage() -> int
+extern fn cpu_usage() -> float

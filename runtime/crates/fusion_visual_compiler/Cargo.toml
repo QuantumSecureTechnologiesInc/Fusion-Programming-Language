@@ -1,0 +1,16 @@
+[package]
+name = "fusion_visual_compiler"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language"
+authors = ["Fusion Team"]
+description = "Visual compiler: natural language intent parser, architecture suggestions, and code scaffolding for Fusion"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]

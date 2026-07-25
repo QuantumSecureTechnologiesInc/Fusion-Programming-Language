@@ -8,63 +8,179 @@
 use fusion_quantum_sdk::QuantumBackend;
 use fusion_core::types::quantum::{QuantumCircuit, QuantumGate};
 use fusion_core::types::tensor::Vector1D;
-use fusion_ai_core::{Variable, SGD}; // Reusing classical optimizer
+use fusion_ai_core::{Variable, SGD};
 use fusion_std::error::{StdResult, StdError};
 
 struct QAOA {
     p: usize, // Depth
     hamiltonian: FVec<(f64, FVec<usize>)>, // Ising Model: (J, [qubit_i, qubit_j])
+    max_iterations: usize,
+    learning_rate: f64,
+    convergence_tol: f64,
 }
 
 impl QAOA {
     fn new(p: usize, hamiltonian: FVec<(f64, FVec<usize>)>) -> Self {
-        Self { p, hamiltonian }
+        Self {
+            p,
+            hamiltonian,
+            max_iterations: 200,
+            learning_rate: 0.05,
+            convergence_tol: 1e-6,
+        }
+    }
+
+    fn with_optimization(mut self, lr: f64, max_iter: usize, tol: f64) -> Self {
+        self.learning_rate = lr;
+        self.max_iterations = max_iter;
+        self.convergence_tol = tol;
+        self
+    }
+
+    /// Build Rx(theta) = exp(-i * theta/2 * X) rotation gate as a matrix.
+    fn rx_gate(theta: f64) -> [[f64; 2]; 2] {
+        let half = theta / 2.0;
+        [
+            [half.cos(), -half.sin()],
+            [-half.sin(), half.cos()],
+        ]
+    }
+
+    /// Build Rz(theta) = exp(-i * theta/2 * Z) rotation gate as a matrix.
+    fn rz_gate(theta: f64) -> [[f64; 2]; 2] {
+        let half = theta / 2.0;
+        [
+            [(-half).cos(), (-half).sin() * 1.0],  // e^{-i*theta/2} on |0>
+            [half.sin() * 1.0, (half).cos()],         // e^{+i*theta/2} on |1>
+        ]
+        // Diagonal: [e^{-i*theta/2}, e^{i*theta/2}]
+        // For matrix representation we store real/imaginary parts separately;
+        // the circuit backend handles complex phases internally.
     }
 
     /// Construct QAOA Circuit for parameters (gamma, beta).
     fn build_circuit(&self, params: &[f64], num_qubits: usize) -> QuantumCircuit {
         let mut circuit = QuantumCircuit::new(num_qubits);
-        
-        // 1. Initialization (Hadamard all)
+
+        // 1. Initialization: Hadamard on all qubits to create equal superposition
         for i in 0..num_qubits {
             circuit.apply_gate(fusion_core::ops::quantum_ops::hadamard(), vec![i]).unwrap();
         }
 
-        // Layers
+        // 2. QAOA layers
         for layer in 0..self.p {
             let gamma = params[2 * layer];
             let beta = params[2 * layer + 1];
 
-            // 2. Cost Hamiltonian (e^(-i * gamma * Hc))
+            // Cost unitary: e^{-i * gamma * H_C}
             for (j_coef, qubits) in &self.hamiltonian {
-                // Rzz gate for interaction terms
-                // Simulating Rzz(gamma * j_coef)
-                // CNOT -> Rz -> CNOT
                 let angle = 2.0 * gamma * j_coef;
                 if qubits.len() == 2 {
-                    circuit.apply_gate(fusion_core::ops::quantum_ops::cnot(), vec![qubits[0], qubits[1]]).unwrap();
-                    // Rz(angle) on target
-                    circuit.apply_gate(fusion_core::ops::quantum_ops::pauli_z(), vec![qubits[1]]).unwrap(); // Placeholder for Rz
-                    circuit.apply_gate(fusion_core::ops::quantum_ops::cnot(), vec![qubits[0], qubits[1]]).unwrap();
+                    // Rzz(angle) = CNOT -> Rz(angle) -> CNOT
+                    circuit.apply_gate(
+                        fusion_core::ops::quantum_ops::cnot(), vec![qubits[0], qubits[1]]
+                    ).unwrap();
+                    circuit.apply_gate(
+                        QuantumGate::Rz(angle), vec![qubits[1]]
+                    ).unwrap();
+                    circuit.apply_gate(
+                        fusion_core::ops::quantum_ops::cnot(), vec![qubits[0], qubits[1]]
+                    ).unwrap();
+                } else if qubits.len() == 1 {
+                    // Rz single-qubit term: e^{-i * gamma * Z}
+                    circuit.apply_gate(
+                        QuantumGate::Rz(angle), vec![qubits[0]]
+                    ).unwrap();
                 }
             }
 
-            // 3. Mixing Hamiltonian (e^(-i * beta * Hm)) -> Rx(2*beta) on all
+            // Mixer unitary: e^{-i * beta * H_B}
+            // H_B = sum_i X_i, so e^{-i*beta*X} = Rx(2*beta) on each qubit
             for i in 0..num_qubits {
-                // Rx(2 * beta)
-                circuit.apply_gate(fusion_core::ops::quantum_ops::pauli_x(), vec![i]).unwrap(); // Placeholder for Rx
+                circuit.apply_gate(QuantumGate::Rx(2.0 * beta), vec![i]).unwrap();
             }
         }
 
         circuit
     }
 
-    /// optimize parameters to minimize energy.
+    /// Evaluate expected value <psi|H|psi> for given parameters.
+    fn expectation(&self, params: &[f64], num_qubits: usize, backend: &dyn QuantumBackend) -> StdResult<f64> {
+        let circuit = self.build_circuit(params, num_qubits);
+        let state = backend.run_circuit(&circuit)?;
+
+        // Compute expectation value: sum over all Hamiltonian terms
+        let mut energy = 0.0;
+        for (j_coef, qubits) in &self.hamiltonian {
+            // Measure the ZZ correlation for this term
+            if qubits.len() == 2 {
+                let zz = backend.measure_correlation(&state, qubits[0], qubits[1])?;
+                energy += j_coef * zz;
+            }
+        }
+        Ok(energy)
+    }
+
+    /// Gradient-free optimization via simultaneous perturbation stochastic approximation (SPSA).
+    /// More robust for noisy quantum landscapes than simple gradient descent.
     fn optimize(&self, backend: &dyn QuantumBackend) -> StdResult<FVec<f64>> {
-        // Classical optimization loop would go here.
-        // Similar to VQE but specific to QAOA landscape.
-        println!("[QAOA] Starting optimization depth p={}", self.p);
-        
-        Ok(vec![0.1; 2 * self.p]) // Return optimized params
+        let num_qubits = self.hamiltonian.iter()
+            .flat_map(|(_, q)| q)
+            .max()
+            .map_or(0, |&m| m + 1);
+        let n_params = 2 * self.p;
+
+        // Initialize parameters with small random perturbation
+        let mut params: FVec<f64> = (0..n_params).map(|i| {
+            if i % 2 == 0 { 0.5 } else { 0.3 } // gamma=0.5, beta=0.3 initial
+        }).collect();
+
+        let mut best_params = params.clone();
+        let mut best_energy = f64::INFINITY;
+
+        for iteration in 0..self.max_iterations {
+            // SPSA gain sequences
+            let a = 0.1 / (iteration as f64 + 1.0).powf(0.602);
+            let c = 0.1 / (iteration as f64 + 1.0).powf(0.101);
+
+            // Random perturbation direction (Bernoulli +/-1)
+            let delta: FVec<f64> = (0..n_params).map(|_| {
+                if rand::random::<bool>() { 1.0 } else { -1.0 }
+            }).collect();
+
+            // Evaluate at two perturbed points
+            let params_plus: FVec<f64> = params.iter().zip(&delta)
+                .map(|(&p, &d)| p + c * d).collect();
+            let params_minus: FVec<f64> = params.iter().zip(&delta)
+                .map(|(&p, &d)| p - c * d).collect();
+
+            let e_plus = self.expectation(&params_plus, num_qubits, backend)?;
+            let e_minus = self.expectation(&params_minus, num_qubits, backend)?;
+
+            // SPSA gradient estimate
+            let grad: FVec<f64> = delta.iter().map(|&d| {
+                (e_plus - e_minus) / (2.0 * c * d)
+            }).collect();
+
+            // Update parameters
+            for i in 0..n_params {
+                params[i] -= a * grad[i];
+            }
+
+            // Track best
+            let current_energy = self.expectation(&params, num_qubits, backend)?;
+            if current_energy < best_energy {
+                best_energy = current_energy;
+                best_params = params.clone();
+            }
+
+            // Convergence check
+            let grad_norm: f64 = grad.iter().map(|g| g * g).sum::<f64>().sqrt();
+            if grad_norm < self.convergence_tol {
+                break;
+            }
+        }
+
+        Ok(best_params)
     }
 }

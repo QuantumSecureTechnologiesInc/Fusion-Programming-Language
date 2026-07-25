@@ -1,0 +1,8 @@
+// src/cloud/mod.fu
+// Fusion Cloud Integration Module
+
+pub mod k8s;
+pub mod faas;
+
+pub use k8s::{K8sConfig, K8sDeployment, k8s_connect, k8s_deploy, k8s_scale, k8s_status, k8s_delete};
+pub use faas::{Function, FaasRequest, FaasResponse, faas_register, faas_invoke, faas_list, faas_delete};

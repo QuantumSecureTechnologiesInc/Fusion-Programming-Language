@@ -1,0 +1,258 @@
+import fusion::io
+import fusion::fs
+import fusion::toml
+import fusion::cmd
+import fusion::http
+
+use crate::config::FusionConfig
+
+const DEPLOY_API: String = "https://deploy.fusion-lang.org/api"
+
+/// Read deployment configuration from Fusion.toml [deploy] section
+fn read_deploy_config(config: FusionConfig) -> Dict {
+    let deploy_config = {}
+
+    if let Some(deploy) = config["deploy"] {
+        if let Some(target) = deploy["target"] {
+            deploy_config["target"] = target
+        }
+        if let Some(registry) = deploy["registry"] {
+            deploy_config["registry"] = registry
+        }
+        if let Some(env) = deploy["environment"] {
+            deploy_config["environment"] = env
+        }
+        if let Some(auto_build) = deploy["auto_build"] {
+            deploy_config["auto_build"] = auto_build
+        }
+        // Read Kubernetes-specific config
+        if let Some(k8s) = deploy["kubernetes"] {
+            deploy_config["kubernetes"] = k8s
+        }
+        // Read Docker-specific config
+        if let Some(docker) = deploy["docker"] {
+            deploy_config["docker"] = docker
+        }
+    }
+
+    return deploy_config
+}
+
+/// Read Kubernetes deployment settings from [deploy.kubernetes]
+fn read_k8s_config(deploy_config: Dict) -> Dict {
+    let k8s_config = {}
+
+    if let Some(k8s) = deploy_config["kubernetes"] {
+        if let Some(namespace) = k8s["namespace"] {
+            k8s_config["namespace"] = namespace
+        }
+        if let Some(replicas) = k8s["replicas"] {
+            k8s_config["replicas"] = replicas
+        }
+        if let Some(service_type) = k8s["service_type"] {
+            k8s_config["service_type"] = service_type
+        }
+        if let Some(image) = k8s["image"] {
+            k8s_config["image"] = image
+        }
+        if let Some(registry) = k8s["registry"] {
+            k8s_config["registry"] = registry
+        }
+    }
+
+    return k8s_config
+}
+
+/// Read Docker deployment settings from [deploy.docker]
+fn read_docker_config(deploy_config: Dict) -> Dict {
+    let docker_config = {}
+
+    if let Some(docker) = deploy_config["docker"] {
+        if let Some(dockerfile) = docker["dockerfile"] {
+            docker_config["dockerfile"] = dockerfile
+        }
+        if let Some(image_name) = docker["image_name"] {
+            docker_config["image_name"] = image_name
+        }
+        if let Some(tag) = docker["tag"] {
+            docker_config["tag"] = tag
+        }
+        if let Some(ports) = docker["ports"] {
+            docker_config["ports"] = ports
+        }
+        if let Some(env_file) = docker["env_file"] {
+            docker_config["env_file"] = env_file
+        }
+    }
+
+    return docker_config
+}
+
+/// Deploy to a target
+async fn deploy_target(target: String, env: String, json: bool) -> Result {
+    let root = FusionConfig::project_root().unwrap_or_else(|| fs::current_dir())
+
+    // Load Fusion.toml for deploy configuration
+    let config = FusionConfig::load().unwrap_or_default()
+    let deploy_config = read_deploy_config(config)
+
+    // Merge CLI args with Fusion.toml config
+    let resolved_target = if target == "auto" {
+        deploy_config.get("target").unwrap_or("cloud").to_string()
+    } else {
+        target
+    }
+
+    let resolved_env = if env == "auto" {
+        deploy_config.get("environment").unwrap_or("dev").to_string()
+    } else {
+        env
+    }
+
+    if !json {
+        io::println("Deploying to {resolved_target} ({resolved_env})")
+    }
+
+    // Step 1: Build
+    io::println("  Step 1/3: Building project...")
+    let build_output = cmd::Command::new("fuc.exe")
+        .args(["build", "--release"])
+        .current_dir(root)
+        .output()
+    if !build_output.status.success() {
+        let stderr = build_output.stderr
+        return Err("Build failed during deployment: {stderr}")
+    }
+
+    // Step 2: Package
+    io::println("  Step 2/3: Packaging...")
+    let pkg_output = cmd::Command::new("fuc.exe")
+        .args(["pkg", "pack"])
+        .current_dir(root)
+        .output()
+    if !pkg_output.status.success() {
+        let stderr = pkg_output.stderr
+        return Err("Packaging failed: {stderr}")
+    }
+
+    // Step 3: Upload
+    io::println("  Step 3/3: Uploading...")
+
+    // Include kubernetes or docker config in payload if present
+    let mut payload = {
+        "target": resolved_target,
+        "environment": resolved_env,
+        "project_root": root.display(),
+    }
+
+    if resolved_target == "k8s" || resolved_target == "kubernetes" {
+        let k8s_config = read_k8s_config(deploy_config)
+        if k8s_config.len() > 0 {
+            payload["kubernetes"] = k8s_config
+        }
+    } else if resolved_target == "docker" {
+        let docker_config = read_docker_config(deploy_config)
+        if docker_config.len() > 0 {
+            payload["docker"] = docker_config
+        }
+    }
+
+    let client = http::Client::new()
+    let resp = client
+        .post("{DEPLOY_API}/deploy")
+        .json(payload)
+        .send()
+
+    let body = resp.json()
+    let deploy_id = body["deployment_id"].unwrap_or("unknown")
+
+    if json {
+        let mut result = body.clone()
+        result["target"] = resolved_target
+        result["environment"] = resolved_env
+        io::println(toml::to_string_pretty(result))
+    } else {
+        io::println("")
+        io::println("OK: Deployment successful!")
+        io::println("  Target:   {resolved_target}")
+        io::println("  Env:      {resolved_env}")
+        io::println("  ID:       {deploy_id}")
+        if let Some(url) = body["url"] {
+            io::println("  URL:      {url}")
+        }
+    }
+
+    return Ok(())
+}
+
+/// Check deployment status
+async fn status(id: Option<String>, json: bool) -> Result {
+    let url = match id {
+        Some(deploy_id) => "{DEPLOY_API}/status/{deploy_id}",
+        None => "{DEPLOY_API}/status/latest",
+    }
+
+    let client = http::Client::new()
+    let resp = client.get(url).send()
+    let body = resp.json()
+
+    if json {
+        io::println(toml::to_string_pretty(body))
+    } else {
+        io::println("Deploy: Deployment Status:")
+        if let Some(deployments) = body["deployments"] {
+            for dep in deployments {
+                let d_id = dep["id"].unwrap_or("?")
+                let d_env = dep["environment"].unwrap_or("?")
+                let d_status = dep["status"].unwrap_or("?")
+                let d_time = dep["created_at"].unwrap_or("?")
+                io::println("  {d_id} [{d_env}] {d_status} - {d_time}")
+            }
+        } else {
+            let d_status = body["status"].unwrap_or("unknown")
+            io::println("  Status: {d_status}")
+        }
+    }
+
+    return Ok(())
+}
+
+/// Rollback a deployment
+async fn rollback(to: Option<String>, json: bool) -> Result {
+    let client = http::Client::new()
+
+    let mut payload = {}
+    if let Some(target) = to {
+        payload["target_deployment_id"] = target
+    }
+
+    let resp = client
+        .post("{DEPLOY_API}/rollback")
+        .json(payload)
+        .send()
+
+    let body = resp.json()
+
+    if json {
+        io::println(toml::to_string_pretty(body))
+    } else {
+        io::println("OK: Rollback initiated!")
+        if let Some(msg) = body["message"] {
+            io::println("  {msg}")
+        }
+        if let Some(id) = body["rollback_id"] {
+            io::println("  Rollback ID: {id}")
+        }
+    }
+
+    return Ok(())
+}
+
+/// Run the deploy command
+pub async fn run(command: DeployCommands, json: bool) -> Result {
+    match command {
+        DeployCommands::Target { target, env } => deploy_target(target, env, json).await,
+        DeployCommands::Status { id } => status(id, json).await,
+        DeployCommands::Rollback { to } => rollback(to, json).await,
+    }
+}

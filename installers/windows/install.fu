@@ -1,0 +1,70 @@
+// Fusion v2.0 Vortex - Windows Installer
+// Written in native Fusion language
+
+fn main() -> void {
+    println("=== Fusion v2.0 Vortex Installer ===")
+    println("")
+    
+    // Step 1: Check prerequisites
+    println("[1/6] Checking prerequisites...")
+    let rust_version = exec_command("rustc --version")
+    if rust_version == "" {
+        println("Error: Rust is not installed. Please install from https://rustup.rs")
+        exit(1)
+    }
+    println("  Rust version: " + rust_version)
+    
+    let has_llvm = exec_command("llvm-config --version")
+    if has_llvm == "" {
+        println("Warning: LLVM not found. Native compilation may not work.")
+        println("  Install LLVM from https://llvm.org/")
+    }
+    
+    // Step 2: Install dependencies
+    println("")
+    println("[2/6] Installing dependencies...")
+    exec_command("cargo install --path crates/fuc --features llvm")
+    exec_command("cargo install --path tools/fusion-cli")
+    
+    // Step 3: Install standard library
+    println("")
+    println("[3/6] Installing standard library...")
+    let stdlib_path = get_env("USERPROFILE") + "\.fusion\stdlib"
+    create_dir(stdlib_path)
+    copy_dir("stdlib", stdlib_path)
+    
+    // Step 4: Install runtime
+    println("")
+    println("[4/6] Installing runtime...")
+    exec_command("cd runtime && build_runtime.bat")
+    
+    // Step 5: Configure PATH
+    println("")
+    println("[5/6] Configuring PATH...")
+    let fusion_bin = get_cwd() + "\target\debug"
+    add_to_path(fusion_bin)
+    println("  Added " + fusion_bin + " to PATH")
+    
+    // Step 6: Verify installation
+    println("")
+    println("[6/6] Verifying installation...")
+    let version = exec_command("fusion --version")
+    if version != "" {
+        println("  Fusion " + version + " installed successfully!")
+    } else {
+        println("  Warning: fusion command not found in PATH")
+        println("  Please restart your terminal or add the bin directory to PATH manually")
+    }
+    
+    println("")
+    println("=== Installation Complete ===")
+    println("")
+    println("Quick start:")
+    println("  fusion init my_project")
+    println("  cd my_project")
+    println("  fusion build")
+    println("  fusion run")
+    println("")
+    println("Documentation: docs/guides/")
+    println("Language Spec: docs/reference/FUSION_LANGUAGE_SPEC.md")
+}

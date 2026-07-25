@@ -1,0 +1,94 @@
+// src/control/coroutine.fu
+// Cooperative Multitasking — Generators and Coroutine Composition
+//
+// Coroutines provide lightweight cooperative concurrency: each coroutine
+// maintains its own execution state and yields control explicitly. The
+// runtime scheduler alternates between active coroutines, enabling
+// structured concurrency patterns without OS-level threads.
+
+/// A cooperative coroutine with a unique id, current lifecycle state,
+/// and the name of the generator function driving it.
+struct Coroutine {
+    /// Unique identifier for this coroutine instance
+    id: int,
+    /// Current lifecycle state: "created", "running", "yielded", "done"
+    state: string,
+    /// Name of the generator function that produces values
+    generator: string,
+}
+
+// ---------------------------------------------------------------------------
+// Core operations (extern — implemented in the runtime)
+// ---------------------------------------------------------------------------
+
+/// Create a new coroutine that will execute the generator function
+/// identified by `generator`. The coroutine starts in "created" state
+/// and must be explicitly resumed to begin execution.
+extern fn coroutine_new(generator: string) -> Coroutine
+
+/// Resume a coroutine, optionally passing `value` as the result of the
+/// most recent `coroutine_yield`. Returns the next yielded value, or
+/// an empty string when the generator completes.
+extern fn coroutine_resume(co: Coroutine, value: string) -> string
+
+/// Yield control from inside a running coroutine, producing `value` to
+/// the caller of `coroutine_resume`. The coroutine transitions to
+/// "yielded" state until resumed.
+extern fn coroutine_yield(value: string) -> string
+
+/// Returns true when the coroutine's generator has returned and no
+/// further yields are possible.
+extern fn coroutine_is_done(co: Coroutine) -> bool
+
+/// Return the current lifecycle state string of a coroutine.
+/// One of: "created", "running", "yielded", "done".
+extern fn coroutine_state(co: Coroutine) -> string
+
+/// Permanently destroy a coroutine and release its resources.
+/// A destroyed coroutine cannot be resumed.
+extern fn coroutine_destroy(co: Coroutine) -> void
+
+// ---------------------------------------------------------------------------
+// Composition helpers (pure Fusion)
+// ---------------------------------------------------------------------------
+
+/// Compose a sequence of coroutines into a single fused generator.
+/// When the composed coroutine is resumed, it drives each inner
+/// coroutine in sequence: the first is resumed until it yields or
+/// completes, then the second, and so on. Yields from any inner
+/// coroutine are forwarded to the caller.
+fn coroutine_chain(coroutines: []Coroutine) -> Coroutine {
+    // The fused coroutine uses the first coroutine's generator as its
+    // identity and tracks completion across all members.
+    if array_length(coroutines) == 0 {
+        return Coroutine {
+            id: 0,
+            state: "done",
+            generator: "empty",
+        }
+    }
+
+    let first = coroutines[0]
+    let fused = Coroutine {
+        id: first.id,
+        state: "created",
+        generator: first.generator,
+    }
+
+    // Mark the fused coroutine as active if any member is not yet done
+    let active = false
+    for co in coroutines {
+        if co.state != "done" {
+            active = true
+            break
+        }
+    }
+
+    if active {
+        fused.state = "created"
+    } else {
+        fused.state = "done"
+    }
+
+    return fused
+}

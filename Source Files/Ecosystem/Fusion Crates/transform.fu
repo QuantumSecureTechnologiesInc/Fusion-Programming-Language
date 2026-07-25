@@ -33,9 +33,39 @@ impl PauliFString {
             coeff: Complex64::new(1.0, 0.0),
         }
     }
-    
-    // Multiply logic (Pauli Algebra: X*Z = -iY, etc.) omitted for brevity, 
-    // but essential for combining terms.
+
+    /// Multiply two Pauli strings qubit-by-qubit using the Pauli multiplication table:
+    ///   I*X=X, I*Y=Y, I*Z=Z, X*I=X, Y*I=Y, Z*I=Z
+    ///   X*X=I, Y*Y=I, Z*Z=I
+    ///   X*Y=iZ, Y*X=-iZ, Y*Z=iX, Z*Y=-iX, Z*X=iY, X*Z=-iY
+    fn mul(&self, other: &PauliFString) -> PauliFString {
+        assert_eq!(self.ops.len(), other.ops.len(), "Pauli strings must have same length");
+
+        let mut result = PauliFString::new(self.ops.len());
+        let mut scalar = Complex64::new(1.0, 0.0);
+
+        for (r, (a, b)) in self.ops.iter().zip(other.ops.iter()).enumerate() {
+            match (a, b) {
+                (Pauli::I, x) | (x, Pauli::I) => result.ops[r] = *x,
+                (Pauli::X, Pauli::X) | (Pauli::Y, Pauli::Y) | (Pauli::Z, Pauli::Z) => {
+                    result.ops[r] = Pauli::I;
+                }
+                (Pauli::X, Pauli::Y) => { result.ops[r] = Pauli::Z; scalar *= Complex64::new(0.0, 1.0); }
+                (Pauli::Y, Pauli::X) => { result.ops[r] = Pauli::Z; scalar *= Complex64::new(0.0, -1.0); }
+                (Pauli::Y, Pauli::Z) => { result.ops[r] = Pauli::X; scalar *= Complex64::new(0.0, 1.0); }
+                (Pauli::Z, Pauli::Y) => { result.ops[r] = Pauli::X; scalar *= Complex64::new(0.0, -1.0); }
+                (Pauli::Z, Pauli::X) => { result.ops[r] = Pauli::Y; scalar *= Complex64::new(0.0, 1.0); }
+                (Pauli::X, Pauli::Z) => { result.ops[r] = Pauli::Y; scalar *= Complex64::new(0.0, -1.0); }
+            }
+        }
+
+        result.coeff = self.coeff * other.coeff * scalar;
+        result
+    }
+
+    fn is_identity(&self) -> bool {
+        self.ops.iter().all(|p| *p == Pauli::I)
+    }
 }
 
 struct JordanWigner;
@@ -75,26 +105,71 @@ impl JordanWigner {
     /// Transforms the full interaction list into Qubit Hamiltonian.
     fn transform_hamiltonian(
         interactions: &[(usize, usize, f64)], // (i, j, energy)
-        num_qubits: usize
+        num_qubits: usize,
     ) -> FVec<PauliFString> {
-        let mut full_hamiltonian = Vec::new();
+        let mut full_hamiltonian: FVec<PauliFString> = Vec::new();
 
         for &(i, j, h_ij) in interactions {
             // Term: h_ij * a_i^dag * a_j
-            let ops_i = Self::transform(&FermionOperator{index: i, is_creation: true}, num_qubits);
-            let ops_j = Self::transform(&FermionOperator{index: j, is_creation: false}, num_qubits);
+            let ops_i = Self::transform(
+                &FermionOperator { index: i, is_creation: true }, num_qubits,
+            );
+            let ops_j = Self::transform(
+                &FermionOperator { index: j, is_creation: false }, num_qubits,
+            );
 
-            // Multiply (distribute): (A + B)(C + D) = AC + AD + BC + BD
+            // Distribute: (A + B)(C + D) = AC + AD + BC + BD
             for ti in &ops_i {
                 for tj in &ops_j {
-                    // Logic to multiply PauliFStrings (ti * tj)
-                    // Combine Zs, Xs, Ys according to algebra
-                    // Multiply coeffs: ti.coeff * tj.coeff * h_ij
-                    // Append to full_hamiltonian
+                    let mut product = ti.mul(tj);
+                    product.coeff *= h_ij;
+                    full_hamiltonian.push(product);
                 }
             }
         }
-        
+
+        // Simplify: combine terms with identical Pauli string patterns
+        Self::simplify(&mut full_hamiltonian);
         full_hamiltonian
+    }
+
+    /// Simplify Hamiltonian by merging identical Pauli strings (coefficient accumulation)
+    /// and dropping terms with negligible coefficients.
+    fn simplify(terms: &mut FVec<PauliFString>) {
+        let eps = 1e-12;
+        // Sort by a canonical key: (pattern as string, real part ordering)
+        // Then merge adjacent identical patterns
+        terms.sort_by(|a, b| {
+            let ka = Self::pattern_key(&a.ops);
+            let kb = Self::pattern_key(&b.ops);
+            ka.cmp(&kb)
+        });
+
+        let mut merged: FVec<PauliFString> = Vec::new();
+        for term in terms.drain(..) {
+            if term.coeff.norm() < eps {
+                continue; // drop negligible terms
+            }
+            if let Some(last) = merged.last_mut() {
+                if Self::pattern_key(&last.ops) == Self::pattern_key(&term.ops) {
+                    last.coeff += term.coeff;
+                    if last.coeff.norm() < eps {
+                        merged.pop();
+                    }
+                    continue;
+                }
+            }
+            merged.push(term);
+        }
+        *terms = merged;
+    }
+
+    fn pattern_key(ops: &FVec<Pauli>) -> FString {
+        ops.iter().map(|p| match p {
+            Pauli::I => 'I',
+            Pauli::X => 'X',
+            Pauli::Y => 'Y',
+            Pauli::Z => 'Z',
+        }).collect()
     }
 }

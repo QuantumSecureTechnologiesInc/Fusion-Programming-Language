@@ -1,0 +1,26 @@
+// commands/doc.fu — Documentation generation command.
+// Generates docs from source comments using fuc.exe doc.
+
+fn cmd_doc(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+
+    print_info("Generating documentation for ");
+    puts(manifest.name);
+
+    create_dir("docs");
+
+    let cmd = "fuc.exe doc --path src/ --out docs/";
+
+    if args.verbose_flag {
+        cmd = cmd + " --verbose";
+    }
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Documentation generated in docs/");
+    } else {
+        print_error("Documentation generation failed");
+        exit(1);
+    }
+}

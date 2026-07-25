@@ -1,0 +1,40 @@
+// src/control/mod.fu
+// Fusion Control Flow Module — Continuations & Cooperative Multitasking
+//
+// This module provides first-class continuations for capturing and restoring
+// arbitrary execution states, and cooperative multitasking via coroutines
+// for structured concurrent programming.
+
+module control
+
+pub mod continuation
+pub mod coroutine
+
+pub use continuation::{
+    Continuation,
+    call_cc,
+    cont_invoke,
+    cont_capture,
+    cont_restore,
+    cont_save_to_file,
+    cont_load_from_file,
+    cont_is_valid,
+    cont_depth,
+    cont_thread_count,
+}
+
+pub use coroutine::{
+    Coroutine,
+    coroutine_new,
+    coroutine_resume,
+    coroutine_yield,
+    coroutine_is_done,
+    coroutine_state,
+    coroutine_destroy,
+    coroutine_chain,
+}
+
+// Cross-references to related features
+pub use crate::concurrency::async_mod   // coroutines work with async
+pub use crate::effects::effect          // effects can be performed in continuations
+pub use crate::actors::actor            // coroutines can be used in actors

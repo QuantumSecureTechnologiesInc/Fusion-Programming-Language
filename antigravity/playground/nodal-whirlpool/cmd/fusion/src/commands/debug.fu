@@ -1,8 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/cmd/fusion/src/commands/debug.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-use fusion_debugger;
-
-fn debug(target: Option<&str>) -> Result<()> {
-    fusion_debugger::debug_target(target)
-}

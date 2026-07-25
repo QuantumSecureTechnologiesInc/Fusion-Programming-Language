@@ -1,0 +1,10 @@
+// JavaScript interoperability for Fusion V2.0 Vortex
+
+struct JsEngine {
+    handle: int
+}
+
+extern fn js_create() -> JsEngine
+extern fn js_eval(engine: JsEngine, script: string) -> string
+extern fn js_call(engine: JsEngine, func: string, args: string) -> string
+extern fn js_release(engine: JsEngine) -> void

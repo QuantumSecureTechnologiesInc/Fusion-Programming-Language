@@ -1,7 +1,0 @@
-Developer Guide: ReactorCLI1. Building the CrateReactorCLI is a standard Rust crate.cargo build
-2. Extending SourcesTo add a new configuration source (e.g., AWS Parameter Store), implement the ConfigSource trait:impl ConfigSource for AwsParamStore {
-    fn get(&self, key: &str) -> Option<String> {
-        // ... fetch from AWS ...
-    }
-}
-3. Polyglot SchemaThe schema definition is stored in src/schema.rs. It maps Rust types to a language-agnostic JSON format used by Fusion Forge to build bindings.

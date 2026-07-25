@@ -1,0 +1,36 @@
+// src/compiler/interaction_witness.fu
+// Interaction Witness — detects and reports feature interaction conflicts
+
+struct InteractionWitness {
+    function_name: string,
+    feature_set: []string,
+    witness_hash: string,
+    conflicts: []string,
+}
+
+struct WitnessConflict {
+    feature_a: string,
+    feature_b: string,
+    reason: string,
+    severity: string,
+}
+
+struct WitnessReport {
+    witnesses: []InteractionWitness,
+    total_conflicts: int,
+    is_compatible: bool,
+}
+
+extern fn witness_generate(function_name: string, features_used: []string) -> InteractionWitness
+
+extern fn witness_verify(witness: InteractionWitness) -> bool
+
+extern fn witness_check_conflicts(witness: InteractionWitness) -> []WitnessConflict
+
+extern fn witness_conflict_error(conflict: WitnessConflict) -> string
+
+extern fn witness_report_errors(report: WitnessReport) -> []string
+
+extern fn witness_format_report(report: WitnessReport) -> string
+
+extern fn program_witness_check(modules: []string) -> bool

@@ -1,0 +1,18 @@
+[package]
+name = "fusion_haft"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/QuantumSecureTechnologiesInc/Fusion"
+authors = ["Quantum Secure Technologies Inc."]
+description = "Hyper-Adaptive Flux Tensor memory manager with tiered GPU/RAM allocation and automatic data placement"
+
+[dependencies]
+parking_lot = "0.12"
+crossbeam = "0.8"
+tracing = "0.1"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+libc = "0.2"
+
+[dev-dependencies]

@@ -1,0 +1,163 @@
+// Fusion v2.0 Vortex — Wallet Management
+// Keypair generation, transaction signing, balance queries, and wallet export/import.
+
+use crate::blockchain::crypto::{
+    crypto_keygen_ed25519,
+    crypto_sign_ed25519,
+    crypto_verify_ed25519,
+    crypto_generate_address,
+    crypto_hash_sha256
+}
+use crate::blockchain::transaction::{Transaction, tx_new, tx_sign}
+use crate::blockchain::chain::{Blockchain, chain_get_block, chain_length}
+
+struct Wallet {
+    address: string,
+    public_key: string,
+    private_key: string,
+    balance: float,
+    nonce: int
+}
+
+struct WalletInfo {
+    address: string,
+    balance: float,
+    transaction_count: int,
+    nonce: int
+}
+
+/// Generate a new wallet with a fresh Ed25519 keypair.
+fn wallet_new() -> Wallet {
+    let keypair = crypto_keygen_ed25519()
+    let public_key = keypair.public_key
+    let private_key = keypair.private_key
+    let address = crypto_generate_address(public_key)
+    return Wallet {
+        address,
+        public_key,
+        private_key,
+        balance: 0.0,
+        nonce: 0
+    }
+}
+
+/// Restore a wallet from a known private key.
+fn wallet_from_private_key(key: string) -> Wallet {
+    // Derive public key from private key
+    let public_key = crypto_derive_public_key(key)
+    let address = crypto_generate_address(public_key)
+    return Wallet {
+        address,
+        public_key,
+        private_key: key,
+        balance: 0.0,
+        nonce: 0
+    }
+}
+
+/// Return the wallet's address.
+fn wallet_address(wallet: Wallet) -> string {
+    return wallet.address
+}
+
+/// Compute the wallet's balance by scanning the blockchain.
+fn wallet_balance(wallet: Wallet, chain: Blockchain) -> float {
+    let balance = 0.0
+    let mut i = 0
+    while i < chain_length(chain) {
+        let block = chain_get_block(chain, i)
+        let txs = block_transactions(block)
+        let mut j = 0
+        while j < txs.len() {
+            let tx = txs[j]
+            if tx.to == wallet.address {
+                balance += tx.amount
+            }
+            if tx.from == wallet.address {
+                balance -= tx.amount + tx.fee
+            }
+            j += 1
+        }
+        i += 1
+    }
+    return balance
+}
+
+/// Create and sign a transaction to send tokens.
+fn wallet_send(wallet: Wallet, to: string, amount: float, fee: float) -> Transaction {
+    let tx = tx_new(wallet.address, to, amount, fee)
+    let signed = tx_sign(tx, wallet.private_key)
+    // Increment nonce after sending
+    wallet.nonce += 1
+    return signed
+}
+
+/// Sign arbitrary data with the wallet's private key.
+fn wallet_sign(wallet: Wallet, data: string) -> string {
+    return crypto_sign_ed25519(data, wallet.private_key)
+}
+
+/// Verify a signature against the wallet's public key.
+fn wallet_verify(wallet: Wallet, data: string, signature: string) -> bool {
+    return crypto_verify_ed25519(data, signature, wallet.public_key)
+}
+
+/// Get a summary of wallet state including computed balance.
+fn wallet_info(wallet: Wallet, chain: Blockchain) -> WalletInfo {
+    let balance = wallet_balance(wallet, chain)
+    let tx_count = 0
+    let mut i = 0
+    while i < chain_length(chain) {
+        let block = chain_get_block(chain, i)
+        let txs = block_transactions(block)
+        let mut j = 0
+        while j < txs.len() {
+            let tx = txs[j]
+            if tx.from == wallet.address || tx.to == wallet.address {
+                tx_count += 1
+            }
+            j += 1
+        }
+        i += 1
+    }
+    return WalletInfo {
+        address: wallet.address,
+        balance,
+        transaction_count: tx_count,
+        nonce: wallet.nonce
+    }
+}
+
+/// Export wallet data as a JSON string for backup.
+fn wallet_export(wallet: Wallet) -> string {
+    return "{" +
+        "\"address\":\"" + wallet.address + "\"," +
+        "\"public_key\":\"" + wallet.public_key + "\"," +
+        "\"private_key\":\"" + wallet.private_key + "\"," +
+        "\"balance\":" + wallet.balance.to_string() + "," +
+        "\"nonce\":" + wallet.nonce.to_string() +
+        "}"
+}
+
+/// Import a wallet from a JSON string.
+fn wallet_import(json: string) -> Wallet {
+    let address = json_extract_string(json, "address")
+    let public_key = json_extract_string(json, "public_key")
+    let private_key = json_extract_string(json, "private_key")
+    let balance = json_extract_float(json, "balance")
+    let nonce = json_extract_int(json, "nonce")
+    return Wallet {
+        address,
+        public_key,
+        private_key,
+        balance,
+        nonce
+    }
+}
+
+// Runtime helpers
+extern fn json_extract_string(json: string, key: string) -> string
+extern fn json_extract_float(json: string, key: string) -> float
+extern fn json_extract_int(json: string, key: string) -> int
+extern fn crypto_derive_public_key(private_key: string) -> string
+extern fn block_transactions(block: Block) -> []Transaction

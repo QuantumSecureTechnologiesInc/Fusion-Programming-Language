@@ -26,10 +26,12 @@ impl Profiler {
         }
     }
 
-    // Stub for getting microsecond timestamp
     fn current_time_us() -> FI64 {
-        // In native code: std::time::SystemTime::now()...
-        0 
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let duration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        (duration.as_secs() as FI64) * 1_000_000 + (duration.subsec_micros() as FI64)
     }
 
     /// Begins a profiling span (e.g., "Semantic Analysis").

@@ -1,0 +1,137 @@
+// Guaranteed Tail-Call Optimization
+//
+// The Fusion compiler guarantees that functions whose recursive calls are in
+// tail position are transformed into iterative loops — no stack growth, no
+// limits on recursion depth.
+//
+// This module exposes the detection, verification, and transformation APIs
+// that the compiler passes use to achieve this guarantee.
+
+/// Represents a detected tail-recursive call site.
+/// `fn_name` — the function being called
+/// `args`    — serialized argument expression
+/// `is_tail` — true if this call is in tail position
+struct TailCall {
+    fn_name: string,
+    args: string,
+    is_tail: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Detection & verification (extern — implemented in the compiler)
+// ---------------------------------------------------------------------------
+
+/// Analyze the IR body of `fn_name` and return true if it contains at least
+/// one tail-recursive call that can be optimized.
+extern fn tco_detect(fn_name: string, body: string) -> bool
+
+/// Transform the IR body of `fn_name` so that all tail-recursive calls are
+/// replaced by an iterative loop. Returns the transformed IR.
+extern fn tco_optimize(fn_name: string, body: string) -> string
+
+/// Post-optimization check: verify that `fn_name` no longer contains any
+/// non-tail recursive calls and that TCO was successfully applied.
+extern fn tco_verify(fn_name: string) -> bool
+
+// ---------------------------------------------------------------------------
+// Analysis helpers (pure Fusion)
+// ---------------------------------------------------------------------------
+
+/// Count the total number of recursive calls (tail and non-tail) in the
+/// IR body of `fn_name`. Useful for reporting and diagnostics.
+fn tail_recursive_count(fn_name: string) -> int {
+    let body = tco_optimize(fn_name, "")
+    let count = 0
+    // Scan the IR for self-recursive call nodes
+    let i = 0
+    let len = string_length(body)
+    let pattern = fn_name + "("
+    let pat_len = string_length(pattern)
+
+    while i <= len - pat_len {
+        let slice = string_slice(body, i, i + pat_len)
+        if slice == pattern {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+/// Check whether a specific call site (`call_site`) in the IR of `fn_name`
+/// is in tail position. A call is in tail position when its result is the
+/// direct return value of the enclosing function or when-loop body.
+fn is_tail_position(fn_name: string, call_site: string) -> bool {
+    // Heuristic: a call is in tail position if, after the call, the only
+    // remaining tokens before the matching closing delimiter are whitespace,
+    // a closing brace, or a return keyword.
+    let after = string_find_after(call_site, ")")
+    let trimmed = string_trim(after)
+    let tail_patterns = ["}", "return", ""]
+    for pat in tail_patterns {
+        if string_starts_with(trimmed, pat) {
+            return true
+        }
+    }
+    return false
+}
+
+// ---------------------------------------------------------------------------
+// Transformation strategies
+// ---------------------------------------------------------------------------
+
+/// Convert a tail-recursive function into a `while (true)` loop.
+///
+/// Input (conceptual):
+///   fn fib(n: int, a: int, b: int) -> int {
+///     if n == 0 { return a }
+///     return fib(n - 1, b, a + b)
+///   }
+///
+/// Output (conceptual):
+///   fn fib(n: int, a: int, b: int) -> int {
+///     while (true) {
+///       if n == 0 { return a }
+///       let _n = n - 1
+///       let _a = b
+///       let _b = a + b
+///       n = _n; a = _a; b = _b
+///     }
+///   }
+fn tco_transform_loop(fn_name: string, params: string, body: string) -> string {
+    let transformed = "fn " + fn_name + "(" + params + ") -> _ {\n"
+    transformed = transformed + "  while (true) {\n"
+    transformed = transformed + "    " + body + "\n"
+    transformed = transformed + "  }\n"
+    transformed = transformed + "}"
+    return transformed
+}
+
+/// Accumulator-based transformation for functions where the recursive
+/// result can be expressed as an accumulating parameter.
+///
+/// Input (conceptual):
+///   fn sum(n: int) -> int {
+///     if n == 0 { return 0 }
+///     return n + sum(n - 1)
+///   }
+///
+/// Output (conceptual):
+///   fn sum(n: int) -> int {
+///     fn sum_loop(n: int, acc: int) -> int {
+///       if n == 0 { return acc }
+///       return sum_loop(n - 1, acc + n)
+///     }
+///     return sum_loop(n, 0)
+///   }
+fn tco_transform_accumulator(fn_name: string, params: string, accum: string, body: string) -> string {
+    let loop_name = fn_name + "_loop"
+    let inner_params = params + ", " + accum
+    let inner_body = tco_transform_loop(loop_name, inner_params, body)
+
+    let wrapper = "fn " + fn_name + "(" + params + ") -> _ {\n"
+    wrapper = wrapper + "  " + inner_body + "\n"
+    wrapper = wrapper + "  return " + loop_name + "(" + params + ", " + accum + ")\n"
+    wrapper = wrapper + "}"
+    return wrapper
+}

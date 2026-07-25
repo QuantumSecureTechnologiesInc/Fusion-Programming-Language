@@ -1,0 +1,122 @@
+// Fusion v2.0 Vortex — Zero-Knowledge Proof System
+
+struct ZkProof {
+    proof: string
+    public_inputs: string
+    verification_key: string
+}
+
+struct ZkCircuit {
+    constraints: []string
+    inputs: string
+}
+
+fn zk_circuit_new(constraints: []string) -> ZkCircuit {
+    assert(len(constraints) > 0, "Circuit must have at least one constraint")
+    ZkCircuit {
+        constraints: constraints,
+        inputs: ""
+    }
+}
+
+fn zk_prove(circuit: ZkCircuit, witness: string) -> ZkProof {
+    assert(len(circuit.constraints) > 0, "Circuit has no constraints")
+
+    let circuit_hash = hash_circuit(circuit)
+    let proof_data = sign_data(concat(circuit_hash, witness))
+    let vk = hash_concat(circuit_hash, "verification_key")
+
+    ZkProof {
+        proof: proof_data,
+        public_inputs: hash_concat(witness, "public"),
+        verification_key: vk
+    }
+}
+
+fn zk_verify(proof: ZkProof, public_inputs: string) -> bool {
+    if len(proof.proof) == 0 {
+        return false
+    }
+    if len(proof.verification_key) == 0 {
+        return false
+    }
+    // Verify the proof matches the public inputs
+    let expected = sign_data(concat(proof.verification_key, public_inputs))
+    proof.proof == expected
+}
+
+fn zk_prove_range(value: int, min: int, max: int) -> ZkProof {
+    assert(value >= min, "Value is below minimum")
+    assert(value <= max, "Value is above maximum")
+    assert(min <= max, "Min must be <= max")
+
+    let circuit = zk_circuit_new([
+        concat("range_check:", to_string(min), to_string(max))
+    ])
+    let witness = to_string(value)
+    zk_prove(circuit, witness)
+}
+
+fn zk_verify_range(proof: ZkProof, min: int, max: int) -> bool {
+    if !zk_verify(proof, proof.public_inputs) {
+        return false
+    }
+    // Verify the circuit constraint matches the claimed range
+    let expected_vk = hash_concat(
+        hash_concat("range_check:" + to_string(min) + to_string(max), ""),
+        "verification_key"
+    )
+    proof.verification_key == expected_vk
+}
+
+fn zk_prove_membership(element: string, set: []string) -> ZkProof {
+    assert(len(set) > 0, "Set must not be empty")
+
+    let found = false
+    for s in set {
+        if s == element {
+            found = true
+        }
+    }
+    assert(found, "Element is not in the set")
+
+    let set_hash = hash_set(set)
+    let circuit = zk_circuit_new([
+        concat("membership:", set_hash)
+    ])
+    let witness = hash_concat(element, set_hash)
+    zk_prove(circuit, witness)
+}
+
+fn zk_verify_membership(proof: ZkProof, set: []string) -> bool {
+    if !zk_verify(proof, proof.public_inputs) {
+        return false
+    }
+    let set_hash = hash_set(set)
+    let expected_vk = hash_concat(
+        concat("membership:", set_hash),
+        "verification_key"
+    )
+    proof.verification_key == expected_vk
+}
+
+fn zk_prove_balance(balance: float, min: float) -> ZkProof {
+    assert(balance >= min, "Balance is below minimum")
+
+    let circuit = zk_circuit_new([
+        concat("balance_check:", to_string(min))
+    ])
+    let witness = to_string(balance)
+    zk_prove(circuit, witness)
+}
+
+fn zk_verify_balance(proof: ZkProof, min: float) -> bool {
+    if !zk_verify(proof, proof.public_inputs) {
+        return false
+    }
+    let expected_vk = hash_concat(
+        concat("balance_check:", to_string(min)),
+        "verification_key"
+    )
+    proof.verification_key == expected_vk
+}

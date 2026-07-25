@@ -1,0 +1,26 @@
+// commands/lint.fu — Lint command.
+// Static analysis on project source files.
+
+fn cmd_lint(args: CliArgs) -> void {
+    let manifest = config_load_or_die();
+
+    print_info("Linting ");
+    puts(manifest.name);
+    puts("...");
+
+    let cmd = "fuc.exe lint --path src/ --manifest Fusion.toml";
+
+    if args.verbose_flag {
+        cmd = cmd + " --verbose";
+    }
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("No issues found");
+    } else {
+        print_warning("Lint issues detected (exit code: ");
+        puts(status);
+        puts(")");
+    }
+}

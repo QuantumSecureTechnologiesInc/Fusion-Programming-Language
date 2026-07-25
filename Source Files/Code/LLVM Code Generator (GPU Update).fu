@@ -48,19 +48,357 @@ impl<'a> LLVMCodeGenerator<'a> {
 
     fn generate_gpu_dispatch(&mut self, name: &str, body: &Block) -> Result<(), FString> {
         // --- LLVM Steps for GPU Offloading ---
-        // 1. Allocate GPU memory for input Tensors (via CUDA Runtime API).
-        // 2. Insert LLVM intrinsic call to copy data from CPU RAM to GPU VRAM.
-        // 3. Generate the kernel launch wrapper (e.g., call `cudaLaunchKernel`).
-        // 4. Generate the actual GPU kernel IR (derived from the loop structures in the function's body).
-        // 5. Insert LLVM intrinsic call to copy result data back from GPU to CPU.
 
-        println!(
-            "  -> Successfully mapped function '{}' to GPU offload pass.",
-            name
-        );
-        self.generate_block(body)?; // Generate the block body which will contain the actual kernel logic
+        // Step 1: Identify kernel parameters (tensor/array inputs that need GPU transfer).
+        let kernel_params = self.extract_gpu_kernel_params(body);
+
+        // Step 2: Allocate GPU memory for each input tensor via CUDA Runtime intrinsics.
+        let mut gpu_allocations: FVec<GpuAllocation> = Vec::new();
+        for param in &kernel_params {
+            let size_bytes = self.compute_tensor_size_bytes(&param.ty);
+            let alloc = self.generate_gpu_malloc(&param.name, size_bytes)?;
+            gpu_allocations.push(alloc);
+        }
+
+        // Step 3: Generate CPU-to-GPU data transfer calls (cudaMemcpyHostToDevice).
+        for (param, alloc) in kernel_params.iter().zip(gpu_allocations.iter()) {
+            self.generate_cpu_to_gpu_transfer(param, alloc)?;
+        }
+
+        // Step 4: Generate the kernel launch wrapper.
+        //   a. Compute grid and block dimensions from loop bounds in the body.
+        let (grid_dim, block_dim) = self.compute_kernel_dimensions(body);
+        //   b. Build the kernel function IR.
+        let kernel_fn_name = format!("{}_kernel", name);
+        self.begin_kernel_function(&kernel_fn_name, &kernel_params)?;
+        self.generate_kernel_body(body)?;
+        self.end_kernel_function()?;
+        //   c. Emit the cudaLaunchKernel call with grid/block dims and argument pointer list.
+        self.generate_kernel_launch(&kernel_fn_name, &gpu_allocations, &grid_dim, &block_dim)?;
+
+        // Step 5: Generate GPU-to-CPU data transfer for output results (cudaMemcpyDeviceToHost).
+        let output_params = self.extract_gpu_output_params(body);
+        for param in &output_params {
+            if let Some(alloc) = gpu_allocations.iter().find(|a| a.name == param.name) {
+                self.generate_gpu_to_cpu_transfer(param, alloc)?;
+            }
+        }
+
+        // Step 6: Generate GPU memory deallocation (cudaFree) for all allocations.
+        for alloc in &gpu_allocations {
+            self.generate_gpu_free(alloc)?;
+        }
 
         Ok(())
+    }
+
+    /// Analyzes the function body to extract parameters that need to be transferred to the GPU.
+    fn extract_gpu_kernel_params(&self, body: &Block) -> FVec<KernelParam> {
+        let mut params = vec![];
+        for stmt in &body.statements {
+            match stmt {
+                Statement::ForLoop { iter_var, range, .. } => {
+                    // Loop iteration variables become kernel thread indices.
+                    params.push(KernelParam {
+                        name: iter_var.clone(),
+                        ty: Type::Int64, // loop index is always i64
+                        role: KernelParamRole::LoopIndex,
+                    });
+                }
+                Statement::VarDecl { name, ty, init, .. } => {
+                    if self.type_needs_gpu_transfer(ty) {
+                        params.push(KernelParam {
+                            name: name.clone(),
+                            ty: ty.clone(),
+                            role: KernelParamRole::DataInput,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        params
+    }
+
+    /// Returns the size in bytes for a given type (used for cudaMalloc).
+    fn compute_tensor_size_bytes(&self, ty: &Type) -> u64 {
+        match ty {
+            Type::Int32 | Type::Float32 => 4,
+            Type::Int64 | Type::Float64 => 8,
+            Type::Bool => 1,
+            Type::Tensor(element_ty, dims) => {
+                let elem_size = self.compute_tensor_size_bytes(element_ty);
+                dims.iter().fold(1u64, |acc, d| acc * (*d as u64)) * elem_size
+            }
+            Type::Array(element_ty, len) => self.compute_tensor_size_bytes(element_ty) * (*len as u64),
+            _ => 8, // default pointer/word size
+        }
+    }
+
+    /// Emits LLVM IR for cudaMalloc: `call i32 @cudaMalloc(i8** %ptr, i64 %size)`
+    fn generate_gpu_malloc(&mut self, name: &str, size_bytes: u64) -> Result<GpuAllocation, FString> {
+        let gpu_var = format!("{}_gpu_ptr", name);
+        let size_const = self.ctx.i64_const(size_bytes as i64);
+
+        // %gpu_ptr = alloca i8*, align 8
+        let alloca = self.builder.build_alloca(&Type::Ptr(Type::U8), &gpu_var);
+        // call i32 @cudaMalloc(i8** %gpu_ptr, i64 <size>)
+        let cuda_malloc_fn = self.get_or_declare_cuda_function("cudaMalloc", &[
+            Type::Ptr(Type::Ptr(Type::U8)),
+            Type::Int64,
+        ], Type::Int32);
+        self.builder.build_call(&cuda_malloc_fn, &[&alloca, &size_const]);
+
+        Ok(GpuAllocation {
+            name: name.to_string(),
+            gpu_pointer: alloca,
+            size_bytes,
+        })
+    }
+
+    /// Emits LLVM IR for cudaMemcpyHostToDevice:
+    /// `call i32 @cudaMemcpy(i8* %dst, i8* %src, i64 %size, i32 1)`
+    fn generate_cpu_to_gpu_transfer(&mut self, param: &KernelParam, alloc: &GpuAllocation) -> Result<(), FString> {
+        let src_ptr = self.builder.build_load(&param.ty, &param.name);
+        let dst_ptr = self.builder.build_load(&Type::Ptr(Type::U8), &alloc.name.clone() + "_gpu_ptr");
+        let size = self.ctx.i64_const(alloc.size_bytes as i64);
+        let direction = self.ctx.i32_const(1); // cudaMemcpyHostToDevice = 1
+
+        let cuda_memcpy_fn = self.get_or_declare_cuda_function("cudaMemcpy", &[
+            Type::Ptr(Type::U8), Type::Ptr(Type::U8), Type::Int64, Type::Int32,
+        ], Type::Int32);
+        self.builder.build_call(&cuda_memcpy_fn, &[&dst_ptr, &src_ptr, &size, &direction]);
+        Ok(())
+    }
+
+    /// Computes the CUDA grid and block dimensions by analyzing loop nests in the body.
+    fn compute_kernel_dimensions(&self, body: &Block) -> (GridDim, BlockDim) {
+        let mut depth = 0u32;
+        let mut current_block = body;
+        let mut block_sizes: FVec<u32> = vec![];
+
+        // Walk nested for-loops to determine thread hierarchy.
+        while let Some((inner, _)) = self.find_first_nested_for(current_block) {
+            depth += 1;
+            // Default block size 256 threads; can be overridden with #[block_size(N)].
+            let block_size = self.get_block_size_attr(current_block).unwrap_or(256);
+            block_sizes.push(block_size);
+            current_block = inner;
+        }
+
+        let threads_per_block = if block_sizes.is_empty() { 256 } else { block_sizes[0] };
+        let total_threads = self.estimate_total_iterations(body);
+        let num_blocks = (total_threads + threads_per_block - 1) / threads_per_block;
+
+        (
+            GridDim { x: num_blocks, y: 1, z: 1 },
+            BlockDim { x: threads_per_block, y: 1, z: 1 },
+        )
+    }
+
+    /// Begins emitting a GPU kernel function in LLVM IR.
+    fn begin_kernel_function(&mut self, kernel_name: &str, params: &[KernelParam]) -> Result<(), FString> {
+        // Mark the function with CUDA __global__ linkage.
+        let param_types: FVec<&Type> = params.iter().map(|p| &p.ty).collect();
+        let fn_type = self.ctx.function_type(&Type::Void, &param_types);
+        let kernel_fn = self.module.add_function(kernel_name, fn_type, Linkage::External);
+
+        // Add CUDA __global__ attribute metadata.
+        self.module.add_function_attribute(kernel_fn, "nvptx.kernel", "true");
+
+        // Create entry basic block and set insertion point.
+        let entry = self.ctx.append_basic_block(kernel_fn, "entry");
+        self.builder.set_insertion_point(entry);
+
+        // Bind parameter values to names so kernel body IR can reference them.
+        for (i, param) in params.iter().enumerate() {
+            let arg = kernel_fn.get_param(i as u32);
+            arg.set_name(&param.name);
+            self.builder.build_store(&param.ty, &param.name, arg);
+        }
+
+        Ok(())
+    }
+
+    /// Generates the IR for the kernel body, mapping Fusion loops to CUDA thread indexing.
+    fn generate_kernel_body(&mut self, body: &Block) -> Result<(), FString> {
+        // Map Fusion for-loops to threadIdx / blockIdx intrinsics.
+        for stmt in &body.statements {
+            match stmt {
+                Statement::ForLoop { iter_var, range, body: loop_body } => {
+                    // Compute thread index: `threadIdx.x + blockIdx.x * blockDim.x`
+                    let thread_idx = self.call_cuda_thread_idx_x();
+                    let block_idx = self.call_cuda_block_idx_x();
+                    let block_dim = self.call_cuda_block_dim_x();
+                    let global_idx = self.builder.build_add(
+                        &self.builder.build_mul(block_idx, block_dim),
+                        thread_idx,
+                    );
+
+                    // Handle range bounds (0..N or start..end).
+                    let (start_val, end_val) = self.compile_range(range);
+                    let adjusted_idx = self.builder.build_add(&global_idx, &start_val);
+
+                    // Bounds check: if adjusted_idx >= end_val, return early.
+                    let cmp = self.builder.build_icmp(IntPredicate::UGE, &adjusted_idx, &end_val);
+                    self.builder.build_cond_branch(cmp, "kernel_exit", "kernel_body");
+
+                    let body_bb = self.ctx.append_basic_block(self.current_function(), "kernel_body");
+                    self.builder.set_insertion_point(body_bb);
+
+                    // Bind the loop iteration variable to the computed thread index.
+                    self.builder.build_store(&Type::Int64, iter_var, adjusted_idx);
+
+                    // Recursively generate the loop body IR.
+                    for inner_stmt in loop_body {
+                        self.generate_statement(inner_stmt)?;
+                    }
+                    self.builder.build_unconditional_branch("kernel_latch");
+
+                    let latch_bb = self.ctx.append_basic_block(self.current_function(), "kernel_latch");
+                    self.builder.set_insertion_point(latch_bb);
+                }
+                _ => {
+                    self.generate_statement(stmt)?;
+                }
+            }
+        }
+
+        // Exit block: `ret void`
+        self.builder.build_return_void();
+        Ok(())
+    }
+
+    /// Ends the current kernel function by closing its last basic block.
+    fn end_kernel_function(&mut self) -> Result<(), FString> {
+        // Terminate any open block with ret void if not already terminated.
+        if !self.builder.current_block_is_terminated() {
+            self.builder.build_return_void();
+        }
+        Ok(())
+    }
+
+    /// Emits the cudaLaunchKernel call to dispatch the compiled kernel.
+    fn generate_kernel_launch(
+        &mut self,
+        kernel_name: &str,
+        allocations: &[GpuAllocation],
+        grid: &GridDim,
+        block: &BlockDim,
+    ) -> Result<(), FString> {
+        let kernel_fn = self.module.get_function(kernel_name)
+            .ok_or_else(|| format!("Kernel function '{}' not found in module", kernel_name))?;
+
+        // Compute grid and block dim values.
+        let gx = self.ctx.i32_const(grid.x as i32);
+        let gy = self.ctx.i32_const(grid.y as i32);
+        let gz = self.ctx.i32_const(grid.z as i32);
+        let bx = self.ctx.i32_const(block.x as i32);
+        let by = self.ctx.i32_const(block.y as i32);
+        let bz = self.ctx.i32_const(block.z as i32);
+
+        // Build the kernel argument pointer list.
+        let arg_ptrs: FVec<&BasicValue> = allocations
+            .iter()
+            .map(|a| self.builder.build_load(&Type::Ptr(Type::U8), &format!("{}_gpu_ptr", a.name)))
+            .collect();
+
+        // Allocate a void* array on the stack to hold the argument pointers.
+        let args_array = self.builder.build_alloca(&Type::Array(Type::Ptr(Type::U8), allocations.len() as u64), "kernel_args");
+        for (i, arg) in arg_ptrs.iter().enumerate() {
+            let gep = self.builder.build_gep(args_array, &[self.ctx.i32_const(0), self.ctx.i32_const(i as i32)]);
+            self.builder.build_store(&Type::Ptr(Type::U8), gep, arg);
+        }
+
+        // call i32 @cudaLaunchKernel(i8* %fn_ptr, dim3 %grid, dim3 %block, i8** %args, i64 0, i8* null)
+        let cuda_launch_fn = self.get_or_declare_cuda_function("cudaLaunchKernel", &[
+            Type::Ptr(Type::U8),   // kernel function pointer
+            Type::Int32, Type::Int32, Type::Int32, // grid dim x,y,z
+            Type::Int32, Type::Int32, Type::Int32, // block dim x,y,z
+            Type::Ptr(Type::Ptr(Type::U8)), // args
+            Type::Int64,           // shared memory size
+            Type::Ptr(Type::U8),   // stream (null = default)
+        ], Type::Int32);
+
+        let fn_ptr = self.builder.build_bitcast(
+            self.builder.build_address_of(kernel_fn),
+            &Type::Ptr(Type::U8),
+        );
+        self.builder.build_call(&cuda_launch_fn, &[
+            &fn_ptr, &gx, &gy, &gz, &bx, &by, &bz, args_array,
+            &self.ctx.i64_const(0), &self.ctx.ptr_const(null_mut()),
+        ]);
+
+        // Check launch return code.
+        let launch_result = self.builder.build_load(&Type::Int32, "cuda_launch_result");
+        let success = self.builder.build_icmp(IntPredicate::EQ, &launch_result, &self.ctx.i32_const(0));
+        self.builder.build_cond_branch(success, "launch_ok", "launch_fail");
+
+        let fail_bb = self.ctx.append_basic_block(self.current_function(), "launch_fail");
+        self.builder.set_insertion_point(fail_bb);
+        self.builder.build_return(&self.ctx.i32_const(-1)); // Return error
+
+        let ok_bb = self.ctx.append_basic_block(self.current_function(), "launch_ok");
+        self.builder.set_insertion_point(ok_bb);
+
+        Ok(())
+    }
+
+    /// Generates LLVM IR for cudaMemcpyDeviceToHost.
+    fn generate_gpu_to_cpu_transfer(&mut self, param: &KernelParam, alloc: &GpuAllocation) -> Result<(), FString> {
+        let dst_ptr = self.builder.build_address_of(&param.name);
+        let src_ptr = self.builder.build_load(&Type::Ptr(Type::U8), &format!("{}_gpu_ptr", alloc.name));
+        let size = self.ctx.i64_const(alloc.size_bytes as i64);
+        let direction = self.ctx.i32_const(2); // cudaMemcpyDeviceToHost = 2
+
+        let cuda_memcpy_fn = self.get_or_declare_cuda_function("cudaMemcpy", &[
+            Type::Ptr(Type::U8), Type::Ptr(Type::U8), Type::Int64, Type::Int32,
+        ], Type::Int32);
+        self.builder.build_call(&cuda_memcpy_fn, &[&dst_ptr, &src_ptr, &size, &direction]);
+        Ok(())
+    }
+
+    /// Generates LLVM IR for cudaFree to deallocate GPU memory.
+    fn generate_gpu_free(&mut self, alloc: &GpuAllocation) -> Result<(), FString> {
+        let gpu_ptr = self.builder.build_load(&Type::Ptr(Type::U8), &format!("{}_gpu_ptr", alloc.name));
+
+        let cuda_free_fn = self.get_or_declare_cuda_function("cudaFree", &[
+            Type::Ptr(Type::U8),
+        ], Type::Int32);
+        self.builder.build_call(&cuda_free_fn, &[&gpu_ptr]);
+        Ok(())
+    }
+
+    /// LLVM intrinsic: call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+    fn call_cuda_thread_idx_x(&mut self) -> &BasicValue {
+        let fn_name = "llvm.nvvm.read.ptx.sreg.tid.x";
+        let fn_type = self.ctx.function_type(&Type::Int32, &[]);
+        let intrinsic = self.module.get_or_insert_function(fn_name, fn_type);
+        self.builder.build_call(&intrinsic, &[])
+    }
+
+    /// LLVM intrinsic: call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
+    fn call_cuda_block_idx_x(&mut self) -> &BasicValue {
+        let fn_name = "llvm.nvvm.read.ptx.sreg.ctaid.x";
+        let fn_type = self.ctx.function_type(&Type::Int32, &[]);
+        let intrinsic = self.module.get_or_insert_function(fn_name, fn_type);
+        self.builder.build_call(&intrinsic, &[])
+    }
+
+    /// LLVM intrinsic: call i32 @llvm.nvvm.read.ptx.sreg.ntid.x()
+    fn call_cuda_block_dim_x(&mut self) -> &BasicValue {
+        let fn_name = "llvm.nvvm.read.ptx.sreg.ntid.x";
+        let fn_type = self.ctx.function_type(&Type::Int32, &[]);
+        let intrinsic = self.module.get_or_insert_function(fn_name, fn_type);
+        self.builder.build_call(&intrinsic, &[])
+    }
+
+    /// Helper: determine whether a type contains data that should be offloaded to GPU.
+    fn type_needs_gpu_transfer(&self, ty: &Type) -> bool {
+        matches!(ty,
+            Type::Tensor(_, _) | Type::Array(_, _) |
+            Type::Slice(_) | Type::FVec(_)
+        )
     }
 
     // ... (existing generate_statement, generate_expression, etc., methods omitted) ...

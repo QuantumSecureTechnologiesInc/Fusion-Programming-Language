@@ -1,0 +1,26 @@
+[package]
+name = "fusion-llm-models"
+version = "0.2.0"
+edition = "2021"
+authors = ["Fusion Team"]
+description = "Transformer model architectures for Fusion v2.0: GPT, LLaMA, and BERT"
+
+[dependencies]
+fusion-llm-core = { path = "../fusion_llm_core" }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[lints.rust]
+unsafe_code = "warn"
+unused_imports = "warn"
+unused_variables = "warn"
+dead_code = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"

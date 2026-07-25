@@ -1,0 +1,201 @@
+// Fusion v2.0 Vortex — DeFi Primitives
+// Automated market maker (AMM) liquidity pools and lending protocol.
+
+struct LiquidityPool {
+    token_a: string,
+    token_b: string,
+    reserve_a: float,
+    reserve_b: float,
+    fee: float
+}
+
+struct LendingPool {
+    reserves: float,
+    interest_rate: float,
+    utilization: float
+}
+
+// ─── AMM Liquidity Pool ──────────────────────────────────────────
+
+/// Create a new empty liquidity pair for two tokens.
+fn pool_new(token_a: string, token_b: string, fee: float) -> LiquidityPool {
+    return LiquidityPool {
+        token_a,
+        token_b,
+        reserve_a: 0.0,
+        reserve_b: 0.0,
+        fee
+    }
+}
+
+/// Deposit tokens into the pool. For the initial deposit, both amounts
+/// set the price ratio. Subsequent deposits must match the current ratio.
+fn pool_add_liquidity(pool: LiquidityPool, amount_a: float, amount_b: float) -> LiquidityPool {
+    return LiquidityPool {
+        token_a: pool.token_a,
+        token_b: pool.token_b,
+        reserve_a: pool.reserve_a + amount_a,
+        reserve_b: pool.reserve_b + amount_b,
+        fee: pool.fee
+    }
+}
+
+/// Remove liquidity from the pool. Returns the pool state and amounts
+/// of token_a and token_b returned to the provider.
+fn pool_remove_liquidity(pool: LiquidityPool, shares: float) -> (LiquidityPool, float, float) {
+    let total = pool.reserve_a + pool.reserve_b
+    if total == 0.0 {
+        let empty = LiquidityPool {
+            token_a: pool.token_a,
+            token_b: pool.token_b,
+            reserve_a: 0.0,
+            reserve_b: 0.0,
+            fee: pool.fee
+        }
+        return (empty, 0.0, 0.0)
+    }
+
+    let ratio_a = shares * pool.reserve_a / total
+    let ratio_b = shares * pool.reserve_b / total
+
+    // Clamp to available reserves
+    if ratio_a > pool.reserve_a {
+        ratio_a = pool.reserve_a
+    }
+    if ratio_b > pool.reserve_b {
+        ratio_b = pool.reserve_b
+    }
+
+    let new_pool = LiquidityPool {
+        token_a: pool.token_a,
+        token_b: pool.token_b,
+        reserve_a: pool.reserve_a - ratio_a,
+        reserve_b: pool.reserve_b - ratio_b,
+        fee: pool.fee
+    }
+    return (new_pool, ratio_a, ratio_b)
+}
+
+/// Swap one token for another using the constant-product formula (x * y = k).
+/// Returns the new pool state and the amount of output tokens.
+fn pool_swap(pool: LiquidityPool, token_in: string, amount_in: float) -> (LiquidityPool, float) {
+    let fee_amount = amount_in * pool.fee
+    let amount_in_after_fee = amount_in - fee_amount
+
+    let amount_out: float
+
+    if token_in == pool.token_a {
+        // Swap A -> B using: (reserve_a + amount_in_after_fee) * (reserve_b - amount_out) = reserve_a * reserve_b
+        let numerator = pool.reserve_b * amount_in_after_fee
+        let denominator = pool.reserve_a + amount_in_after_fee
+        amount_out = numerator / denominator
+
+        let new_pool = LiquidityPool {
+            token_a: pool.token_a,
+            token_b: pool.token_b,
+            reserve_a: pool.reserve_a + amount_in_after_fee,
+            reserve_b: pool.reserve_b - amount_out,
+            fee: pool.fee
+        }
+        return (new_pool, amount_out)
+    } else {
+        // Swap B -> A
+        let numerator = pool.reserve_a * amount_in_after_fee
+        let denominator = pool.reserve_b + amount_in_after_fee
+        amount_out = numerator / denominator
+
+        let new_pool = LiquidityPool {
+            token_a: pool.token_a,
+            token_b: pool.token_b,
+            reserve_a: pool.reserve_a - amount_out,
+            reserve_b: pool.reserve_b + amount_in_after_fee,
+            fee: pool.fee
+        }
+        return (new_pool, amount_out)
+    }
+}
+
+/// Get the price of a token in terms of the other.
+/// Returns how much of the other token one unit of `token` is worth.
+fn pool_price(pool: LiquidityPool, token: string) -> float {
+    if pool.reserve_a == 0.0 || pool.reserve_b == 0.0 {
+        return 0.0
+    }
+    if token == pool.token_a {
+        return pool.reserve_b / pool.reserve_a
+    } else {
+        return pool.reserve_a / pool.reserve_b
+    }
+}
+
+/// Measure the pool's imbalance. Returns 0.0 when perfectly balanced,
+/// positive when skewed toward token_a.
+fn pool_imbalance(pool: LiquidityPool) -> float {
+    let total = pool.reserve_a + pool.reserve_b
+    if total == 0.0 {
+        return 0.0
+    }
+    return (pool.reserve_a - pool.reserve_b) / total
+}
+
+// ─── Lending Pool ────────────────────────────────────────────────
+
+/// Create a new lending pool with the given base interest rate.
+fn lending_deposit(pool: LendingPool, amount: float) -> LendingPool {
+    let new_reserves = pool.reserves + amount
+    let new_utilization = if new_reserves > 0.0 { new_reserves / (new_reserves + pool.reserves) } else { 0.0 }
+    return LendingPool {
+        reserves: new_reserves,
+        interest_rate: pool.interest_rate,
+        utilization: new_utilization
+    }
+}
+
+/// Withdraw tokens from the lending pool reserves.
+fn lending_withdraw(pool: LendingPool, amount: float) -> LendingPool {
+    let actual = if amount > pool.reserves { pool.reserves } else { amount }
+    let new_reserves = pool.reserves - actual
+    let new_utilization = if new_reserves > 0.0 { new_reserves / (new_reserves + pool.reserves) } else { 0.0 }
+    return LendingPool {
+        reserves: new_reserves,
+        interest_rate: pool.interest_rate,
+        utilization: new_utilization
+    }
+}
+
+/// Borrow from the pool with collateral. Collateral must exceed the borrow amount.
+fn lending_borrow(pool: LendingPool, amount: float, collateral: float) -> LendingPool {
+    if collateral < amount * 1.5 {
+        // Insufficient collateral (150% required)
+        return pool
+    }
+    let actual = if amount > pool.reserves { pool.reserves } else { amount }
+    let new_reserves = pool.reserves - actual
+    let new_utilization = if new_reserves > 0.0 { pool.reserves / (pool.reserves + actual) } else { 1.0 }
+    // Interest rate increases with utilization
+    let rate_adjustment = new_utilization * 0.05
+    return LendingPool {
+        reserves: new_reserves,
+        interest_rate: pool.interest_rate + rate_adjustment,
+        utilization: new_utilization
+    }
+}
+
+/// Repay a borrow to the pool.
+fn lending_repay(pool: LendingPool, amount: float) -> LendingPool {
+    let new_reserves = pool.reserves + amount
+    let new_utilization = if new_reserves > 0.0 { new_reserves / (new_reserves + pool.reserves) } else { 0.0 }
+    let rate_reduction = pool.utilization * 0.02
+    let new_rate = pool.interest_rate - rate_reduction
+    let clamped_rate = if new_rate < 0.01 { 0.01 } else { new_rate }
+    return LendingPool {
+        reserves: new_reserves,
+        interest_rate: clamped_rate,
+        utilization: new_utilization
+    }
+}
+
+/// Calculate accrued interest for the current period.
+fn lending_interest(pool: LendingPool) -> float {
+    return pool.reserves * pool.interest_rate
+}

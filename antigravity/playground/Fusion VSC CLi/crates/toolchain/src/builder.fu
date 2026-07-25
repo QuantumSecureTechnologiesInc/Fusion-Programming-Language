@@ -1,9 +1,0 @@
-// SOURCE: antigravity/playground/Fusion VSC CLi/crates/toolchain/src/builder.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-
-fn build(_release: FBool, _target: Option<&str>, _verbose: FBool) -> Result<()> {
-    println!("Building Fusion project...");
-    // Placeholder: actual build logic here
-    Ok(())
-}

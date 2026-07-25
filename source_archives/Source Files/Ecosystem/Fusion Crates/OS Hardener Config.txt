@@ -1,9 +1,0 @@
-[package]
-name = "fusion_sec_os_hardener"
-version = "0.1.0"
-edition = "2021"
-description = "Automated OS configuration hardening (e.g., kernel tuning, access control)"
-license = "MIT"
-
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" }

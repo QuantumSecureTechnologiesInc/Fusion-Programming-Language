@@ -16,60 +16,119 @@ struct PortfolioProblem {
     pub budget: usize,    // Number of assets to select
 }
 
-/// Represents a term in the Ising Hamiltonian: J * Z_i * Z_j + h * Z_i
+/// Represents a term in the Ising Hamiltonian: J * Z_i * Z_j + h * Z_i + C
 struct IsingTerm {
     pub indices: FVec<usize>,
     pub coefficient: f64,
 }
 
+/// Tracks the full Ising model including a constant energy offset.
+struct IsingModel {
+    pub terms: FVec<IsingTerm>,
+    pub constant: f64,
+}
+
 impl PortfolioProblem {
     /// Convert to Ising Hamiltonian for QAOA/Annealing.
-    /// H = sum(sigma_ij * x_i * x_j) - q * sum(mu_i * x_i) + penalty(sum(x) - budget)^2
-    fn to_ising(&self) -> FusionResult<FVec<IsingTerm>> {
+    /// 
+    /// Spin mapping: x_i = (1 - s_i) / 2, where s_i ∈ {-1, +1}.
+    /// 
+    /// Original QUBO objective:
+    ///   H(x) = q * x^T Σ x  -  q * μ^T x  +  A * (Σ x_i - B)^2
+    ///
+    /// Expanded with spin substitution:
+    ///   x_i = (1 - s_i)/2
+    ///   x_i * x_j = (1 - s_i)(1 - s_j)/4 = (1 - s_i - s_j + s_i*s_j)/4
+    ///
+    /// Each product generates:
+    ///   constant term:  1/4
+    ///   linear terms:   -s_i/4, -s_j/4
+    ///   quadratic term:  +s_i*s_j/4
+    fn to_ising(&self) -> FusionResult<IsingModel> {
         let n = self.expected_returns.shape[0];
-        let mut hamiltonian = Vec::new();
+        let a = 100.0; // Penalty weight (large enough to enforce constraint)
+        let b = self.budget as f64;
+        let mut constant = 0.0;
 
-        // 1. Risk Term: w^T * Cov * w -> sum(cov_ij * x_i * x_j)
-        // x_i in {0, 1}. Map to spins s_i in {-1, 1}: x_i = (1 - s_i)/2
-        // This mapping generates constant, linear (Z_i), and quadratic (Z_i Z_j) terms.
+        // We accumulate contributions into maps for proper coefficient tracking.
+        let mut linear_coeffs: FMap<usize, f64> = FMap::new();  // h_i for Z_i terms
+        let mut quad_coeffs: FMap<(usize, usize), f64> = FMap::new(); // J_ij for Z_i*Z_j terms
 
-        // 2. Return Term: -q * mu^T * w
-        
-        // 3. Constraint Penalty: A * (sum(x_i) - B)^2
-        // Expands to A * (sum(x_i^2) + sum_{i!=j}(x_i x_j) - 2B*sum(x_i) + B^2)
-        // Since x_i is binary, x_i^2 = x_i.
-
-        let penalty_weight = 100.0; // Large A
-
-        // Generate Linear Terms (h_i Z_i)
+        // --- 1. Risk Term: q * x^T Σ x = q * Σ_{ij} Σ_{ij} * x_i * x_j ---
         for i in 0..n {
-            let mu = self.expected_returns.get([i])?;
-            let mut h_i = -self.risk_factor * mu;
-            
-            // Add penalty linear contribution
-            // (1-s_i)/2 logic...
-            
-            hamiltonian.push(IsingTerm {
-                indices: vec![i],
-                coefficient: h_i, // Placeholder for calculated coeff
-            });
-        }
+            for j in 0..n {
+                let cov_ij = self.covariance.get([i, j])?;
+                let scale = self.risk_factor * cov_ij;
 
-        // Generate Quadratic Terms (J_ij Z_i Z_j)
-        for i in 0..n {
-            for j in (i+1)..n {
-                let cov = self.covariance.get([i, j])?;
-                let j_ij = self.risk_factor * cov; // Risk part
-                
-                // Add penalty quadratic contribution (2 * A * x_i * x_j)
-                
-                hamiltonian.push(IsingTerm {
-                    indices: vec![i, j],
-                    coefficient: j_ij + penalty_weight, // Simplified
-                });
+                if i == j {
+                    // Diagonal: x_i^2 = x_i (binary) -> spin: (1 - s_i)/2
+                    constant += scale * 0.5;
+                    *linear_coeffs.entry(i).or_insert(0.0) += -scale * 0.5;
+                } else if j > i {
+                    // Off-diagonal (only upper triangle to avoid double counting):
+                    // x_i*x_j = (1 - s_i - s_j + s_i*s_j)/4
+                    constant += scale * 0.25;
+                    *linear_coeffs.entry(i).or_insert(0.0) += -scale * 0.25;
+                    *linear_coeffs.entry(j).or_insert(0.0) += -scale * 0.25;
+                    *quad_coeffs.entry((i, j)).or_insert(0.0) += scale * 0.25;
+                }
             }
         }
 
-        Ok(hamiltonian)
+        // --- 2. Return Term: -q * μ^T x = -q * Σ_i μ_i * x_i ---
+        for i in 0..n {
+            let mu_i = self.expected_returns.get([i])?;
+            let scale = -self.risk_factor * mu_i;
+            // x_i = (1 - s_i)/2
+            constant += scale * 0.5;
+            *linear_coeffs.entry(i).or_insert(0.0) += -scale * 0.5;
+        }
+
+        // --- 3. Constraint Penalty: A * (Σ x_i - B)^2 ---
+        //   = A * [Σ x_i^2 + Σ_{i≠j} x_i*x_j  - 2B*Σ x_i + B^2]
+        // Since x_i is binary: x_i^2 = x_i.
+        //   = A * [Σ x_i + Σ_{i≠j} x_i*x_j  - 2B*Σ x_i + B^2]
+        //   = A * [Σ (1-2B) x_i + Σ_{i≠j} x_i*x_j + B^2]
+
+        // Constant: A * B^2
+        constant += a * b * b;
+
+        // Linear penalty contribution: A * (1 - 2B) * x_i for each i
+        // x_i = (1 - s_i)/2 -> A*(1-2B)*(1 - s_i)/2
+        let linear_penalty = a * (1.0 - 2.0 * b);
+        for i in 0..n {
+            constant += linear_penalty * 0.5;
+            *linear_coeffs.entry(i).or_insert(0.0) += -linear_penalty * 0.5;
+        }
+
+        // Quadratic penalty: A * x_i * x_j for i≠j
+        // x_i*x_j = (1 - s_i - s_j + s_i*s_j)/4
+        for i in 0..n {
+            for j in (i + 1)..n {
+                constant += a * 0.25;
+                *linear_coeffs.entry(i).or_insert(0.0) += -a * 0.25;
+                *linear_coeffs.entry(j).or_insert(0.0) += -a * 0.25;
+                *quad_coeffs.entry((i, j)).or_insert(0.0) += a * 0.25;
+            }
+        }
+
+        // --- Assemble Ising terms ---
+        let mut terms = Vec::new();
+
+        // Linear terms (h_i Z_i)
+        for (i, coeff) in &linear_coeffs {
+            if coeff.abs() > 1e-15 {
+                terms.push(IsingTerm { indices: vec![*i], coefficient: *coeff });
+            }
+        }
+
+        // Quadratic terms (J_ij Z_i Z_j)
+        for ((i, j), coeff) in &quad_coeffs {
+            if coeff.abs() > 1e-15 {
+                terms.push(IsingTerm { indices: vec![*i, *j], coefficient: *coeff });
+            }
+        }
+
+        Ok(IsingModel { terms, constant })
     }
 }

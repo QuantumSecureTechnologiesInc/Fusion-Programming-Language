@@ -1,0 +1,138 @@
+// stdlib/math.fu - Comprehensive Math Library
+//
+// Provides standard math operations backed by the C runtime's <math.h>.
+// Includes basic operations, trigonometric functions, constants, random
+// number generation, and integer math utilities.
+
+// --- Extern declarations from C runtime math.h ---
+
+// Basic operations
+extern fn sqrt(x: float) -> float;
+extern fn fabs(x: float) -> float;
+extern fn floor(x: float) -> float;
+extern fn ceil(x: float) -> float;
+extern fn round(x: float) -> float;
+extern fn pow(base: float, exp: float) -> float;
+extern fn log(x: float) -> float;
+extern fn log2(x: float) -> float;
+extern fn log10(x: float) -> float;
+extern fn exp(x: float) -> float;
+extern fn fmod(x: float, y: float) -> float;
+
+// Trigonometric functions
+extern fn sin(x: float) -> float;
+extern fn cos(x: float) -> float;
+extern fn tan(x: float) -> float;
+extern fn asin(x: float) -> float;
+extern fn acos(x: float) -> float;
+extern fn atan(x: float) -> float;
+extern fn atan2(y: float, x: float) -> float;
+extern fn sinh(x: float) -> float;
+extern fn cosh(x: float) -> float;
+extern fn tanh(x: float) -> float;
+
+// Random number generation
+extern fn fusion_rand_range_f(min: float, max: float) -> float;
+extern fn fusion_rand_int_range(min: int, max: int) -> int;
+
+// --- Constants ---
+
+const PI: float = 3.14159265358979323846;
+const E: float = 2.71828182845904523536;
+const TAU: float = 6.28318530717958647692;
+const SQRT_2: float = 1.41421356237309504880;
+const LN_2: float = 0.69314718055994530942;
+const LN_10: float = 2.30258509299404568402;
+
+// --- Basic Operations ---
+
+fn abs_float(x: float) -> float {
+    return fabs(x);
+}
+
+fn mod(x: float, y: float) -> float {
+    return fmod(x, y);
+}
+
+fn deg_to_rad(deg: float) -> float {
+    return deg * PI / 180.0;
+}
+
+fn rad_to_deg(rad: float) -> float {
+    return rad * 180.0 / PI;
+}
+
+fn lerp(a: float, b: float, t: float) -> float {
+    return a + (b - a) * t;
+}
+
+fn clamp_float(x: float, lo: float, hi: float) -> float {
+    if x < lo { return lo; }
+    if x > hi { return hi; }
+    return x;
+}
+
+// --- Random ---
+
+fn random() -> float {
+    return fusion_rand_range_f(0.0, 1.0);
+}
+
+fn random_range(min: float, max: float) -> float {
+    return fusion_rand_range_f(min, max);
+}
+
+fn random_int(min: int, max: int) -> int {
+    return fusion_rand_int_range(min, max);
+}
+
+// --- Integer Math ---
+
+fn gcd(a: int, b: int) -> int {
+    if a < 0 { a = 0 - a; }
+    if b < 0 { b = 0 - b; }
+    while b != 0 {
+        let temp: int = b;
+        b = a - (a / b) * b;
+        a = temp;
+    }
+    return a;
+}
+
+fn lcm(a: int, b: int) -> int {
+    if a == 0 || b == 0 { return 0; }
+    return a / gcd(a, b) * b;
+}
+
+fn factorial(n: int) -> int {
+    if n < 0 { return 0; }
+    if n <= 1 { return 1; }
+    let result: int = 1;
+    let i: int = 2;
+    while i <= n {
+        result = result * i;
+        i = i + 1;
+    }
+    return result;
+}
+
+fn clamp_int(x: int, min: int, max: int) -> int {
+    if x < min { return min; }
+    if x > max { return max; }
+    return x;
+}
+
+fn max_int(a: int, b: int) -> int {
+    if a > b { return a; }
+    return b;
+}
+
+fn min_int(a: int, b: int) -> int {
+    if a < b { return a; }
+    return b;
+}
+
+fn abs_int(x: int) -> int {
+    if x < 0 { return 0 - x; }
+    return x;
+}

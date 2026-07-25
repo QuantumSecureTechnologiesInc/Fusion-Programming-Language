@@ -1,9 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/crates/toolchain/src/runner.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-
-fn run(_release: FBool, _args: &[FString]) -> Result<()> {
-    println!("Running Fusion project...");
-    // Placeholder: actual run logic here
-    Ok(())
-}

@@ -1,0 +1,132 @@
+// Fusion v2.0 Vortex — On-Chain Governance System
+
+struct Proposal {
+    id: int
+    title: string
+    description: string
+    proposer: string
+    votes_for: int
+    votes_against: int
+    status: string          // "pending", "active", "passed", "rejected", "executed", "expired"
+    created_at: int
+    expires_at: int
+}
+
+struct Vote {
+    proposal_id: int
+    voter: string
+    vote: string            // "for" | "against" | "abstain"
+    weight: float
+    timestamp: int
+}
+
+struct GovernanceConfig {
+    voting_period: int      // seconds until proposal expires
+    quorum: float           // minimum participation ratio (0.0–1.0)
+    threshold: float        // approval ratio needed (0.0–1.0)
+}
+
+fn proposal_new(title: string, description: string, proposer: string) -> Proposal {
+    let now = current_timestamp()
+    Proposal {
+        id: 0,
+        title: title,
+        description: description,
+        proposer: proposer,
+        votes_for: 0,
+        votes_against: 0,
+        status: "pending",
+        created_at: now,
+        expires_at: 0
+    }
+}
+
+fn proposal_vote(proposal: Proposal, voter: string, vote: string, weight: float) -> (Proposal, Vote) {
+    assert(proposal.status == "active" || proposal.status == "pending",
+           "Proposal is not open for voting")
+
+    let now = current_timestamp()
+    assert(now < proposal.expires_at, "Voting period has expired")
+
+    let updated = if vote == "for" {
+        Proposal { ...proposal, votes_for: proposal.votes_for + 1, status: "active" }
+    } else if vote == "against" {
+        Proposal { ...proposal, votes_against: proposal.votes_against + 1, status: "active" }
+    } else {
+        Proposal { ...proposal, status: "active" }
+    }
+
+    let v = Vote {
+        proposal_id: proposal.id,
+        voter: voter,
+        vote: vote,
+        weight: weight,
+        timestamp: now
+    }
+
+    (updated, v)
+}
+
+fn proposal_execute(proposal: Proposal, config: GovernanceConfig) -> Proposal {
+    let status = proposal_status(proposal, config)
+    assert(status == "passed", "Proposal has not passed governance checks")
+
+    Proposal { ...proposal, status: "executed" }
+}
+
+fn proposal_status(proposal: Proposal, config: GovernanceConfig) -> string {
+    let now = current_timestamp()
+
+    if proposal.status == "executed" {
+        return "executed"
+    }
+
+    if now >= proposal.expires_at && proposal.expires_at > 0 {
+        return "expired"
+    }
+
+    let total_votes = proposal.votes_for + proposal.votes_against
+    if total_votes == 0 {
+        return proposal.status
+    }
+
+    let for_ratio = to_float(proposal.votes_for) / to_float(total_votes)
+    if for_ratio >= config.threshold {
+        return "passed"
+    }
+
+    "active"
+}
+
+fn governance_config(voting_period: int, quorum: float, threshold: float) -> GovernanceConfig {
+    assert(quorum >= 0.0 && quorum <= 1.0, "Quorum must be between 0.0 and 1.0")
+    assert(threshold >= 0.0 && threshold <= 1.0, "Threshold must be between 0.0 and 1.0")
+    assert(voting_period > 0, "Voting period must be positive")
+
+    GovernanceConfig {
+        voting_period: voting_period,
+        quorum: quorum,
+        threshold: threshold
+    }
+}
+
+fn governance_validate(proposal: Proposal, config: GovernanceConfig) -> bool {
+    let now = current_timestamp()
+    let total_votes = proposal.votes_for + proposal.votes_against
+
+    if total_votes == 0 {
+        return false
+    }
+
+    let participation = to_float(total_votes) / to_float(config.quorum)
+    if participation < config.quorum {
+        return false
+    }
+
+    let approval = to_float(proposal.votes_for) / to_float(total_votes)
+    if approval < config.threshold {
+        return false
+    }
+
+    now < proposal.expires_at
+}

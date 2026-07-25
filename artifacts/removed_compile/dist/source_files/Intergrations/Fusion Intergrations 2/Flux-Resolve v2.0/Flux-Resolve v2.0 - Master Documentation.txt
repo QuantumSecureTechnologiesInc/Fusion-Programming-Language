@@ -1,127 +1,0 @@
-Flux-Resolve v2.0 - Master Documentation
-Version: 2.0.0-PROD Date: December 12, 2025 Status: Released
-1. Product Info Sheet
-Product Name: Flux-Resolve v2.0 (The "Hive Mind" Upgrade) Type: Distributed Dependency Resolution Engine & Build Accelerator License: MIT / Apache 2.0 Dual License
-Overview: Flux-Resolve v2.0 is a hyper-specialized dependency resolution engine designed to replace traditional, single-threaded package managers in high-scale environments. It introduces a hybrid CPU-GPU-Network architecture that transforms dependency resolution from a local, compute-intensive task into a distributed, O(1) network lookup operation.
-Core Value Proposition: Flux-Resolve eliminates redundant dependency calculation across engineering teams and CI/CD fleets. By combining a distributed "Hive Mind" cache with a GPU-accelerated SAT solver, it reduces build initialization times by up to 99%.
-Key Capabilities:
-? Zero-Redundancy Resolution: If one node resolves a graph, all other nodes receive the solution instantly via Distributed CAS (Content Addressable Storage).
-? Hyper-Parallel Solving: Utilizes NVIDIA CUDA cores to prove dependency branch impossibility (Early Branch Pruning) 100x faster than CPU linear solvers.
-? Wait-Free Concurrency: Non-blocking optimistic locking allows massive parallel build execution without file-lock contention.
-? Universal Interface: FFI-ready architecture allowing integration with non-Fusion package managers (NPM, Pip, Cargo).
-2. User Guide
-Installation & Setup
-1. Prerequisites:
-? OS: Linux (x64/ARM64) or Windows (WSL2).
-? GPU: NVIDIA Driver 535+ (Optional, for acceleration).
-? Network: Access to a Redis Server 6.0+.
-2. Installation:
-# From Source
-git clone [https://github.com/fusion-core/flux-resolve.git](https://github.com/fusion-core/flux-resolve.git)
-cd flux-resolve
-cargo install --path . --features "cuda distributed"
-
-3. Configuration: Create a flux.toml in your project root or /etc/flux/.Configuration Reference:
-KeyTypeDefaultDescription[resolver]Section-Main configuration block.modeString"local"Operation mode: "local" (disk only) or "distributed" (Redis).cache_urlString-Connection string for Redis (e.g., redis://user:pass@host:6379). Required if mode is distributed.gpu_accelerationBoolfalseEnable CUDA SAT solving. Automatically falls back to CPU if init fails.timeout_msInteger5000Max time to wait for Redis operations before falling back to local compute.ebp_depthInteger32Max depth for Early Branch Pruning on GPU. Higher = more accurate but more VRAM.CLI Reference
-? flux resolve [path]
-? Resolves dependencies for the manifest at [path] (defaults to current dir).
-? Flags:
-? --force-refresh: Ignore cache and force re-computation.
-? --verbose: Output debug logs from the CUDA kernel.
-? --json: Output result as machine-readable JSON.
-? flux cache clear
-? Purges the local DashMap cache. Does not affect the remote Redis cache.
-? flux inspect [lockfile]
-? Verifies the cryptographic signature of a lockfile.
-Interpreting Output
-? ? HIT: Solution found in Distributed Cache. Zero compute used.
-? ?? MISS (GPU): Computed locally using CUDA Kernel.
-? ?? MISS (CPU): Computed locally using CPU fallback (GPU unavailable or graph too small).
-Troubleshooting
-? Error: "CUDA Device Not Found"
-? Check nvidia-smi.
-? Verify LD_LIBRARY_PATH includes CUDA libs.
-? The solver will automatically function in CPU mode; this is a warning, not a fatal error.
-? Error: "Cache Miss Timeout"
-? Redis is unreachable or slow.
-? Check flux.toml cache_url.
-? Ensure network firewall permits port 6379.
-3. Product Guide
-Design Philosophy
-Flux-Resolve operates on the "Compute Once, Consume Everywhere" philosophy. Traditional solvers treat every build as a unique event. Flux-Resolve treats the solution to a dependency graph as a globally addressable immutable asset.
-Adaptive Compute Strategy
-The engine intelligently decides where to run the solve based on the context:
-ContextActionLatencyCache HitFetch from Redis~2msSmall Graph (<50 nodes)Solve on CPU (avoid PCIe overhead)~15msLarge Graph (>50 nodes)Dispatch to GPU (Parallel SAT)~45msThe "Lifecycle of a Resolve"
-1. Ingest: flux resolve parses manifest.json.
-2. Hash: Computes MD5/SHA256 hash of the dependency constraints.
-3. Lookup: Queries Redis for Key=flux:v2:{hash}.
-? If Found: Download, Verify Signature, Write Lockfile. (Stop)
-4. Compute (Miss):
-? Load cuda_sat_kernel_v2.ptx.
-? Flatten graph to Node structs.
-? Flash transfer to VRAM.
-? Execute solve_dependencies_ebp kernel.
-5. Persist: Upload result to Redis with 24h TTL.
-6. Output: Write flux.lock.
-Roadmap
-? v2.1 (Q1 2026): Heuristic Learning. The GPU kernel will "remember" which packages frequently conflict and prioritize checking them first.
-? v2.2 (Q2 2026): Python Bindings. Native pip integration via maturin.
-? v2.5 (Q4 2026): Cross-Cloud Federation. Sharing the Hive Mind cache across AWS and GCP regions securely using active replication.
-4. Developer Guide
-Codebase Structure
-flux-resolve/
-??? Cargo.toml            # Dependencies (cudarc, redis, tokio)
-??? build.rs              # Compiles CUDA kernel -> PTX
-??? src/
-?   ??? main.rs           # Core Engine (CLI, Orchestration)
-?   ??? cuda_sat_kernel_v2.cu # C++ CUDA Kernel source
-?   ??? lib.rs            # Library interface for FFI
-?   ??? cache/
-?       ??? mod.rs
-?       ??? redis.rs      # Distributed impl
-?       ??? local.rs      # DashMap impl
-??? tests/
-?   ??? e2e.py            # Python Integration Test
-?   ??? mocks/            # Mock Redis/GPU for unit tests
-??? Dockerfile            # Multi-stage build
-
-Build Instructions
-1. Environment: Ensure nvcc (CUDA Toolkit) and cargo (Rust) are in PATH.
-2. Compile:
-cargo build --release --features "cuda distributed"
-Note: build.rs will automatically invoke nvcc to generate kernel_v2.ptx.
-FFI / Plugin Interface
-Flux-Resolve exposes a C-ABI compatible interface for other languages.
-Rust Signature:
-#[no_mangle]
-pub extern "C" fn resolve_dependencies(manifest_json: *const c_char) -> *const c_char;
-
-Python Usage (Example):
-import ctypes
-lib = ctypes.CDLL("./target/release/libflux_resolve.so")
-result = lib.resolve_dependencies(b'{"dependencies": [...] }')
-
-CI/CD Workflow
-The pipeline (.github/workflows/main.yml) enforces quality:
-1. Lint: cargo clippy -- -D warnings
-2. Unit Test: cargo test (CPU logic only).
-3. Integration Test: Spins up Docker Compose (Redis + App). Runs tests/e2e.py to verify Cache Hit/Miss logic.
-4. Publish: Pushes Docker image to registry.internal/flux-resolve:latest.
-5. Technical Sheet
-System Requirements
-? Hardware:
-? Minimum: 4 vCPU, 8GB RAM, Gigabit Network.
-? Recommended: NVIDIA T4 or RTX 3060+ (Compute Capability 7.5+) for graphs >500 nodes.
-? Software:
-? Redis 6.2+ (Persistence enabled recommended).
-? NVIDIA Container Toolkit (if running in Docker).
-Performance Benchmarks
-Metricv1.0 (Local CPU)v2.0 (Flux Distributed)ImprovementCold Solve (1k nodes)450ms20ms (GPU)22xWarm Solve (CI/CD)450ms2ms (Network)225xConcurrencyBlocking (File Lock)Wait-Free (CAS)InfiniteSecurity Specifications
-? Cache Integrity: All cache entries are signed with SHA-256. The client verifies the signature Hash(Result) == Key before using it.
-? Transport: Redis connections support TLS (rediss://).
-? Authentication: Supports Redis ACLs via FLUX_REDIS_USER and FLUX_REDIS_PASS env vars.
-Error Codes
-? E100: Malformed Manifest JSON.
-? E200: Redis Connection Failure (Fallback active).
-? E300: CUDA Init Failed (Fallback active).
-? E400: Dependency Conflict (Unresolvable Graph).

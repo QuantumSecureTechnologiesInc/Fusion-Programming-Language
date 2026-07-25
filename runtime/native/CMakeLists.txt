@@ -4,9 +4,12 @@ project(fusionrt C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Source files
+# Source files — core native runtime + collection runtimes
 set(FUSIONRT_SOURCES
     fusionrt.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../vector_runtime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../hashmap_runtime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../hashset_runtime.c
 )
 
 # Create static library
@@ -36,4 +39,5 @@ install(FILES fusionrt.h DESTINATION include)
 message(STATUS "Fusion Native Runtime Configuration:")
 message(STATUS "  - Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  - C Compiler: ${CMAKE_C_COMPILER}")
+message(STATUS "  - Sources: fusionrt.c + vector/hashmap/hashset runtimes")
 message(STATUS "  - Install prefix: ${CMAKE_INSTALL_PREFIX}")

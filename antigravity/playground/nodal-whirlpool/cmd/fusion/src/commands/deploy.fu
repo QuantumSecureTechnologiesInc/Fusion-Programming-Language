@@ -1,9 +1,0 @@
-// SOURCE: antigravity/playground/nodal-whirlpool/cmd/fusion/src/commands/deploy.rs
-// NOTE: Converted into FSN mirror under fsn/converted.
-use anyhow::Result;
-use fusion_deploy;
-
-fn deploy(platform: &str, env: &str, config: Option<&str>) -> Result<()> {
-    fusion_deploy::deploy(platform, env, config)?;
-    Ok(())
-}

@@ -1,0 +1,15 @@
+// Metaprogramming Module
+// Provides generics, macros, and reflection/introspection
+
+mod generics
+mod macros
+mod reflection
+
+pub use generics.*
+pub use macros.*
+pub use reflection.*
+
+// Cross-references to related features
+pub use crate::types::dependent        // generics work with dependent types
+pub use crate::dispatch::multimethod   // reflection supports dispatch
+pub use crate::types::gradual          // generics work with gradual types

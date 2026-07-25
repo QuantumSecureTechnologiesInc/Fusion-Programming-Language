@@ -1,6 +1,16 @@
-mod http;
-mod router;
-mod server;
+// src/web/mod.fu
+// Fusion Web Framework Module
+
+pub mod http;
+pub mod router;
+pub mod server;
+pub mod runtime;
+
+pub use http::{WebServer, WebRequest, WebResponse};
+pub use router::{Router, Route, add_route, match_route};
+pub use server::{serve, start_server};
+pub use runtime::{DomElement, dom_create, dom_set_attribute, dom_append_child, dom_render, dom_on_event};
+
 /// Web Framework Error
 #[derive(Debug, Clone)]
 #[allow(dead_code)]

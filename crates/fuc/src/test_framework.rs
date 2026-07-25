@@ -50,9 +50,7 @@ impl TestRunner {
         for test in &self.tests {
             if test.is_benchmark { continue; }
             
-            // In native code, we invoke the function pointer
-            // let result = (test.func)();
-            let result: Result<(), FString> = Ok(()); // Stubbed for bootstrap
+            let result = (test.func)();
             
             match result {
                 Ok(_) => {

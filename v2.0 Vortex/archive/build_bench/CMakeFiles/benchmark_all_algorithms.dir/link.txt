@@ -1,1 +1,0 @@
-/usr/bin/cc CMakeFiles/benchmark_all_algorithms.dir/tests/benchmark_all_algorithms.c.o -o benchmark_all_algorithms  -Wl,-rpath,"/mnt/c/Users/Matth/.gemini/antigravity/scratch/HyperCycle/v2.0 Vortex/build_bench" libhypercycle_pqc.so 

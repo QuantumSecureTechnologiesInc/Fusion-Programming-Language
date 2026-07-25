@@ -1,0 +1,65 @@
+// Algebraic Effects — Core Effect Types and Operations
+//
+// Algebraic effects separate effect declaration from effect handling.
+// An effect is a named operation with typed parameters; performing an
+// effect suspends the current computation until a handler resumes it.
+
+/// An algebraic effect declaration.
+/// `name`     — unique identifier for this effect (e.g. "IO", "State")
+/// `params`   — ordered parameter names accepted by the effect
+/// `result_type` — the type returned after the effect is handled
+struct Effect {
+    name: string,
+    params: []string,
+    result_type: string,
+}
+
+/// A binding that maps an effect name to a handler function.
+/// When `resume` is true the handler may resume the suspended
+/// computation with a value; when false it fully replaces the continuation.
+struct EffectHandler {
+    effect_name: string,
+    handler_fn: string,
+    resume: bool,
+}
+
+/// A concrete effect invocation — a specific effect together with
+/// the arguments supplied at the call site.
+struct EffectOperation {
+    effect: Effect,
+    args: string,
+}
+
+// ---------------------------------------------------------------------------
+// Extern FFI — implemented by the Fusion runtime
+// ---------------------------------------------------------------------------
+
+/// Perform an effect by name, passing serialized arguments.
+/// Returns the serialized result produced by the active handler.
+extern fn effect_perform(effect: string, args: string) -> string
+
+/// Execute `code` with the given handlers in scope.
+/// Any effect performed inside `code` is intercepted by matching handlers.
+extern fn effect_handle(code: string, handlers: []EffectHandler) -> string
+
+/// Register a new effect at runtime so it can be performed and handled.
+extern fn effect_register(name: string, params: []string, result_type: string) -> void
+
+/// Return the names of all currently registered effects.
+extern fn effect_list() -> []string
+
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
+
+/// Returns true if `effect` has been performed at least once in the
+/// current handler scope. Useful for diagnostics and testing.
+fn effect_is_performed(effect: string) -> bool {
+    let all = effect_list()
+    for name in all {
+        if name == effect {
+            return true
+        }
+    }
+    return false
+}

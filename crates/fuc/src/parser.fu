@@ -772,18 +772,32 @@ fn program_parser() -> impl Parser<Token, ast::Program, Error = ParserError> {
         .map(|opt| opt.unwrap_or_else(|| (Vec::new(), false)));
     let extern_func = visibility.clone()
         .ignore_then(just(Token::KwExtern))
-        .ignore_then(just(Token::KwFn))
-        .ignore_then(ident.clone())
+        .then(
+            filter_map(|tok| match tok {
+                Token::StringLiteral(s) => {
+                    if matches!(s.as_str(), "C" | "stdcall" | "fastcall" | "system" | "cdecl" | "vectorcall") {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }).or_not()
+            .map(|opt| opt.unwrap_or_else(|| FString::from("system")))
+        )
+        .then(just(Token::KwFn))
+        .then(ident.clone())
         .then(
             params_with_variadic.delimited_by(just(Token::LParen), just(Token::RParen)),
         )
         .then(return_type.clone())
         .then_ignore(just(Token::Semicolon))
-        .map(|((name, (params, is_variadic)), return_type)| ast::ExternFunction {
+        .map(|((((_vis, calling_convention), _fn), name), (params, is_variadic)), return_type)| ast::ExternFunction {
             name,
             params,
             return_type,
             is_variadic,
+            calling_convention,
         });
     let function = visibility.clone()
         .ignore_then(just(Token::KwAsync).or_not())

@@ -1,0 +1,107 @@
+// commands/providers.fu — AI provider management commands.
+// list, status, pull, test
+
+fn cmd_providers(args: CliArgs) -> void {
+    let sub = args.subcommand;
+
+    if str_eq(sub, "") {
+        providers_help();
+        return;
+    }
+
+    if str_eq(sub, "list") {
+        providers_list(args);
+    } else if str_eq(sub, "status") {
+        providers_status(args);
+    } else if str_eq(sub, "pull") {
+        providers_pull(args);
+    } else if str_eq(sub, "test") {
+        providers_test(args);
+    } else {
+        print_error("Unknown providers subcommand: ");
+        puts(sub);
+        providers_help();
+    }
+}
+
+fn providers_help() -> void {
+    print_bold("Fusion Provider Commands:");
+    puts("  fusion providers list                 List configured providers");
+    puts("  fusion providers status               Show provider status");
+    puts("  fusion providers pull <provider>      Pull provider artifacts");
+    puts("  fusion providers test <provider>      Test provider connection");
+}
+
+fn providers_list(args: CliArgs) -> void {
+    print_info("Configured AI providers:");
+
+    let cmd = "fuc.exe providers list";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn providers_status(args: CliArgs) -> void {
+    print_info("Provider status:");
+
+    let cmd = "fuc.exe providers status";
+
+    if args.json_flag {
+        cmd = cmd + " --json";
+    }
+
+    run_command(cmd);
+}
+
+fn providers_pull(args: CliArgs) -> void {
+    let provider = args.arg1;
+    if str_eq(provider, "") {
+        print_error("Error: provider name required");
+        puts("Usage: fusion providers pull <provider>");
+        exit(1);
+    }
+
+    print_info("Pulling provider: ");
+    puts(provider);
+
+    let cmd = "fuc.exe providers pull \"";
+    cmd = cmd + provider;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Provider pulled");
+    } else {
+        print_error("Failed to pull provider");
+        exit(1);
+    }
+}
+
+fn providers_test(args: CliArgs) -> void {
+    let provider = args.arg1;
+    if str_eq(provider, "") {
+        print_error("Error: provider name required");
+        puts("Usage: fusion providers test <provider>");
+        exit(1);
+    }
+
+    print_info("Testing provider: ");
+    puts(provider);
+
+    let cmd = "fuc.exe providers test \"";
+    cmd = cmd + provider;
+    cmd = cmd + "\"";
+
+    let status = run_command(cmd);
+
+    if status == 0 {
+        print_success("Provider connection OK");
+    } else {
+        print_error("Provider connection failed");
+        exit(1);
+    }
+}

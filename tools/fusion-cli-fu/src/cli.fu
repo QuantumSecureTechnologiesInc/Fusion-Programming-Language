@@ -1,0 +1,171 @@
+// cli.fu — CLI framework: argument definitions, help text, version display.
+
+struct CliArgs {
+    command: string,
+    subcommand: string,
+    arg1: string,
+    arg2: string,
+    arg3: string,
+    json_flag: bool,
+    verbose_flag: bool,
+    quiet_flag: bool,
+    help_flag: bool,
+    version_flag: bool,
+    flags: string,
+}
+
+fn args_default() -> CliArgs {
+    let a: CliArgs = CliArgs {
+        command: "",
+        subcommand: "",
+        arg1: "",
+        arg2: "",
+        arg3: "",
+        json_flag: false,
+        verbose_flag: false,
+        quiet_flag: false,
+        help_flag: false,
+        version_flag: false,
+        flags: "",
+    };
+    return a;
+}
+
+fn args_parse(argc: int, argv: string) -> CliArgs {
+    let args = args_default();
+
+    // Skip argv[0] (program name), parse positional args
+    let pos = 0;
+    let i = 1;
+    while i < argc {
+        let arg = argv_get(argv, i);
+
+        // Flags
+        if str_eq(arg, "--json") {
+            args.json_flag = true;
+        } else if str_eq(arg, "-v") || str_eq(arg, "--verbose") {
+            args.verbose_flag = true;
+        } else if str_eq(arg, "-q") || str_eq(arg, "--quiet") {
+            args.quiet_flag = true;
+        } else if str_eq(arg, "--help") || str_eq(arg, "-h") {
+            args.help_flag = true;
+        } else if str_eq(arg, "--version") {
+            args.version_flag = true;
+        } else if pos == 0 {
+            args.command = arg;
+            pos = 1;
+        } else if pos == 1 {
+            args.subcommand = arg;
+            pos = 2;
+        } else if pos == 2 {
+            args.arg1 = arg;
+            pos = 3;
+        } else if pos == 3 {
+            args.arg2 = arg;
+            pos = 4;
+        } else if pos == 4 {
+            args.arg3 = arg;
+            pos = 5;
+        }
+        i = i + 1;
+    }
+
+    return args;
+}
+
+extern fn argv_get(argv: string, index: int) -> string;
+
+// ── Version ───────────────────────────────────────────────────────────
+
+fn cli_version() -> void {
+    print_cyan("fusion-cli 2.0.0 (fusion-lang)");
+}
+
+// ── Help Text ─────────────────────────────────────────────────────────
+
+fn cli_help() -> void {
+    cli_version();
+    puts("");
+    print_bold("Usage: fusion [command] [subcommand] [options]");
+    puts("");
+    print_bold("Commands:");
+    puts("  init <name>              Create a new Fusion project");
+    puts("  build [--release]        Build the current project");
+    puts("  run [--] <args>          Run the compiled binary");
+    puts("  test                     Run the test suite");
+    puts("  fmt                      Format source files");
+    puts("  lint                     Lint source files");
+    puts("  doc                      Generate documentation");
+    puts("  clean                    Remove build artifacts");
+    puts("  ai <sub> [args]          AI commands (chat, complete, explain, ...)");
+    puts("  pkg <sub> [args]         Package management (add, remove, ...)");
+    puts("  quantum <sub> [args]     Quantum computing (simulate, run, ...)");
+    puts("  crypto <sub> [args]      Post-quantum crypto (keygen, sign, ...)");
+    puts("  deploy <sub> [args]      Deployment (deploy, status, rollback)");
+    puts("  neuralseal <sub> [args]  NeuralSeal PQC operations");
+    puts("  providers <sub> [args]   AI provider management");
+    puts("  source <sub> [args]      Source file operations");
+    puts("  info                     Display project information");
+    puts("");
+    print_bold("Options:");
+    puts("  --json                   Output in JSON format");
+    puts("  -v, --verbose            Verbose output");
+    puts("  -q, --quiet              Suppress non-error output");
+    puts("  -h, --help               Show this help message");
+    puts("  --version                Show version");
+}
+
+fn cli_help_command(cmd: string) -> void {
+    if str_eq(cmd, "init") {
+        puts("Usage: fusion init <project-name>");
+        puts("Create a new Fusion project with the standard directory layout.");
+    } else if str_eq(cmd, "build") {
+        puts("Usage: fusion build [--release]");
+        puts("Compile the current project. Use --release for optimized builds.");
+    } else if str_eq(cmd, "run") {
+        puts("Usage: fusion run [--] [program-args...]");
+        puts("Run the compiled binary with optional arguments.");
+    } else if str_eq(cmd, "test") {
+        puts("Usage: fusion test");
+        puts("Run the project's test suite.");
+    } else if str_eq(cmd, "fmt") {
+        puts("Usage: fusion fmt");
+        puts("Format all .fu source files in the project.");
+    } else if str_eq(cmd, "lint") {
+        puts("Usage: fusion lint");
+        puts("Run static analysis on the project source.");
+    } else if str_eq(cmd, "doc") {
+        puts("Usage: fusion doc");
+        puts("Generate documentation from source comments.");
+    } else if str_eq(cmd, "clean") {
+        puts("Usage: fusion clean");
+        puts("Remove build artifacts and caches.");
+    } else if str_eq(cmd, "ai") {
+        puts("Usage: fusion ai <subcommand>");
+        puts("Subcommands: chat, complete, explain, review, generate, models, pull");
+    } else if str_eq(cmd, "pkg") {
+        puts("Usage: fusion pkg <subcommand>");
+        puts("Subcommands: add, remove, search, publish, update");
+    } else if str_eq(cmd, "quantum") {
+        puts("Usage: fusion quantum <subcommand>");
+        puts("Subcommands: simulate, run, devices");
+    } else if str_eq(cmd, "crypto") {
+        puts("Usage: fusion crypto <subcommand>");
+        puts("Subcommands: keygen, sign, verify, encrypt, decrypt");
+    } else if str_eq(cmd, "deploy") {
+        puts("Usage: fusion deploy <subcommand>");
+        puts("Subcommands: deploy, status, rollback");
+    } else if str_eq(cmd, "neuralseal") {
+        puts("Usage: fusion neuralseal <subcommand>");
+        puts("Subcommands: keygen, sign, verify, encrypt, decrypt");
+    } else if str_eq(cmd, "providers") {
+        puts("Usage: fusion providers <subcommand>");
+        puts("Subcommands: list, status, pull, test");
+    } else if str_eq(cmd, "source") {
+        puts("Usage: fusion source <subcommand>");
+        puts("Subcommands: list, compile, test, audit");
+    } else {
+        puts("No help available for: ");
+        puts(cmd);
+    }
+}

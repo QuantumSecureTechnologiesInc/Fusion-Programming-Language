@@ -1,0 +1,174 @@
+#![allow(dead_code)]
+use super::Module;
+use crate::ml::tensor::Tensor;
+use crate::ml::MLError;
+use std::collections::HashMap;
+
+/// Sequential Container
+/// Chains multiple layers in sequence
+struct Sequential {
+    layers: FVec<Box<dyn Module>>,
+}
+
+impl Sequential {
+    pub fn new() -> Self {
+        Self { layers: Vec::new() }
+    }
+
+    pub fn add(mut self, layer: Box<dyn Module>) -> Self {
+        self.layers.push(layer);
+        self
+    }
+
+    pub fn len(&self) -> FSize {
+        self.layers.len()
+    }
+
+    pub fn is_empty(&self) -> FBool {
+        self.layers.is_empty()
+    }
+}
+
+impl Module for Sequential {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        sequential_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = Vec::new();
+        for layer in &self.layers {
+            params.extend(layer.parameters());
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        for layer in &mut self.layers {
+            layer.train(mode);
+        }
+    }
+}
+
+/// Module List
+/// Stores modules in a list for indexed access
+struct ModuleList {
+    modules: FVec<Box<dyn Module>>,
+}
+
+impl ModuleList {
+    pub fn new() -> Self {
+        Self { modules: Vec::new() }
+    }
+
+    pub fn push(&mut self, module: Box<dyn Module>) {
+        self.modules.push(module);
+    }
+
+    pub fn len(&self) -> FSize {
+        self.modules.len()
+    }
+
+    pub fn is_empty(&self) -> FBool {
+        self.modules.is_empty()
+    }
+
+    pub fn get(&self, index: FSize) -> Option<&Box<dyn Module>> {
+        self.modules.get(index)
+    }
+}
+
+impl Module for ModuleList {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        module_list_forward(input, self)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = Vec::new();
+        for module in &self.modules {
+            params.extend(module.parameters());
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        for module in &mut self.modules {
+            module.train(mode);
+        }
+    }
+}
+
+/// Module Dict
+/// Stores modules in a HashMap for named access
+struct ModuleDict {
+    modules: HashMap<FString, Box<dyn Module>>,
+    order: FVec<FString>,
+}
+
+impl ModuleDict {
+    pub fn new() -> Self {
+        Self {
+            modules: HashMap::new(),
+            order: Vec::new(),
+        }
+    }
+
+    pub fn insert(&mut self, name: FString, module: Box<dyn Module>) {
+        if !self.modules.contains_key(&name) {
+            self.order.push(name.clone());
+        }
+        self.modules.insert(name, module);
+    }
+
+    pub fn len(&self) -> FSize {
+        self.modules.len()
+    }
+
+    pub fn is_empty(&self) -> FBool {
+        self.modules.is_empty()
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Box<dyn Module>> {
+        self.modules.get(name)
+    }
+}
+
+impl Module for ModuleDict {
+    fn forward(&self, input: &Tensor) -> Result<Tensor, MLError> {
+        // Apply modules in insertion order
+        let mut current = input.clone();
+        for name in &self.order {
+            if let Some(module) = self.modules.get(name) {
+                current = module.forward(&current)?;
+            }
+        }
+        Ok(current)
+    }
+    fn parameters(&self) -> FVec<&Tensor> {
+        let mut params = Vec::new();
+        for name in &self.order {
+            if let Some(module) = self.modules.get(name) {
+                params.extend(module.parameters());
+            }
+        }
+        params
+    }
+    fn train(&mut self, mode: FBool) {
+        for module in self.modules.values_mut() {
+            module.train(mode);
+        }
+    }
+}
+
+/// Sequential forward pass - chains layers
+fn sequential_forward(input: &Tensor, container: &Sequential) -> Result<Tensor, MLError> {
+    let mut current = input.clone();
+    for layer in &container.layers {
+        current = layer.forward(&current)?;
+    }
+    Ok(current)
+}
+
+/// Module list forward pass - applies all modules sequentially
+fn module_list_forward(input: &Tensor, container: &ModuleList) -> Result<Tensor, MLError> {
+    let mut current = input.clone();
+    for module in &container.modules {
+        current = module.forward(&current)?;
+    }
+    Ok(current)
+}

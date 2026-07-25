@@ -1,0 +1,21 @@
+// commands/clean.fu — Clean command.
+// Removes build artifacts and caches.
+
+fn cmd_clean(args: CliArgs) -> void {
+    print_info("Cleaning build artifacts...");
+
+    if args.verbose_flag {
+        puts("Removing build/");
+    }
+
+    // Remove build directory
+    remove_dir("build");
+
+    // Remove .fusion-cache
+    remove_dir(".fusion-cache");
+
+    // Remove target directory (Rust interop artifacts)
+    remove_dir("target");
+
+    print_success("Clean complete");
+}

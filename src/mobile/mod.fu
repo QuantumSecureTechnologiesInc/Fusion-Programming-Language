@@ -1,0 +1,8 @@
+// src/mobile/mod.fu
+// Fusion Mobile Integration Module
+
+pub mod ios;
+pub mod android;
+
+pub use ios::{IosView, ios_create_view, ios_add_child, ios_update_text, ios_set_on_click};
+pub use android::{AndroidView, android_create_view, android_add_child, android_update_text, android_set_on_click};

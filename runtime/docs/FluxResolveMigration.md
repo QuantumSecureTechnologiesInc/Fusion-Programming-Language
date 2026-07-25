@@ -1,7 +1,7 @@
 # Flux-Resolve Engine - Migration to Fusion Runtime
 
 **Date:** 2025-12-12
-**Status:** ✅ COMPLETE
+**Status:** ⚠️ MIGRATION COMPLETE — Implementation Partial
 **Migration:** `Fusion - Programming Language/crates` → `runtime/crates/fusion_flux_resolve`
 
 ## Summary
@@ -103,11 +103,15 @@ Kept essential dependencies:
 
 ### 5. Source Code
 
-lib.rs contains only the FFI bridge implementation:
-- `CacheBridge` - File I/O operations
-- `GpuBridge` - CUDA kernel loading (stub)
-- `RegistryBridge` - HTTP package registry (stub)
-- FFI exports for Fusion runtime
+lib.rs contains the FFI bridge + core solver implementations:
+- **SAT Solver** (DPLL + VSIDS) — ✅ Fully implemented (~450 lines)
+- **CAS Cache** (L1 DashMap + L2 disk) — ✅ Fully implemented
+- **Version Constraint Solver** (SemVer) — ✅ Fully implemented
+- **Cycle Detection** (Kahn's algorithm) — ✅ Fully implemented
+- **CacheBridge** - File I/O operations — ✅ Working
+- **GpuBridge** - GPU offloading — ⚠️ Delegates to CPU (no CUDA kernel)
+- **RegistryBridge** - HTTP package registry — 🔴 Stub (hardcoded data)
+- FFI exports for Fusion runtime — ✅ Implemented
 
 ## Build & Test Results
 
@@ -149,12 +153,15 @@ The `fusion_flux_resolve` crate is now part of the Fusion runtime v0.3.0 and wil
 3. Used by the Fusion build system
 4. Available to all Fusion projects
 
-### Future Work
+### Future Work (Unimplemented)
 
-1. Create `runtime/stdlib/flux_resolve.fu` - Fusion module implementing core logic
-2. Implement FFI bindings in Fusion runtime to call bridge functions
-3. Complete CUDA kernel implementation for GPU SAT solving
-4. Complete RegistryBridge HTTP client for package fetching
+1. Create `runtime/stdlib/flux_resolve.fu` - Fusion module implementing core logic — 🔴 Not created
+2. Implement FFI bindings in Fusion runtime to call bridge functions — 🔴 Not created
+3. Complete CUDA kernel implementation for GPU SAT solving — 🔴 No `.cu` files
+4. Complete RegistryBridge HTTP client for package fetching — 🔴 Stub only
+5. Implement Redis distributed CAS — 🔴 No Redis client
+6. Build CLI binary — 🔴 No CLI
+7. Write `build.rs` for CUDA compilation — 🔴 Not present
 
 ## Cleanup Tasks
 
@@ -195,5 +202,6 @@ The `fusion_flux_resolve` crate is now part of the Fusion runtime v0.3.0 and wil
 
 **Migration Status:** ✅ COMPLETE
 **Build Status:** ✅ PASSING
-**Test Status:** ✅ PASSING (3/3)
-**Documentation:** ✅ COMPLETE
+**Test Status:** ✅ PASSING (20+ tests)
+**Documentation:** ⚠️ COMPLETE but overclaims implementation status
+**Implementation Status:** ⚠️ PARTIAL — SAT solver + cache + cycle detection real; CUDA/Redis/registry stubs

@@ -1,0 +1,14 @@
+// Type Safety Guarantees
+// Provides runtime type checking, size/alignment verification,
+// and type compatibility assertions
+
+extern fn type_check(value: string, expected_type: string) -> bool
+extern fn type_size(type_name: string) -> int
+extern fn type_alignment(type_name: string) -> int
+extern fn type_is_compatible(from: string, to: string) -> bool
+
+struct TypeSafetyReport {
+    violations: []string
+}
+
+extern fn type_safety_audit() -> TypeSafetyReport

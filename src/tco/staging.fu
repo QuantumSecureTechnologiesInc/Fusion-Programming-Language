@@ -1,0 +1,64 @@
+// Partial Evaluation / Multi-Stage Programming
+//
+// Fusion supports three compilation stages:
+//
+//   compile-time  — evaluated by the compiler itself; produces constants
+//   load-time     — evaluated when the module is loaded (link / init)
+//   runtime       — evaluated every time the code executes
+//
+// Partial evaluation specializes functions over known arguments, producing
+// optimized code that only contains the runtime-varying parts.
+
+/// Represents a staged computation unit.
+/// `level`       — 0 = compile-time, 1 = load-time, 2 = runtime
+/// `code`        — the IR to evaluate
+/// `compile_time` — true if this stage is evaluated at compile time
+struct Stage {
+    level: int,
+    code: string,
+    compile_time: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Extern FFI — implemented by the compiler / runtime
+// ---------------------------------------------------------------------------
+
+/// Evaluate `code` at compile time and return the resulting constant.
+/// Panics if the code contains runtime-dependent expressions.
+extern fn stage_compile(code: string) -> string
+
+/// Evaluate `code` at module load time. Allows access to the
+/// environment and module state but not per-invocation data.
+extern fn stage_load(code: string) -> string
+
+/// Emit `code` for runtime evaluation (identity — no optimization).
+extern fn stage_runtime(code: string) -> string
+
+/// Partially evaluate `code` given a set of `known_values` (JSON map).
+/// Variables present in `known_values` are substituted; the result is
+/// residual code that only depends on unknowns.
+extern fn stage_partial_eval(code: string, known_values: string) -> string
+
+/// Generate a specialized version of `fn_name` for the given `types`.
+/// The specialized function is optimized for the concrete type layout
+/// and avoids dynamic dispatch.
+extern fn stage_specialize(fn_name: string, types: string) -> string
+
+// ---------------------------------------------------------------------------
+// Stage queries (pure Fusion)
+// ---------------------------------------------------------------------------
+
+/// Returns true if `stage` is evaluated at compile time.
+fn stage_is_compile_time(stage: Stage) -> bool {
+    return stage.level == 0 && stage.compile_time
+}
+
+/// Returns true if `stage` is evaluated at module load time.
+fn stage_is_load_time(stage: Stage) -> bool {
+    return stage.level == 1
+}
+
+/// Returns true if `stage` is evaluated at runtime.
+fn stage_is_runtime(stage: Stage) -> bool {
+    return stage.level == 2
+}

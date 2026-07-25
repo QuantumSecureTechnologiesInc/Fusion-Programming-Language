@@ -1,0 +1,18 @@
+// Kubernetes integration for Fusion V2.0 Vortex
+
+struct K8sConfig {
+    namespace: string,
+    kubeconfig: string
+}
+
+struct K8sDeployment {
+    name: string,
+    replicas: int,
+    image: string
+}
+
+extern fn k8s_connect(config: K8sConfig) -> int
+extern fn k8s_deploy(handle: int, deployment: K8sDeployment) -> void
+extern fn k8s_scale(handle: int, name: string, replicas: int) -> void
+extern fn k8s_status(handle: int, name: string) -> string
+extern fn k8s_delete(handle: int, name: string) -> void

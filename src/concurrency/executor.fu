@@ -1,0 +1,33 @@
+//! Work-stealing task executor.
+//!
+//! Manages a fixed-size thread pool and distributes submitted tasks
+//! across available workers. Integrates with the Supernova runtime
+//! (`src/runtime/supernova.fu`) for priority-aware scheduling.
+
+struct Executor {
+    max_threads: int,
+    task_count: int,
+}
+
+/// Create an executor with at most `max_threads` worker threads.
+extern fn executor_new(max_threads: int) -> Executor
+
+/// Submit a task to the executor. Returns a task-id that can be used
+/// to poll, wait, or inspect the task.
+extern fn executor_submit(exec: Executor, task: fn() -> int) -> int
+
+/// Non-blocking status check. Returns `"Pending"`, `"Running"`,
+/// `"Ready"`, or `"Failed"`.
+extern fn executor_poll(exec: Executor, task_id: int) -> string
+
+/// Block until the task completes and return its result.
+extern fn executor_wait(exec: Executor, task_id: int) -> int
+
+/// Gracefully shut down the executor, joining all worker threads and
+/// draining the task queue.
+extern fn executor_shutdown(exec: Executor) -> void
+
+/// Return a JSON-encoded snapshot of executor statistics:
+/// total submitted, completed, failed, and currently running tasks,
+/// plus per-thread load.
+extern fn executor_stats(exec: Executor) -> string

@@ -1,0 +1,15 @@
+module observability
+
+// Observability module for Fusion v2.0 Vortex
+// Provides structured logging, performance metrics, profiling, and distributed tracing
+
+pub import logging
+pub import metrics
+pub import profiling
+pub import tracing
+
+// Cross-references to related features
+pub use crate::effects::effect         // observability tracks effects
+pub use crate::actors::actor           // observability tracks actors
+pub use crate::concurrency::executor   // observability tracks tasks
+pub use crate::dispatch::multimethod   // observability tracks dispatch

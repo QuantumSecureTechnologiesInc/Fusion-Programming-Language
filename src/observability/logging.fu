@@ -1,0 +1,33 @@
+module observability.logging
+
+struct LogEntry {
+    timestamp: string
+    level: string
+    message: string
+    module: string
+    fields: string
+}
+
+extern fn log_init(level: string, format: string, output: string) -> void
+extern fn log_trace(module: string, message: string) -> void
+extern fn log_debug(module: string, message: string) -> void
+extern fn log_info(module: string, message: string) -> void
+extern fn log_warn(module: string, message: string) -> void
+extern fn log_error(module: string, message: string) -> void
+extern fn log_fatal(module: string, message: string) -> void
+extern fn log_set_level(level: string) -> void
+extern fn log_get_entries(count: int) -> []LogEntry
+extern fn log_flush() -> void
+
+fn log_with_fields(module: string, level: string, message: string, fields: string) -> void {
+    // Log a message with additional structured fields
+    match level {
+        "trace" => log_trace(module, message)
+        "debug" => log_debug(module, message)
+        "info" => log_info(module, message)
+        "warn" => log_warn(module, message)
+        "error" => log_error(module, message)
+        "fatal" => log_fatal(module, message)
+        _ => log_info(module, message)
+    }
+}

@@ -1,0 +1,120 @@
+// stdlib/prelude.fu - Fusion Standard Library Prelude
+//
+// Master import that re-exports every module in the Fusion standard library.
+// Import this single file to get access to the entire Fusion ecosystem.
+
+// --- Core primitives and types ---
+pub use primitives::{FBool, FInt, FFloat, FString, FU8, FU16, FU32, FU64, FI32, FI64};
+pub use option::{Option, Some, None};
+pub use result::{Result, Ok, Err};
+pub use vector::Vector;
+pub use string::{FString as String};
+pub use hashmap::HashMap;
+pub use hashset::HashSet;
+pub use linkedlist::LinkedList;
+pub use iterator::Iterator;
+
+// --- Math ---
+pub use math::{sqrt, fabs, floor, ceil, round, pow, log, log2, log10, exp, fmod};
+pub use math::{sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh};
+pub use math::{PI, E, TAU, SQRT_2, LN_2, LN_10};
+pub use math::{abs_float, mod, deg_to_rad, rad_to_deg, lerp, clamp_float};
+pub use math::{random, random_range, random_int};
+pub use math::{gcd, lcm, factorial, clamp_int, max_int, min_int, abs_int};
+
+// --- Core I/O and system ---
+pub use io::{print, println, eprint, eprintln, read_line, read_file, write_file};
+pub use fs::{File, open, create, read_dir, path_join};
+pub use process::{Command, spawn, run, exit};
+pub use net::{TcpStream, TcpListener};
+pub use log::{log_info, log_warn, log_error, log_debug};
+
+// --- Hashing and crypto primitives ---
+pub use hash::{hash_sha256, hash_sha3, hash_blake3};
+pub use sha3::Sha3;
+pub use ed25519::{Ed25519Keypair, ed25519_sign, ed25519_verify};
+pub use x25519::{X25519Keypair, x25519_shared_secret};
+pub use hybrid_crypto::{HybridKeypair, hybrid_encrypt, hybrid_decrypt};
+
+// --- JSON ---
+pub use json::{json_parse, json_stringify, JsonValue};
+
+// --- Memory management ---
+pub use memory::{alloc, dealloc, mem_copy, mem_zero};
+
+// --- Higher-level networking ---
+pub use http::{HttpRequest, HttpResponse, http_get, http_post, http_put, http_delete};
+
+// --- String utilities ---
+pub use stringutils::{split, join, trim, starts_with, ends_with, contains, replace, to_upper, to_lower};
+
+// --- Quantum Computing (all backends) ---
+pub use quantum::{Qubit, Circuit, Gate, QuantumSimulator};
+pub use quantum::ibm_backend::{IBMConfig, ibm_run};
+pub use quantum::aws_backend::{AWSConfig, aws_braket_run};
+pub use quantum::azure_backend::{AzureConfig, azure_quantum_run, azure_estimate};
+pub use quantum::google_backend::{CirqConfig, google_build_circuit, google_simulate, google_run_on_device};
+pub use quantum::rigetti_backend::{RigettiConfig, rigetti_run, rigetti_get_devices};
+
+// --- Networking (all protocols) ---
+pub use net::http::{HttpRequest, HttpResponse, http_get, http_post};
+pub use net::grpc::{GrpcService, GrpcRequest, GrpcResponse, grpc_call};
+pub use net::tls::{TlsConfig, TlsSession, tls_connect, tls_accept};
+pub use net::websocket::{WebSocket, ws_connect, ws_send, ws_receive};
+
+// --- AI / Machine Learning ---
+pub use ai::llm::{LLMModel, llm_load_model, llm_generate, llm_tokenize, llm_chat};
+pub use ai::tensor::{Tensor, tensor_new, tensor_zeros, tensor_matmul};
+pub use ai::training::{TrainingConfig, TrainingState, train_init, train_step};
+pub use ai::autodiff::{ADNode, ad_variable, ad_add, ad_mul, ad_backward};
+
+// --- Runtime (SuperNova, Cortex, Intent, HAFT) ---
+pub use runtime::supernova::{SupernovaConfig, Task, supernova_init, supernova_submit, supernova_poll, supernova_wait, supernova_cancel, supernova_shutdown};
+pub use runtime::cortex::{CortexConfig, cortex_init, cortex_schedule, cortex_record, cortex_train, cortex_export_model, cortex_import_model};
+pub use runtime::intent::{Intent, intent_parse, intent_from_string, intent_to_string};
+pub use runtime::haft::{HaftBuffer, haft_allocate, haft_free, haft_migrate, haft_stats};
+
+// --- Cloud (Kubernetes, FaaS) ---
+pub use cloud::k8s::{K8sConfig, K8sDeployment, k8s_connect, k8s_deploy, k8s_scale, k8s_status};
+pub use cloud::faas::{Function, FaasRequest, FaasResponse, faas_register, faas_invoke, faas_list, faas_delete};
+
+// --- Mobile (iOS, Android) ---
+pub use mobile::ios::{IosView, ios_create_view, ios_add_child, ios_update_text, ios_set_on_click};
+pub use mobile::android::{AndroidView, android_create_view, android_add_child, android_update_text, android_set_on_click};
+
+// --- Web Runtime ---
+pub use web::runtime::{DomElement, dom_create, dom_set_attribute, dom_append_child, dom_render};
+
+// --- Language Interop ---
+pub use interop::python::{PyModule, py_import, py_call, py_eval, py_release};
+pub use interop::javascript::{JsEngine, js_create, js_eval, js_call, js_release};
+pub use interop::java::{Jvm, jvm_create, jvm_call_static, jvm_release};
+
+// --- Security (PQC, NeuralSeal, ZKP) ---
+pub use security::pqc_enforcement::{PQC_ENFORCEMENT_VERSION, PQC_MIN_KEY_STRENGTH};
+pub use security::fips::FipsValidator;
+pub use security::zkp::{ProofSystem, ZkpProof, zkp_prove, zkp_verify};
+pub use seal::{NeuralGuard, NeuralSanitiser, SecurityViolation};
+
+// --- Compiler (Visual Compiler, Package Manager, Deploy) ---
+pub use compiler::visual_compiler::{VisualConfig, IntentResult, vc_init, vc_parse_intent, vc_generate_code};
+pub use compiler::package_manager::{Package, PackageRegistry, pkg_search, pkg_install, pkg_publish};
+pub use compiler::deploy::{DeployConfig, deploy_to_k8s, deploy_to_faas, deploy_status, deploy_rollback};
+
+// --- Runtime & Context ---
+pub use security::{clear_context, set_context, FusionContext};
+pub use stdlib::{fusion_channel, spawn_secure, FusionReceiver, FusionSender};
+pub use cycle::{ComputeNode, CycleFailure, MarketBid, ServiceAgreement};
+pub use flow::{spawn_narrative, wait_for, NarrativeTask};
+
+// --- Error handling ---
+pub use error::{Error, error_new, error_with_source, error_to_string, panic, abort, unreachable, assert, assert_eq, assert_ne};
+
+// --- Option and Result utilities ---
+pub use option::{OptionAny, option_some, option_none, option_expect, option_unwrap_or, option_map, option_and_then, option_is_none, option_is_some};
+pub use result::{ResultAny, result_ok, result_err, result_expect, result_unwrap_or, result_map, result_map_err, result_and_then, result_is_ok, result_is_err, result_ok_or, result_err_or};
+
+// --- Common aliases ---
+pub type Int = FInt;
+pub type Bool = FBool;
+pub type Float = FFloat;

@@ -1,9 +1,0 @@
-[package]
-name = "fusion_nn_metrics"
-version = "0.1.0"
-edition = "2021"
-description = "Training metrics calculation (Accuracy, F1, AUC, etc.)"
-license = "MIT"
-
-[dependencies]
-fusion_core = { path = "../core", version = "0.1.0" }
