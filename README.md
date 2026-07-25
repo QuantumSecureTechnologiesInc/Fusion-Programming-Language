@@ -1,24 +1,33 @@
-<div align="center">
+<p align="center">
+  <img src="assets/logo.png" alt="Fusion Logo" width="120" height="120">
+</p>
 
-<img src="docs/favicon-32x32.png" alt="Fusion Logo" width="120" height="120">
+<h1 align="center">Fusion v2.0 Vortex</h1>
 
-# Fusion v2.0 Vortex
+<h3 align="center">The Polyglot Programming Language</h3>
 
-### The Polyglot Programming Language
+<p align="center">
+  <a href="https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/Version-2.0.0-brightgreen?style=for-the-badge" alt="Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
+  <a href="#installation"><img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge" alt="Platform"></a>
+  <a href="https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language/actions"><img src="https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge" alt="Build"></a>
+  <a href="#post-quantum-cryptography"><img src="https://img.shields.io/badge/Security-Post--Quantum-purple?style=for-the-badge" alt="PQC"></a>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](ChangeLog.md)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#installation)
-[![Build](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](#building)
-[![PQC](https://img.shields.io/badge/Security-Post--Quantum-purple.svg)](#post-quantum-cryptography)
+<p align="center">
+  <b>A modern, general-purpose, polyglot systems programming language</b><br>
+  with post-quantum cryptography, quantum computing, blockchain,<br>
+  and 16 advanced programming language theory features.
+</p>
 
-**A modern, general-purpose, polyglot systems programming language with post-quantum cryptography, quantum computing, blockchain, and 16 advanced programming language theory features.**
-
----
-
-[Installation](#installation) | [Quick Start](#quick-start) | [Features](#features) | [Documentation](#documentation) | [Examples](#examples) | [Contributing](#contributing)
-
-</div>
+<p align="center">
+  <a href="#installation">Installation</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
+  <a href="#documentation">Documentation</a> •
+  <a href="#examples">Examples</a> •
+  <a href="#contributing">Contributing</a>
+</p>
 
 ---
 
@@ -44,7 +53,11 @@ Fusion is not just another programming language — it's a **polyglot systems la
 
 ### Quick Install (Recommended)
 
-#### Windows
+<table>
+<tr>
+<td><b>Windows</b></td>
+<td>
+
 ```powershell
 # PowerShell (Run as Administrator)
 .\installers\windows\install.ps1
@@ -53,7 +66,12 @@ Fusion is not just another programming language — it's a **polyglot systems la
 winget install QuantumSecureTechnologiesInc.Fusion
 ```
 
-#### Linux
+</td>
+</tr>
+<tr>
+<td><b>Linux</b></td>
+<td>
+
 ```bash
 # Ubuntu/Debian
 sudo dpkg -i installers/linux/debian/fusion-lang.deb
@@ -65,7 +83,12 @@ sudo rpm -i installers/linux/rpm/fusion-lang.rpm
 bash installers/linux/install.sh
 ```
 
-#### macOS
+</td>
+</tr>
+<tr>
+<td><b>macOS</b></td>
+<td>
+
 ```bash
 # Homebrew
 brew install fusion-lang
@@ -74,7 +97,12 @@ brew install fusion-lang
 bash installers/macos/install.sh
 ```
 
+</td>
+</tr>
+</table>
+
 ### Native Fusion Installer
+
 ```bash
 # Requires a working Fusion compiler
 fusion run installers/windows/install.fu   # Windows
@@ -83,6 +111,7 @@ fusion run installers/macos/install.fu     # macOS
 ```
 
 ### From Source
+
 ```bash
 git clone https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language.git
 cd Fusion-Programming-Language
@@ -107,58 +136,38 @@ cd hello
 fusion run
 ```
 
-### With Post-Quantum Crypto
+### Post-Quantum Crypto
 
 ```fusion
 fn main() -> void {
-    // Generate hybrid PQC keypair
     let keypair = pqc_hybrid_keygen();
-    
-    // Sign with 50/50 hybrid (Ed25519 + ML-DSA-65)
     let signature = pqc_hybrid_sign(keypair, "Hello, Quantum-Safe World!");
-    
-    // Verify both classical AND post-quantum signatures
     let valid = pqc_hybrid_verify(keypair, "Hello, Quantum-Safe World!", signature);
     println("Signature valid: " + valid);
 }
 ```
 
-### With Quantum Computing
+### Quantum Computing
 
 ```fusion
 fn main() -> void {
-    // Create a 2-qubit quantum circuit
     let circuit = quantum_circuit(2);
-    
-    // Apply Hadamard to qubit 0
     circuit.h(0);
-    
-    // Apply CNOT (entangle qubits 0 and 1)
     circuit.cx(0, 1);
-    
-    // Measure all qubits
     let result = circuit.measure();
-    println("Measurement: " + result);
+    println("Bell state: " + result);
 }
 ```
 
-### With Blockchain
+### Blockchain
 
 ```fusion
 fn main() -> void {
-    // Create a new blockchain with Proof of Work
     let chain = chain_new(4);
-    
-    // Add a transaction
     let tx = tx_new("alice", "bob", 100.0, 0.01);
-    
-    // Mine a block
-    let block = block_new(chain_height(chain) + 1, block_hash(chain_latest(chain)), "tx_data");
-    let mined = pow_mine(block, pow_new(4));
-    
-    // Add to chain
-    let updated_chain = chain_add_block(chain, block_data(mined));
-    println("Chain length: " + chain_length(updated_chain));
+    let block = pow_mine(block_new(chain_height(chain) + 1, block_hash(chain_latest(chain)), "tx"), pow_new(4));
+    let updated = chain_add_block(chain, block_data(block));
+    println("Chain length: " + chain_length(updated));
 }
 ```
 
@@ -265,24 +274,25 @@ fn main() -> void {
 
 ### Advanced PLT Features (16 Total)
 
-| Feature | Description |
-|---------|-------------|
-| **Algebraic Effects** | Side-effect tracking with handlers |
-| **Linear Types** | Resource protocol enforcement |
-| **Dependent Types** | Types depending on values |
-| **Refinement Types** | Logical predicates on types |
-| **Gradual Typing** | Static + dynamic hybrid |
-| **Guaranteed TCO** | Tail-call optimization |
-| **Continuations** | First-class control flow |
-| **Capability Security** | Object-capability model |
-| **Multiple Dispatch** | Method resolution by all args |
-| **Effect Polymorphism** | Generic effect signatures |
-| **Formal Verification** | Compile-time proof hooks |
-| **Partial Evaluation** | Multi-stage programming |
-| **Actor Model** | Built-in actors + supervision |
-| **Custom Allocators** | Per-type memory allocation |
-| **Unsafe Provenance** | Proof requirements for unsafe |
-| **Blockchain** | 31 built-in modules |
+<table>
+<tr><th>Feature</th><th>Description</th></tr>
+<tr><td><b>Algebraic Effects</b></td><td>Side-effect tracking with handlers</td></tr>
+<tr><td><b>Linear Types</b></td><td>Resource protocol enforcement</td></tr>
+<tr><td><b>Dependent Types</b></td><td>Types depending on values</td></tr>
+<tr><td><b>Refinement Types</b></td><td>Logical predicates on types</td></tr>
+<tr><td><b>Gradual Typing</b></td><td>Static + dynamic hybrid</td></tr>
+<tr><td><b>Guaranteed TCO</b></td><td>Tail-call optimization</td></tr>
+<tr><td><b>Continuations</b></td><td>First-class control flow</td></tr>
+<tr><td><b>Capability Security</b></td><td>Object-capability model</td></tr>
+<tr><td><b>Multiple Dispatch</b></td><td>Method resolution by all args</td></tr>
+<tr><td><b>Effect Polymorphism</b></td><td>Generic effect signatures</td></tr>
+<tr><td><b>Formal Verification</b></td><td>Compile-time proof hooks</td></tr>
+<tr><td><b>Partial Evaluation</b></td><td>Multi-stage programming</td></tr>
+<tr><td><b>Actor Model</b></td><td>Built-in actors + supervision</td></tr>
+<tr><td><b>Custom Allocators</b></td><td>Per-type memory allocation</td></tr>
+<tr><td><b>Unsafe Provenance</b></td><td>Proof requirements for unsafe</td></tr>
+<tr><td><b>Blockchain</b></td><td>31 built-in modules</td></tr>
+</table>
 
 ### Blockchain Development (31 Modules)
 
@@ -368,16 +378,17 @@ fn main() -> void {
 
 ### Toolchain (Pillar 6: Assembly Line)
 
-| Tool | Command | Description |
-|------|---------|-------------|
-| **Compiler** | `fuc` | Full compilation pipeline |
-| **CLI** | `fusion` | 17+ commands (init, build, run, test, fmt, lint, etc.) |
-| **VS Code Extension** | — | Syntax highlighting, completion, hover, diagnostics |
-| **Package Manager** | `fusion add/remove` | Forge with cross-language deps |
-| **Formatter** | `fusion fmt` | Auto-formatting |
-| **Linter** | `fusion lint` | Policy enforcement |
-| **Documentation** | `fusion doc` | Generate API docs |
-| **Testing** | `fusion test` | Unit + integration tests |
+<table>
+<tr><th>Tool</th><th>Command</th><th>Description</th></tr>
+<tr><td><b>Compiler</b></td><td><code>fuc</code></td><td>Full compilation pipeline</td></tr>
+<tr><td><b>CLI</b></td><td><code>fusion</code></td><td>17+ commands (init, build, run, test, fmt, lint, etc.)</td></tr>
+<tr><td><b>VS Code Extension</b></td><td>—</td><td>Syntax highlighting, completion, hover, diagnostics</td></tr>
+<tr><td><b>Package Manager</b></td><td><code>fusion add/remove</code></td><td>Forge with cross-language deps</td></tr>
+<tr><td><b>Formatter</b></td><td><code>fusion fmt</code></td><td>Auto-formatting</td></tr>
+<tr><td><b>Linter</b></td><td><code>fusion lint</code></td><td>Policy enforcement</td></tr>
+<tr><td><b>Documentation</b></td><td><code>fusion doc</code></td><td>Generate API docs</td></tr>
+<tr><td><b>Testing</b></td><td><code>fusion test</code></td><td>Unit + integration tests</td></tr>
+</table>
 
 ---
 
@@ -427,29 +438,29 @@ Fusion v2.0 Vortex/
 
 ## Documentation
 
-| Chapter | Topic |
-|---------|-------|
-| [Ch 1: Getting Started](docs/guides/ch01-getting-started.md) | Installation, Hello World |
-| [Ch 2: Syntax](docs/guides/ch02-syntax.md) | Variables, types, operators, control flow |
-| [Ch 3: Structs & Enums](docs/guides/ch03-structs-enums.md) | Data structures, pattern matching |
-| [Ch 4: Memory Safety](docs/guides/ch04-memory-safety.md) | Ownership, borrowing, Vortex |
-| [Ch 5: Generics](docs/guides/ch05-generics.md) | Generic types, trait bounds |
-| [Ch 6: Standard Library](docs/guides/ch06-standard-library.md) | I/O, strings, collections |
-| [Ch 7: Post-Quantum Crypto](docs/guides/ch07-post-quantum-crypto.md) | ML-KEM-768, ML-DSA-65 |
-| [Ch 8: Quantum Computing](docs/guides/ch08-quantum-computing.md) | Gates, circuits, backends |
-| [Ch 9: Machine Learning](docs/guides/ch09-machine-learning.md) | Tensors, neural networks |
-| [Ch 10: Concurrency](docs/guides/ch10-concurrency.md) | Threads, async, actors |
-| [Ch 11: WebAssembly](docs/guides/ch11-webassembly.md) | WASM compilation |
-| [Ch 12: Tooling](docs/guides/ch12-tooling.md) | CLI, formatter, linter |
-| [Ch 13: Advanced](docs/guides/ch13-advanced.md) | 16 PLT features |
-| [Ch 14: Examples](docs/guides/ch14-examples.md) | Complete code examples |
-| [Ch 15: Reference](docs/guides/ch15-reference.md) | API reference |
-| [Ch 16: Polyglot Interop](docs/guides/ch16-polyglot-interop.md) | FFI, type mapping |
-| [Ch 17: Fusion.toml](docs/guides/ch17-fusion-toml.md) | Configuration |
-| [Ch 18: Compiler Features](docs/guides/ch18-compiler-features.md) | Feature toggle, witnesses |
-| [Pillar 1-7](docs/guides/ch19-pillar1-*.md) | The 7 Pillars of Fusion |
-| [Ch 26: Blockchain](docs/guides/ch26-blockchain.md) | 31 blockchain modules |
-| [Ch 27: Null Handling](docs/guides/ch27-null-handling.md) | Option/Result types |
+<table>
+<tr><th>Chapter</th><th>Topic</th></tr>
+<tr><td><a href="docs/guides/ch01-getting-started.md">Ch 1</a></td><td>Installation, Hello World</td></tr>
+<tr><td><a href="docs/guides/ch02-syntax.md">Ch 2</a></td><td>Variables, types, operators, control flow</td></tr>
+<tr><td><a href="docs/guides/ch03-structs-enums.md">Ch 3</a></td><td>Data structures, pattern matching</td></tr>
+<tr><td><a href="docs/guides/ch04-memory-safety.md">Ch 4</a></td><td>Ownership, borrowing, Vortex</td></tr>
+<tr><td><a href="docs/guides/ch05-generics.md">Ch 5</a></td><td>Generic types, trait bounds</td></tr>
+<tr><td><a href="docs/guides/ch06-standard-library.md">Ch 6</a></td><td>I/O, strings, collections</td></tr>
+<tr><td><a href="docs/guides/ch07-post-quantum-crypto.md">Ch 7</a></td><td>ML-KEM-768, ML-DSA-65</td></tr>
+<tr><td><a href="docs/guides/ch08-quantum-computing.md">Ch 8</a></td><td>Gates, circuits, backends</td></tr>
+<tr><td><a href="docs/guides/ch09-machine-learning.md">Ch 9</a></td><td>Tensors, neural networks</td></tr>
+<tr><td><a href="docs/guides/ch10-concurrency.md">Ch 10</a></td><td>Threads, async, actors</td></tr>
+<tr><td><a href="docs/guides/ch11-webassembly.md">Ch 11</a></td><td>WASM compilation</td></tr>
+<tr><td><a href="docs/guides/ch12-tooling.md">Ch 12</a></td><td>CLI, formatter, linter</td></tr>
+<tr><td><a href="docs/guides/ch13-advanced.md">Ch 13</a></td><td>16 PLT features</td></tr>
+<tr><td><a href="docs/guides/ch14-examples.md">Ch 14</a></td><td>Complete code examples</td></tr>
+<tr><td><a href="docs/guides/ch15-reference.md">Ch 15</a></td><td>API reference</td></tr>
+<tr><td><a href="docs/guides/ch16-polyglot-interop.md">Ch 16</a></td><td>FFI, type mapping</td></tr>
+<tr><td><a href="docs/guides/ch17-fusion-toml.md">Ch 17</a></td><td>Configuration</td></tr>
+<tr><td><a href="docs/guides/ch18-compiler-features.md">Ch 18</a></td><td>Feature toggle, witnesses</td></tr>
+<tr><td><a href="docs/guides/ch26-blockchain.md">Ch 26</a></td><td>Blockchain development</td></tr>
+<tr><td><a href="docs/guides/ch27-null-handling.md">Ch 27</a></td><td>Option/Result types</td></tr>
+</table>
 
 **Full Reference**: [FUSION_LANGUAGE_SPEC.md](docs/reference/FUSION_LANGUAGE_SPEC.md) (92KB comprehensive specification)
 
@@ -540,18 +551,6 @@ fn main() -> void {
     let model = fusion_llm_load_model("llama3");
     let response = fusion_llm_generate(model, "What is quantum computing?", 100);
     println(response);
-}
-```
-</details>
-
-<details>
-<summary><b>Blockchain Token</b></summary>
-
-```fusion
-fn main() -> void {
-    let token = erc20_new("Fusion Token", "FUS", 1000000.0, "owner");
-    let transferred = erc20_transfer(token, "owner", "alice", 100.0);
-    println("Alice balance: " + erc20_balance_of(transferred, "alice"));
 }
 ```
 </details>
@@ -647,6 +646,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with post-quantum security for the quantum computing era**
 
-[<img src="https://img.shields.io/badge/Fusion-v2.0.0-purple?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJMMyAxMmg4bDYtMTJaIiBmaWxsPSIjRkZGRkZGIi8+PC9zdmc+" alt="Fusion">](https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language)
+<small>QuantumSecure Technologies LTD</small>
 
 </div>
