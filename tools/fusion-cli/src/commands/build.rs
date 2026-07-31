@@ -6,7 +6,7 @@ use std::process::Command;
 use crate::config::FusionConfig;
 
 pub async fn run(target: &str, release: bool, verbose: bool, json: bool) -> Result<()> {
-    let config = FusionConfig::load().unwrap_or_default();
+    let config = FusionConfig::load().unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
     let root = FusionConfig::project_root().unwrap_or_else(|_| std::env::current_dir().unwrap());
 
     let pb = ProgressBar::new_spinner();
@@ -27,14 +27,15 @@ pub async fn run(target: &str, release: bool, verbose: bool, json: bool) -> Resu
         args.push("--verbose".to_string());
     }
 
-    if let Some(ref build_cfg) = config.build {
-        if let Some(opt) = build_cfg.optimization_level {
+    // Read build options from config if available
+    if let Some(build_cfg) = config.get("build") {
+        if let Some(opt) = build_cfg.get("optimization_level").and_then(|v| v.as_integer()) {
             args.push(format!("--opt-level={}", opt));
         }
-        if let Some(true) = build_cfg.lto {
+        if let Some(true) = build_cfg.get("lto").and_then(|v| v.as_bool()) {
             args.push("--lto".to_string());
         }
-        if let Some(true) = build_cfg.debug_info {
+        if let Some(true) = build_cfg.get("debug_info").and_then(|v| v.as_bool()) {
             args.push("--debug".to_string());
         }
     }

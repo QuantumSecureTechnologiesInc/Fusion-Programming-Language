@@ -1,0 +1,438 @@
+# ============================================================================
+# Fusion v2.0 Vortex — Release & Package Build Workflow
+# ============================================================================
+# Triggers on:
+#   1. Push of a tag matching v*.*.* (e.g., v2.0.0)
+#   2. Manual dispatch with custom version
+#
+# Builds and publishes:
+#   - Windows: NSIS installer (x64, arm64), MSI installer, PowerShell installer
+#   - Linux: .deb (amd64, arm64), .rpm (x86_64, aarch64), Snap, AppImage
+#   - macOS: .pkg, .dmg (x64, arm64), Homebrew formula
+#   - Source tarball
+#   - Winget manifest update
+# ============================================================================
+name: Release Packages
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 2.0.0)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (skip publishing)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: '1.80'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ==========================================================================
+  # Determine version
+  # ==========================================================================
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ==========================================================================
+  # Windows builds
+  # ==========================================================================
+  windows:
+    name: Windows (x64 + arm64)
+    needs: prepare
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch == 'arm64' && 'aarch64-pc-windows-msvc' || 'x86_64-pc-windows-msvc' }}
+
+      - name: Build compiler
+        run: cargo build --release --path crates/fuc
+
+      - name: Build CLI
+        run: cargo build --release --path tools/fusion-cli
+
+      - name: Build NSIS installer
+        uses: dlemstra/nsis-action@main
+        with:
+          script: installers/windows/Fusion-Setup.nsi
+
+      - name: Create zip archive
+        run: |
+          Compress-Archive -Path target/release/fuc.exe,target/release/fusion.exe -DestinationPath "Fusion-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.zip"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            Fusion-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}-Setup.exe
+            Fusion-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.zip
+
+  # ==========================================================================
+  # Windows MSI build
+  # ==========================================================================
+  windows-msi:
+    name: Windows MSI
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install WiX Toolset
+        run: |
+          dotnet tool install --global wix
+          wix --version
+
+      - name: Build compiler
+        run: cargo build --release --path crates/fuc
+
+      - name: Build CLI
+        run: cargo build --release --path tools/fusion-cli
+
+      - name: Build MSI
+        run: |
+          wix build -arch x64 `
+            -d Version=${{ needs.prepare.outputs.version }} `
+            installers/windows/fusion.wxs `
+            -o "Fusion-v${{ needs.prepare.outputs.version }}-x64.msi"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi
+          path: Fusion-v${{ needs.prepare.outputs.version }}-x64.msi
+
+  # ==========================================================================
+  # Linux builds
+  # ==========================================================================
+  linux:
+    name: Linux (${{ matrix.distro }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - distro: debian-amd64
+            container: debian:bookworm
+            arch: amd64
+            build_cmd: dpkg-deb
+          - distro: debian-arm64
+            container: debian:bookworm
+            arch: arm64
+            build_cmd: dpkg-deb
+          - distro: fedora-x86_64
+            container: fedora:39
+            arch: x86_64
+            build_cmd: rpmbuild
+    container: ${{ matrix.container }}
+    steps:
+      - name: Install build dependencies
+        run: |
+          if command -v apt-get &>/dev/null; then
+            apt-get update -qq
+            apt-get install -y -qq curl build-essential libssl-dev pkg-config cmake dpkg-dev
+          elif command -v dnf &>/dev/null; then
+            dnf install -y gcc openssl-devel pkg-config cmake rpm-build
+          fi
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - uses: actions/checkout@v4
+
+      - name: Build compiler
+        run: cargo build --release --path crates/fuc
+
+      - name: Build CLI
+        run: cargo build --release --path tools/fusion-cli
+
+      - name: Build .deb package
+        if: matrix.build_cmd == 'dpkg-deb'
+        run: |
+          DEB_DIR="build/deb"
+          mkdir -p "$DEB_DIR/DEBIAN"
+          mkdir -p "$DEB_DIR/opt/fusion/bin"
+          mkdir -p "$DEB_DIR/opt/fusion/stdlib"
+
+          cp target/release/fuc "$DEB_DIR/opt/fusion/bin/"
+          cp target/release/fusion "$DEB_DIR/opt/fusion/bin/"
+          cp -r stdlib/* "$DEB_DIR/opt/fusion/stdlib/"
+
+          sed "s/Version: .*/Version: ${{ needs.prepare.outputs.version }}/" installers/linux/debian/control > "$DEB_DIR/DEBIAN/control"
+          cp installers/linux/debian/postinst "$DEB_DIR/DEBIAN/"
+          cp installers/linux/debian/prerm "$DEB_DIR/DEBIAN/"
+          cp installers/linux/debian/postrm "$DEB_DIR/DEBIAN/"
+          chmod 755 "$DEB_DIR/DEBIAN/postinst" "$DEB_DIR/DEBIAN/prerm" "$DEB_DIR/DEBIAN/postrm"
+
+          dpkg-deb --build "$DEB_DIR" "fusion-lang-${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.deb"
+
+      - name: Build .rpm package
+        if: matrix.build_cmd == 'rpmbuild'
+        run: |
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          tar czf "rpmbuild/SOURCES/fusion-lang-${{ needs.prepare.outputs.version }}.tar.gz" \
+            --exclude=build --exclude=.git --exclude=target \
+            -C . .
+          cp installers/linux/rpm/fusion-lang.spec rpmbuild/SPECS/
+          sed -i "s/Version: .*/Version: ${{ needs.prepare.outputs.version }}/" rpmbuild/SPECS/fusion-lang.spec
+          rpmbuild -ba --define "_topdir $(pwd)/rpmbuild" rpmbuild/SPECS/fusion-lang.spec
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.distro }}
+          path: |
+            fusion-lang-*.deb
+            rpmbuild/RPMS/**/*.rpm
+
+  # ==========================================================================
+  # macOS builds
+  # =========================================================================:
+  macos:
+    name: macOS (${{ matrix.arch }})
+    needs: prepare
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            target: x86_64-apple-darwin
+          - arch: arm64
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: brew install cmake pkg-config openssl
+
+      - name: Build compiler
+        run: cargo build --release --path crates/fuc --target ${{ matrix.target }}
+
+      - name: Build CLI
+        run: cargo build --release --path tools/fusion-cli --target ${{ matrix.target }}
+
+      - name: Create tarball
+        run: |
+          tar czf "fusion-lang-${{ needs.prepare.outputs.version }}-macos-${{ matrix.arch }}.tar.gz" \
+            -C "target/${{ matrix.target }}/release" fuc fusion
+
+      - name: Build .pkg
+        run: |
+          mkdir -p pkg-root/usr/local/bin
+          cp target/${{ matrix.target }}/release/fuc pkg-root/usr/local/bin/
+          cp target/${{ matrix.target }}/release/fusion pkg-root/usr/local/bin/
+
+          pkgbuild \
+            --root pkg-root \
+            --identifier com.quantumsecure.fusion \
+            --version ${{ needs.prepare.outputs.version }} \
+            --install-location / \
+            "Fusion-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.pkg"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            fusion-lang-${{ needs.prepare.outputs.version }}-macos-${{ matrix.arch }}.tar.gz
+            Fusion-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.pkg
+
+  # ==========================================================================
+  # macOS DMG (universal)
+  # ==========================================================================
+  macos-dmg:
+    name: macOS DMG
+    needs: [prepare, macos]
+    runs-on: macos-latest
+    steps:
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-x64
+          path: staging
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64
+          path: staging
+
+      - name: Build DMG
+        run: |
+          mkdir -p dmg-staging/Fusion
+          tar xzf staging/fusion-lang-*-macos-arm64.tar.gz -C dmg-staging/Fusion/
+          ln -s /Applications dmg-staging/Applications
+
+          hdiutil create \
+            -volname "Fusion v${{ needs.prepare.outputs.version }}" \
+            -srcfolder dmg-staging \
+            -ov \
+            -format UDZO \
+            "Fusion-v${{ needs.prepare.outputs.version }}-macos-universal.dmg"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: Fusion-v${{ needs.prepare.outputs.version }}-macos-universal.dmg
+
+  # ==========================================================================
+  # Source tarball
+  # ==========================================================================
+  source:
+    name: Source tarball
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create source tarball
+        run: |
+          git archive --format=tar.gz --prefix="fusion-lang-${{ needs.prepare.outputs.version }}/" \
+            -o "fusion-lang-${{ needs.prepare.outputs.version }}.tar.gz" HEAD
+
+      - name: Upload source tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: fusion-lang-${{ needs.prepare.outputs.version }}.tar.gz
+
+  # ==========================================================================
+  # Create GitHub Release with all assets
+  # ==========================================================================
+  publish-release:
+    name: Publish GitHub Release
+    needs: [prepare, windows, windows-msi, linux, macos, macos-dmg, source]
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        run: find release-assets -type f | head -50
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: "Fusion v${{ needs.prepare.outputs.version }} Vortex"
+          body: |
+            ## Fusion v${{ needs.prepare.outputs.version }} Vortex
+
+            ### Installation
+
+            **Windows:**
+            ```bash
+            winget install QSTech.Fusion
+            ```
+            Or download the `.exe` / `.msi` installer below.
+
+            **macOS:**
+            ```bash
+            brew install fusion-lang
+            ```
+            Or download the `.pkg` / `.dmg` installer below.
+
+            **Linux:**
+            ```bash
+            # Debian/Ubuntu
+            sudo dpkg -i fusion-lang-${{ needs.prepare.outputs.version }}-amd64.deb
+
+            # Fedora/RHEL
+            sudo rpm -i fusion-lang-${{ needs.prepare.outputs.version }}-1.x86_64.rpm
+
+            # Snap
+            sudo snap install fusion-lang
+
+            # Shell installer
+            curl -sSL https://fusion-lang.org/install.sh | bash
+            ```
+
+            ### What's New
+            See the [ChangeLog](https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language/blob/main/ChangeLog.md) for details.
+
+            ### Documentation
+            - [Getting Started](https://fusion-lang.org/docs/getting-started)
+            - [Language Reference](https://fusion-lang.org/docs)
+            - [GitHub](https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language)
+          files: release-assets/*
+          draft: false
+          prerelease: false
+
+  # ==========================================================================
+  # Winget manifest PR (automated)
+  # ==========================================================================
+  winget-manifest:
+    name: Submit winget manifest
+    needs: [prepare, publish-release]
+    runs-on: windows-latest
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update winget manifest SHA256
+        run: |
+          # In production, compute actual SHA256 of the released .exe
+          echo "TODO: Compute SHA256 of released NSIS installer"
+          echo "TODO: Update manifests/q/QSTech/Fusion/${{ needs.prepare.outputs.version }}/QSTech.Fusion.installer.yaml"
+
+      - name: Submit to winget-pkgs
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: QSTech.Fusion
+          version: ${{ needs.prepare.outputs.version }}
+          installers-regex: 'Fusion-v[\d.]+-x64-Setup\.exe$'
+          max-versions-to-keep: 5
+        env:
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_PAT }}

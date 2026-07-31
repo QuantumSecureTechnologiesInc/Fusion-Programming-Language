@@ -1,4 +1,16 @@
 #!/bin/bash
 set -e
-# Remove Fusion from PATH
+
+# Fusion v2.0 Vortex — Debian pre-remove script
+
+# Remove PATH profile
 rm -f /etc/profile.d/fusion.sh
+
+# Remove symlinks
+rm -f /usr/local/bin/fuc
+rm -f /usr/local/bin/fusion
+
+# Remove alternatives
+if command -v update-alternatives >/dev/null 2>&1; then
+    update-alternatives --remove fusion-editor /opt/fusion/bin/fuc 2>/dev/null || true
+fi

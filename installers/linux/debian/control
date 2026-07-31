@@ -4,8 +4,21 @@ Section: devel
 Priority: optional
 Architecture: amd64
 Maintainer: QuantumSecure Technologies Inc <quantumsecure@fusion-lang.org>
-Description: Fusion v2.0 Vortex Programming Language
- A modern, polyglot systems programming language with
- post-quantum cryptography, quantum computing, blockchain,
- and advanced type system features.
+Homepage: https://fusion-lang.org
+Vcs-Git: https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language.git
+Vcs-Browser: https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language
 Depends: libc6 (>= 2.17), libstdc++6 (>= 4.8)
+Recommends: build-essential, pkg-config, libssl-dev
+Suggests: llvm, clang
+Installed-Size: 51200
+Provides: fusion-compiler
+Conflicts: fusion-lang-dev
+Replaces: fusion-lang-dev
+Description: Fusion v2.0 Vortex Programming Language
+ A modern, polyglot systems programming language designed for the post-quantum era.
+ .
+ Features include algebraic effects, linear types, dependent types, refinement types,
+ tail-call optimization, actors, pattern matching, post-quantum cryptography,
+ quantum computing primitives, blockchain modules, and a multi-target compiler.
+ .
+ This package provides the Fusion compiler (fuc) and CLI (fusion).

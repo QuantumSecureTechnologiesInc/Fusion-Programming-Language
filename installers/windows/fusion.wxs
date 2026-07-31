@@ -1,0 +1,151 @@
+<!--
+  ============================================================================
+  Fusion v2.0 Vortex — WiX MSI Installer
+  ============================================================================
+  Build (requires WiX Toolset v3+):
+    candle.exe -arch x64 fusion.wxs -dVersion=2.0.0
+    light.exe -out Fusion-v2.0-Vortex-x64.msi fusion.wixobj
+
+  Or with WiX v4 (wix build):
+    wix build -arch x64 -d Version=2.0.0 fusion.wxs -o Fusion-v2.0-Vortex-x64.msi
+  ============================================================================
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <Product Id="*"
+           Name="Fusion Programming Language"
+           Language="1033"
+           Version="2.0.0"
+           Manufacturer="QuantumSecure Technologies Inc"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+
+    <Package InstallerVersion="200"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="Fusion v2.0 Vortex Programming Language"
+             Comments="A modern, polyglot systems programming language with post-quantum cryptography" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Fusion is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- ================================================================ -->
+    <!-- Icons & Properties                                               -->
+    <!-- ================================================================ -->
+    <Icon Id="FusionIcon" SourceFile="..\..\target\release\fuc.exe" />
+    <Property Id="ARPPRODUCTICON" Value="FusionIcon" />
+    <Property Id="ARPHELPLINK" Value="https://fusion-lang.org/docs" />
+    <Property Id="ARPURLINFOABOUT" Value="https://fusion-lang.org" />
+
+    <!-- ================================================================ -->
+    <!-- Feature Tree                                                     -->
+    <!-- ================================================================ -->
+    <Feature Id="MainProgram" Title="Fusion Compiler" Level="1" AllowAbsent="no">
+      <ComponentRef Id="BinDir" />
+      <ComponentRef Id="PathEnv" />
+      <ComponentRef Id="StartMenuShortcuts" />
+    </Feature>
+
+    <Feature Id="StandardLibrary" Title="Standard Library" Level="1">
+      <ComponentRef Id="StdLib" />
+    </Feature>
+
+    <Feature Id="Documentation" Title="Documentation" Level="1">
+      <ComponentRef Id="DocsDir" />
+    </Feature>
+
+    <!-- ================================================================ -->
+    <!-- Directory Structure                                              -->
+    <!-- ================================================================ -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Fusion" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Fusion" />
+      </Directory>
+    </Directory>
+
+    <!-- ================================================================ -->
+    <!-- Components                                                       -->
+    <!-- ================================================================ -->
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+
+      <!-- Core binaries -->
+      <Component Id="BinDir" Guid="*">
+        <File Id="fuc.exe"
+              Source="..\..\target\release\fuc.exe"
+              KeyPath="yes" />
+        <File Id="fusion.exe"
+              Source="..\..\target\release\fusion.exe" />
+      </Component>
+
+      <!-- Standard library -->
+      <Component Id="StdLib" Directory="INSTALLFOLDER" Guid="*">
+        <File Id="StdLibFiles"
+              Source="..\..\stdlib\*.*"
+              Vital="no"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Documentation -->
+      <Component Id="DocsDir" Directory="INSTALLFOLDER" Guid="*">
+        <File Id="DocFiles"
+              Source="..\..\docs\guides\*.md"
+              Vital="no"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- PATH environment variable -->
+      <Component Id="PathEnv" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901">
+        <Environment Id="FusionPath"
+                     Name="PATH"
+                     Value="[INSTALLFOLDER]"
+                     Permanent="no"
+                     Part="last"
+                     Action="set"
+                     System="yes" />
+      </Component>
+
+      <!-- Start Menu shortcuts -->
+      <Component Id="StartMenuShortcuts" Directory="ApplicationProgramsFolder" Guid="*">
+        <Shortcut Id="StartMenuFuc"
+                  Name="Fusion Compiler"
+                  Target="[INSTALLFOLDER]fuc.exe"
+                  Description="Fusion Language Compiler" />
+        <Shortcut Id="StartMenuFusion"
+                  Name="Fusion CLI"
+                  Target="[INSTALLFOLDER]fusion.exe"
+                  Description="Fusion Command-Line Interface" />
+        <Shortcut Id="StartMenuUninstall"
+                  Name="Uninstall Fusion"
+                  Target="[System64Folder]msiexec.exe"
+                  Arguments="/x [ProductCode]"
+                  Description="Uninstall Fusion" />
+        <RemoveFolder Id="CleanUpStartMenu"
+                      Directory="ApplicationProgramsFolder"
+                      On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\QuantumSecure\Fusion"
+                       Name="StartMenuInstalled"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- ================================================================ -->
+    <!-- UI (Minimal)                                                     -->
+    <!-- ================================================================ -->
+    <UIRef Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <!-- ================================================================ -->
+    <!-- Summary Information                                              -->
+    <!-- ================================================================ -->
+    <SummaryInformation Description="Fusion v2.0 Vortex Programming Language Installer"
+                         Manufacturer="QuantumSecure Technologies Inc"
+                         Keywords="Fusion, programming language, post-quantum" />
+
+  </Product>
+</Wix>

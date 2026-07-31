@@ -1,113 +1,57 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// Top-level Fusion.toml configuration
-#[derive(Debug, Deserialize, Default)]
-pub struct FusionConfig {
-    pub package: Option<PackageConfig>,
-    pub build: Option<BuildConfig>,
-    pub runtime: Option<RuntimeConfig>,
-    pub ai: Option<AiConfig>,
-    pub quantum: Option<QuantumConfig>,
-    pub deploy: Option<DeployConfig>,
-    pub sentinel: Option<SentinelConfig>,
-    pub test: Option<TestConfig>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct PackageConfig {
-    pub name: Option<String>,
-    pub version: Option<String>,
-    #[serde(rename = "type")]
-    pub pkg_type: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct BuildConfig {
-    pub optimization_level: Option<u8>,
-    pub debug_info: Option<bool>,
-    pub incremental: Option<bool>,
-    pub lto: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct RuntimeConfig {
-    pub profile: Option<String>,
-    pub target: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct AiConfig {
-    pub provider: Option<String>,
-    pub default_device: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct QuantumConfig {
-    pub default_backend: Option<String>,
-    pub max_qubits: Option<u32>,
-    pub shots: Option<u32>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct DeployConfig {
-    pub target: Option<String>,
-    pub registry: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct SentinelConfig {
-    pub enabled: Option<bool>,
-    pub mode: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct TestConfig {
-    pub parallel: Option<bool>,
-    pub timeout: Option<String>,
-}
+/// Represents the Fusion.toml configuration file.
+pub struct FusionConfig;
 
 impl FusionConfig {
-    /// Load config from the current directory or ancestors
-    pub fn load() -> Result<Self> {
-        let path = Self::find_config_file()?;
-        Self::load_from(&path)
-    }
-
-    /// Load config from a specific path
-    pub fn load_from(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read {}", path.display()))?;
-        let config: FusionConfig = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse {}", path.display()))?;
-        Ok(config)
-    }
-
-    /// Find Fusion.toml by walking up from cwd
+    /// Find the Fusion.toml config file by walking up from the current directory.
     pub fn find_config_file() -> Result<PathBuf> {
-        let mut dir = std::env::current_dir().context("Failed to get current directory")?;
-        loop {
-            let candidate = dir.join("Fusion.toml");
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-            if !dir.pop() {
-                break;
+        let current = std::env::current_dir().context("Failed to get current directory")?;
+        Self::find_config_in(&current)
+    }
+
+    /// Find Fusion.toml starting from the given directory and walking up.
+    fn find_config_in(dir: &Path) -> Result<PathBuf> {
+        let candidates = ["Fusion.toml", "fusion.toml"];
+        for name in &candidates {
+            let path = dir.join(name);
+            if path.exists() {
+                return Ok(path);
             }
         }
-        anyhow::bail!(
-            "No Fusion.toml found. Run `fusion init` to create a new project, \
-             or run this command inside a Fusion project directory."
-        )
+
+        if let Some(parent) = dir.parent() {
+            Self::find_config_in(parent)
+        } else {
+            anyhow::bail!(
+                "No Fusion.toml found. Run `fusion init` to create a new project."
+            )
+        }
     }
 
-    /// Get the project root directory (parent of Fusion.toml)
+    /// Convenience: load from the project's Fusion.toml.
+    pub fn load() -> Result<toml::Value> {
+        let path = Self::find_config_file()?;
+        Self::load_from(path)
+    }
+
+    /// Load and parse the Fusion.toml at the given path.
+    pub fn load_from(path: impl AsRef<Path>) -> Result<toml::Value> {
+        let path = path.as_ref();
+        let content =
+            std::fs::read_to_string(path).with_context(|| format!("Failed to read {}", path.display()))?;
+        let value: toml::Value =
+            toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))?;
+        Ok(value)
+    }
+
+    /// Return the project root directory (parent of Fusion.toml).
     pub fn project_root() -> Result<PathBuf> {
-        let config_path = Self::find_config_file()?;
-        Ok(config_path
+        let config = Self::find_config_file()?;
+        config
             .parent()
-            .context("Invalid config path")?
-            .to_path_buf())
+            .map(|p| p.to_path_buf())
+            .context("Invalid config path")
     }
 }

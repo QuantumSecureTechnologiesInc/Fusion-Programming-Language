@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+
+# Fusion v2.0 Vortex — Debian post-remove script
+# Only runs on full removal (not on upgrade)
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # Clean up any remaining config
+    rm -rf /etc/fusion 2>/dev/null || true
+fi

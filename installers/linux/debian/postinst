@@ -1,5 +1,28 @@
 #!/bin/bash
 set -e
-# Add Fusion to PATH
-echo '/opt/fusion/bin' > /etc/profile.d/fusion.sh
-chmod +x /etc/profile.d/fusion.sh
+
+# Fusion v2.0 Vortex — Debian post-install script
+
+# Add Fusion to system PATH via profile.d
+cat > /etc/profile.d/fusion.sh << 'PROFILE'
+# Fusion v2.0 Vortex
+if [ -d /opt/fusion/bin ]; then
+    export PATH="/opt/fusion/bin:$PATH"
+fi
+PROFILE
+chmod 644 /etc/profile.d/fusion.sh
+
+# Create symlinks in /usr/local/bin for immediate availability
+if [ -d /opt/fusion/bin ]; then
+    ln -sf /opt/fusion/bin/fuc /usr/local/bin/fuc
+    ln -sf /opt/fusion/bin/fusion /usr/local/bin/fusion
+fi
+
+# Register .fu file association with alternatives (if update-alternatives available)
+if command -v update-alternatives >/dev/null 2>&1; then
+    update-alternatives --install /usr/bin/fusion-editor fusion-editor /opt/fusion/bin/fuc 100 \
+        --slave /usr/bin/fusion fusion /opt/fusion/bin/fusion
+fi
+
+echo "Fusion v2.0 Vortex installed to /opt/fusion/"
+echo "Run 'fusion --version' or 'fuc --help' to get started."

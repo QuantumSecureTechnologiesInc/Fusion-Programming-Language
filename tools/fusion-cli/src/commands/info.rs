@@ -5,31 +5,38 @@ use crate::config::FusionConfig;
 
 pub async fn run(json: bool) -> Result<()> {
     let root = FusionConfig::project_root()?;
-    let config = FusionConfig::load().unwrap_or_default();
+    let config = FusionConfig::load().unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
 
-    let pkg_name = config.package.as_ref()
-        .and_then(|p| p.name.as_deref())
+    let pkg_name = config.get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    let pkg_version = config.package.as_ref()
-        .and_then(|p| p.version.as_deref())
+    let pkg_version = config.get("package")
+        .and_then(|p| p.get("version"))
+        .and_then(|v| v.as_str())
         .unwrap_or("0.0.0");
-    let pkg_type = config.package.as_ref()
-        .and_then(|p| p.pkg_type.as_deref())
+    let pkg_type = config.get("package")
+        .and_then(|p| p.get("type"))
+        .and_then(|v| v.as_str())
         .unwrap_or("application");
 
-    let build_opt = config.build.as_ref()
-        .and_then(|b| b.optimization_level)
+    let build_opt = config.get("build")
+        .and_then(|b| b.get("optimization_level"))
+        .and_then(|v| v.as_integer())
         .unwrap_or(2);
-    let build_lto = config.build.as_ref()
-        .and_then(|b| b.lto)
+    let build_lto = config.get("build")
+        .and_then(|b| b.get("lto"))
+        .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let runtime_target = config.runtime.as_ref()
-        .and_then(|r| r.target.as_deref())
+    let runtime_target = config.get("runtime")
+        .and_then(|r| r.get("target"))
+        .and_then(|v| v.as_str())
         .unwrap_or("native");
 
-    let test_parallel = config.test.as_ref()
-        .and_then(|t| t.parallel)
+    let test_parallel = config.get("test")
+        .and_then(|t| t.get("parallel"))
+        .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
     if json {

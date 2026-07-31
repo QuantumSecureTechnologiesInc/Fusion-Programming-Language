@@ -196,11 +196,12 @@ pub async fn run(file: Option<&str>, lang: Option<&str>, polyglot: bool, verbose
             "fusion" | "fu" => return run_fusion(&file, verbose),
             "c" | "cpp" | "cxx" => {
                 // Compile and run C/C++
-                let ext = Path::new(&file).extension().and_then(|e| e.to_str()).unwrap_or("c");
+                let file_clone = file.clone();
+                let ext = Path::new(&file_clone).extension().and_then(|e| e.to_str()).unwrap_or("c");
                 let compiler = if ext == "c" { "gcc" } else { "g++" };
                 let out_name = "fusion_c_temp";
                 let compile_status = Command::new(compiler)
-                    .arg(file)
+                    .arg(&file_clone)
                     .arg("-o")
                     .arg(out_name)
                     .stdin(std::process::Stdio::inherit())
