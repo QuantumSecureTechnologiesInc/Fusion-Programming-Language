@@ -14,7 +14,7 @@
 
 class FusionLang < Formula
   desc "Modern, polyglot systems programming language with post-quantum cryptography"
-  homepage "https://fusion-lang.org"
+  homepage "https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language"
   url "https://github.com/QuantumSecureTechnologiesInc/Fusion-Programming-Language/releases/download/v2.0.0/fusion-lang-2.0.0.tar.gz"
   sha256 "2b5fda4f40d7104de1a934775eabb4396a024e7bd40f9765a568d180d2035899"
   license "MIT"
