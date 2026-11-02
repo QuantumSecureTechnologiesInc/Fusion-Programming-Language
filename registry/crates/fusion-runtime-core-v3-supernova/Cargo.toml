@@ -33,7 +33,7 @@ thiserror = "1.0"
 anyhow = "1.0"
 
 # WASM engine (production)
-wasmtime = { version = "24.0", optional = true, features = ["async", "cranelift"] }
+wasmtime = { version = "50.0", optional = true, features = ["async", "cranelift"] }
 
 # Distributed runtime
 tonic = { version = "0.10", optional = true, features = ["transport"] }
