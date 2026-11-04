@@ -19,7 +19,7 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Check for policy violations
               run: |
@@ -63,25 +63,25 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@stable
 
             - name: Cache cargo registry
-              uses: actions/cache@v4
+              uses: actions/cache@v6
               with:
                   path: ~/.cargo/registry
                   key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
             - name: Cache cargo index
-              uses: actions/cache@v4
+              uses: actions/cache@v6
               with:
                   path: ~/.cargo/git
                   key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
             - name: Cache Flux build
-              uses: actions/cache@v4
+              uses: actions/cache@v6
               with:
                   path: runtime/target
                   key: ${{ runner.os }}-flux-${{ hashFiles('runtime/Cargo.lock') }}
@@ -104,7 +104,7 @@ jobs:
                   fi
 
             - name: Upload Flux artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: fusion-flux-${{ matrix.os }}
                   path: |
@@ -118,10 +118,10 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Download Flux Engine
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: fusion-flux-ubuntu-latest
                   path: runtime/target/release/
