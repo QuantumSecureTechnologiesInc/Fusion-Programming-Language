@@ -72,7 +72,7 @@ jobs:
       matrix:
         arch: [x64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -95,7 +95,7 @@ jobs:
           Compress-Archive -Path target/release/fuc.exe,target/release/fusion.exe -DestinationPath "Fusion-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.zip"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-${{ matrix.arch }}
           path: |
@@ -110,7 +110,7 @@ jobs:
     needs: prepare
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -134,7 +134,7 @@ jobs:
             -o "Fusion-v${{ needs.prepare.outputs.version }}-x64.msi"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-msi
           path: Fusion-v${{ needs.prepare.outputs.version }}-x64.msi
@@ -177,7 +177,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build compiler
         run: cargo build --release --path crates/fuc
@@ -217,7 +217,7 @@ jobs:
           rpmbuild -ba --define "_topdir $(pwd)/rpmbuild" rpmbuild/SPECS/fusion-lang.spec
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.distro }}
           path: |
@@ -240,7 +240,7 @@ jobs:
           - arch: arm64
             target: aarch64-apple-darwin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -275,7 +275,7 @@ jobs:
             "Fusion-v${{ needs.prepare.outputs.version }}-${{ matrix.arch }}.pkg"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
           path: |
@@ -291,13 +291,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Download x64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos-x64
           path: staging
 
       - name: Download arm64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos-arm64
           path: staging
@@ -316,7 +316,7 @@ jobs:
             "Fusion-v${{ needs.prepare.outputs.version }}-macos-universal.dmg"
 
       - name: Upload DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-dmg
           path: Fusion-v${{ needs.prepare.outputs.version }}-macos-universal.dmg
@@ -329,7 +329,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -339,7 +339,7 @@ jobs:
             -o "fusion-lang-${{ needs.prepare.outputs.version }}.tar.gz" HEAD
 
       - name: Upload source tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: source
           path: fusion-lang-${{ needs.prepare.outputs.version }}.tar.gz
@@ -354,7 +354,7 @@ jobs:
     if: ${{ github.event.inputs.dry_run != 'true' }}
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
@@ -363,7 +363,7 @@ jobs:
         run: find release-assets -type f | head -50
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: "Fusion v${{ needs.prepare.outputs.version }} Vortex"
@@ -419,7 +419,7 @@ jobs:
     runs-on: windows-latest
     if: ${{ github.event.inputs.dry_run != 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Update winget manifest SHA256
         run: |
